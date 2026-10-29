@@ -258,6 +258,14 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
 
     // sunnypilot model params
     {"CameraOffset", {PERSISTENT | BACKUP, FLOAT, "0.0"}},
+
+    // FM Pilot: dual model selector
+    {"FM_CurveSpeedSource", {PERSISTENT | BACKUP, INT, "0"}},
+    {"FM_DualModelEnabled", {PERSISTENT | BACKUP, BOOL, "0"}},
+    {"FM_LateralModelRef", {PERSISTENT | BACKUP, STRING}},
+    {"FM_LongModelRef", {PERSISTENT | BACKUP, STRING}},
+    {"FM_ShowModelLabel", {PERSISTENT | BACKUP, BOOL, "0"}},
+
     {"LagdToggle", {PERSISTENT | BACKUP, BOOL, "1"}},
     {"LagdToggleDelay", {PERSISTENT | BACKUP, FLOAT, "0.2"}},
     {"LagdValueCache", {PERSISTENT, FLOAT, "0.2"}},

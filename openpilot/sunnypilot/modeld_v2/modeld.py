@@ -45,6 +45,8 @@ from openpilot.sunnypilot.modeld_v2.modeld_base import ModelStateBase
 from openpilot.sunnypilot.modeld_v2.helpers import load_oob
 from openpilot.sunnypilot.modeld_v2.model_adapters import get_model_adapter
 from openpilot.sunnypilot.models.helpers import get_active_bundle
+from openpilot.sunnypilot.models.fetcher import get_cached_bundles
+from openpilot.sunnypilot.modeld_v2 import fm_dual_model as fm_dual
 from openpilot.sunnypilot.selfdrive.controls.lib.relc import RoadEdgeLaneChangeController
 
 PROCESS_NAME = "openpilot.selfdrive.modeld.modeld_tinygrad"
@@ -85,14 +87,17 @@ class ModelState(ModelStateBase):
   inputs: dict[str, np.ndarray]
   prev_desire: np.ndarray
 
-  def __init__(self, cam_w: int, cam_h: int, chestnut: bool = False):
+  def __init__(self, cam_w: int, cam_h: int, chestnut: bool = False, bundle=None):
     ModelStateBase.__init__(self)
 
     env_pkl = os.environ.get('COMBINED_MODEL_PKL')
-    if env_pkl and os.path.exists(env_pkl):
+    if bundle is not None:  # FM Pilot: a specific bundle for a dual model slot
+      model_bundle = bundle
+    elif env_pkl and os.path.exists(env_pkl):
       model_bundle = None
     else:
       model_bundle = get_active_bundle(chestnut=chestnut)
+    self.bundle = model_bundle
     self.generation = model_bundle.generation if model_bundle is not None else None
     overrides = {override.key: override.value for override in model_bundle.overrides} if model_bundle else {}
 
@@ -138,11 +143,12 @@ class ModelState(ModelStateBase):
     self.parser = Parser()
     self.prev_desire = np.zeros(self.constants.DESIRE_LEN, dtype=np.float32)
 
-  def warmup(self) -> None:
+  def warmup(self) -> dict[str, np.ndarray] | None:
     dummy_frames, transforms, dummy_inputs = self.adapter.get_dummy_inputs()
-    self.run(dummy_frames, transforms, dummy_inputs)
+    outputs = self.run(dummy_frames, transforms, dummy_inputs)
     self.adapter.reset_warmup_buffers()
     self.prev_desire[:] = 0
+    return outputs
 
   @property
   def mlsim(self) -> bool:
@@ -249,6 +255,78 @@ class ModelState(ModelStateBase):
     return log.ModelDataV2.Action(desiredCurvature=float(desired_curvature), desiredAcceleration=float(desired_accel), shouldStop=bool(stop))
 
 
+def build_model_inputs(m: ModelState, desire: int, traffic_convention: np.ndarray, v_ego: float, lat_delay: float,
+                       lat_action_t: float, long_action_t: float) -> dict[str, np.ndarray]:
+  vec_desire = np.zeros(m.constants.DESIRE_LEN, dtype=np.float32)
+  if desire >= 0 and desire < m.constants.DESIRE_LEN:
+    vec_desire[desire] = 1
+
+  inputs: dict[str, np.ndarray] = {
+    m.desire_key: vec_desire,
+    'traffic_convention': traffic_convention,
+  }
+  if 'lateral_control_params' in m.numpy_inputs:
+    inputs['lateral_control_params'] = np.array([v_ego, lat_delay], dtype=np.float32)
+  if 'action_t' in m.numpy_inputs:
+    inputs['action_t'] = np.array([lat_action_t, long_action_t], dtype=np.float32)
+  return inputs
+
+
+def setup_dual_models(params: Params, model: ModelState, cam_w: int, cam_h: int,
+                      status: fm_dual.DualModelStatus) -> tuple[ModelState, ModelState | None]:
+  """FM Pilot. Returns (primary model, longitudinal model). The longitudinal model is None unless dual mode runs;
+  the primary model is the lateral slot's model in dual mode, otherwise the model to run alone."""
+  selected = model.bundle
+  status.lat_name = status.long_name = selected.displayName if selected is not None else ""
+  status.requested = params.get_bool(fm_dual.PARAM_ENABLED)
+  if not status.requested:
+    return model, None
+  if model.chestnut:
+    status.fall_back("big model active")
+    return model, None
+
+  try:
+    lat_bundle, long_bundle = fm_dual.resolve_slot_bundles(params, selected, get_cached_bundles(params, "qcom"))
+    status.lat_name = lat_bundle.displayName if lat_bundle is not None else status.lat_name
+    status.long_name = long_bundle.displayName if long_bundle is not None else status.long_name
+
+    def load(bundle):
+      if bundle is None or fm_dual._bundle_ref(bundle) == fm_dual._bundle_ref(selected):
+        return model
+      return ModelState(cam_w=cam_w, cam_h=cam_h, chestnut=False, bundle=bundle)
+
+    lat_model = load(lat_bundle)
+    if fm_dual._bundle_ref(lat_bundle) == fm_dual._bundle_ref(long_bundle):
+      cloudlog.warning(f"fm dual model: both slots are {status.lat_name}, running it alone")
+      return lat_model, None
+    long_model = load(long_bundle)
+
+    lat_output, long_output = lat_model.warmup(), long_model.warmup()
+    reason = fm_dual.check_compatible(lat_output, long_output) if lat_output and long_output else "no warmup output"
+    if reason is None and type(lat_model.constants) is not type(long_model.constants):
+      reason = "different run rate"
+    if reason is None:
+      st = time.perf_counter()
+      lat_model.warmup()
+      long_model.warmup()
+      pair_time = time.perf_counter() - st
+      if pair_time > fm_dual.MAX_DUAL_EXECUTION_TIME:
+        reason = f"too slow ({pair_time * 1000:.0f} ms)"
+  except Exception:
+    cloudlog.exception("fm dual model: load failed")
+    reason, lat_model, long_model = "load failed", model, None
+
+  if reason is not None:
+    cloudlog.warning(f"fm dual model: falling back to the selected model: {reason}")
+    status.lat_name = status.long_name = selected.displayName if selected is not None else ""
+    status.fall_back(reason)
+    return model, None
+
+  cloudlog.warning(f"fm dual model: lateral {status.lat_name}, longitudinal {status.long_name}")
+  status.active = True
+  return lat_model, long_model
+
+
 def main(demo=False):
   cloudlog.warning("modeld init")
 
@@ -312,6 +390,13 @@ def main(demo=False):
     model = small_model
   params.put_bool("ChestnutLoading", False)
   assert model is not None
+
+  # FM Pilot: dual model mode, the lateral model becomes `model` and the longitudinal model runs beside it
+  dual_status = fm_dual.DualModelStatus()
+  model, long_model = setup_dual_models(params, model, vipc_client_main.width, vipc_client_main.height, dual_status)
+  if not CHESTNUT:
+    small_model = model
+  curve_source = fm_dual.CURVE_SOURCE_LATERAL
   cloudlog.warning(f"models loaded in {time.monotonic() - st:.1f}s, modeld starting")
 
   # messaging
@@ -344,7 +429,7 @@ def main(demo=False):
   cloudlog.info("modeld got CarParams: %s", CP.brand)
 
   # TODO Move smooth seconds to action function
-  long_delay = CP.longitudinalActuatorDelay + model.LONG_SMOOTH_SECONDS
+  long_delay = CP.longitudinalActuatorDelay + (long_model or model).LONG_SMOOTH_SECONDS
   prev_action = log.ModelDataV2.Action()
 
   DH = DesireHelper()
@@ -393,6 +478,9 @@ def main(demo=False):
       model.lat_delay = get_lat_delay(params, sm["lateralDelay"].lateralDelay)
       model.PLANPLUS_CONTROL = params.get("PlanplusControl", return_default=True)
       camera_offset_helper.set_offset(params.get("CameraOffset", return_default=True))
+      if long_model is not None:
+        long_model.lat_delay = model.lat_delay
+        curve_source = params.get(fm_dual.PARAM_CURVE_SOURCE, return_default=True) or fm_dual.CURVE_SOURCE_LATERAL
     lat_delay = model.lat_delay + model.LAT_SMOOTH_SECONDS
     if sm.updated["extrinsicsCalibration"] and sm.seen['narrowRoadCameraState'] and sm.seen['deviceState']:
       device_from_calib_euler = np.array(sm["extrinsicsCalibration"].rpyCalib, dtype=np.float32)
@@ -405,10 +493,6 @@ def main(demo=False):
 
     traffic_convention = np.zeros(2)
     traffic_convention[int(is_rhd)] = 1
-
-    vec_desire = np.zeros(model.constants.DESIRE_LEN, dtype=np.float32)
-    if desire >= 0 and desire < model.constants.DESIRE_LEN:
-      vec_desire[desire] = 1
 
     # tracked dropped frames
     vipc_dropped_frames = max(0, meta_main.frame_id - last_vipc_frame_id - 1)
@@ -428,22 +512,19 @@ def main(demo=False):
     lat_action_t = lat_delay + frame_delay + action_delay
     long_action_t = long_delay + frame_delay + action_delay
 
-    inputs:dict[str, np.ndarray] = {
-      model.desire_key: vec_desire,
-      'traffic_convention': traffic_convention,
-    }
-
-    if 'lateral_control_params' in model.numpy_inputs:
-      inputs['lateral_control_params'] = np.array([v_ego, lat_delay], dtype=np.float32)
-
-    if 'action_t' in model.numpy_inputs:
-      inputs['action_t'] = np.array([lat_action_t, long_action_t], dtype=np.float32)
+    inputs = build_model_inputs(model, desire, traffic_convention, v_ego, lat_delay, lat_action_t, long_action_t)
 
     mt1 = time.perf_counter()
+    long_output = None
     try:
       send_chestnut = (chestnut_state is not None and
                        run_count % round(model.constants.MODEL_FREQ / SERVICE_LIST['chestnutGpuState'].frequency) == 0)
       model_output = model.run(bufs, transforms, inputs, chestnut_state.send if send_chestnut else None)
+      if long_model is not None:
+        long_bufs = {name: buf_extra if 'big' in name else buf_main for name in long_model.vision_input_names}
+        long_transforms = {name: model_transform_extra if 'big' in name else model_transform_main for name in long_model.vision_input_names}
+        long_inputs = build_model_inputs(long_model, desire, traffic_convention, v_ego, lat_delay, lat_action_t, long_action_t)
+        long_output = long_model.run(long_bufs, long_transforms, long_inputs)
     except Exception:
       if not params.get_bool("ChestnutActive"):
         raise
@@ -457,6 +538,12 @@ def main(demo=False):
       model_output = None
     mt2 = time.perf_counter()
     model_execution_time = mt2 - mt1
+    if dual_status.update(model_execution_time):
+      cloudlog.warning("fm dual model: over the time budget, continuing with the lateral model alone")
+      dual_status.fall_back("too slow")
+      dual_status.long_name = dual_status.lat_name
+      long_model, long_output = None, None
+      long_delay = CP.longitudinalActuatorDelay + model.LONG_SMOOTH_SECONDS
 
     if model_output is not None:
       modelv2_send = messaging.new_message('modelV2')
@@ -464,7 +551,14 @@ def main(demo=False):
       posenet_send = messaging.new_message('cameraOdometry')
       mdv2sp_send = messaging.new_message('modelDataV2SP')
 
-      action = model.get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego)
+      if long_output is not None:
+        lat_action = model.get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego)
+        long_action = long_model.get_action_from_model(long_output, prev_action, lat_action_t, long_action_t, v_ego)
+        action = fm_dual.merge_actions(lat_action, long_action)
+        fm_dual.feed_back_curvature(long_model, model_output)
+        model_output = fm_dual.merge_outputs(model_output, long_output, curve_source)
+      else:
+        action = model.get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego)
       prev_action = action
       fill_model_msg(drivingdata_send, modelv2_send, model_output, action,
                      publish_state, meta_main.frame_id, meta_extra.frame_id, frame_id,
@@ -481,6 +575,7 @@ def main(demo=False):
       modelv2_send.modelV2.meta.laneChangeDirection = DH.lane_change_direction
       mdv2sp_send.valid = modelv2_send.valid
       mdv2sp_send.modelDataV2SP.laneTurnDirection = DH.lane_turn_direction
+      dual_status.fill(mdv2sp_send.modelDataV2SP)
       drivingdata_send.drivingModelData.meta.laneChangeState = DH.lane_change_state
       drivingdata_send.drivingModelData.meta.laneChangeDirection = DH.lane_change_direction
 
