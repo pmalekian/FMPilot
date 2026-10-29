@@ -10,6 +10,7 @@ from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.system.ui.widgets import Widget
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.cereal import log
+from openpilot.sunnypilot.modeld_v2.fm_dual_model import short_name
 
 EventName = log.OnroadEvent.EventName
 
@@ -187,7 +188,22 @@ class HudRenderer(Widget):
 
     self._draw_model_source(rect)
 
+    self._draw_fm_model_label(rect)
+
     self._draw_steering_wheel(rect)
+
+  def _draw_fm_model_label(self, rect: rl.Rectangle) -> None:
+    """FM Pilot: one small centered line naming the steering (L) and gas/brake (G) models. Hidden behind alerts."""
+    if not getattr(ui_state, 'fm_show_model_label', False) or ui_state.sm['selfdriveState'].alertSize != 0:
+      return
+    mdv2sp = ui_state.sm['modelDataV2SP']
+    lat, long = short_name(mdv2sp.fmLateralModelName), short_name(mdv2sp.fmLongModelName)
+    if not lat:
+      return
+    text = f"L: {lat} · G: {long}" if mdv2sp.fmDualModelActive else lat
+    size = measure_text_cached(self._font_semi_bold, text, FONT_SIZES.max_speed)
+    pos = rl.Vector2(rect.x + rect.width / 2 - size.x / 2, rect.y + 16)
+    rl.draw_text_ex(self._font_semi_bold, text, pos, FONT_SIZES.max_speed, 0, COLORS.WHITE_TRANSLUCENT)
 
   def _draw_model_source(self, rect: rl.Rectangle) -> None:
     if ui_state.sm.recv_frame['selfdriveState'] < ui_state.started_frame:

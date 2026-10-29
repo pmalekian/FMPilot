@@ -373,6 +373,10 @@ class SelfdriveD(CruiseHelper):
                                                     LaneChangeState.laneChangeFinishing):
       self.events.add(EventName.laneChange)
 
+    # FM Pilot: dual model mode was requested but could not run, a quiet notice for a few seconds
+    if self.sm['modelDataV2SP'].fmDualModelFallback:
+      self.events_sp.add(custom.OnroadEventSP.EventName.fmDualModelFallback)
+
     # Handle lane turn
     lane_turn_direction = self.sm['modelDataV2SP'].laneTurnDirection
     if lane_turn_direction == TurnDirection.turnLeft:
