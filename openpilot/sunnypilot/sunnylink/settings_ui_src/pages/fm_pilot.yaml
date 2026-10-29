@@ -21,7 +21,8 @@ sections:
   - key: FM_ShowModelLabel
     widget: toggle
     title: Show Active Models on Screen
-    description: A small line under the speed showing which models are steering (L) and handling gas and brakes (G).
+    description: A small line showing which models are steering (L) and handling gas and brakes (G). Under the speed on
+      a comma 3X, top center on a comma 4.
   sub_panels:
   - id: dual_model_settings
     label: Dual Model Settings
