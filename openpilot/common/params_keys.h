@@ -266,6 +266,14 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"FM_LongModelRef", {PERSISTENT | BACKUP, STRING}},
     {"FM_ShowModelLabel", {PERSISTENT | BACKUP, BOOL, "0"}},
 
+    // FM Pilot: lateral and lane change additions
+    {"FM_QuietRoadEdgeBlock", {PERSISTENT | BACKUP, BOOL, "0"}},
+    {"FM_RoadEdgeTurnDesire", {PERSISTENT | BACKUP, BOOL, "0"}},
+    {"FM_RoadEdgeTurnMaxSpeed", {PERSISTENT | BACKUP, FLOAT, "45.0"}},
+    {"LaneGuardEnabled", {PERSISTENT | BACKUP, BOOL, "0"}},
+    {"RivianOfftrackCompensationEnabled", {PERSISTENT | BACKUP, BOOL, "0"}},
+    {"RivianOfftrackCompensationGain", {PERSISTENT | BACKUP, FLOAT, "0.5"}},
+
     {"LagdToggle", {PERSISTENT | BACKUP, BOOL, "1"}},
     {"LagdToggleDelay", {PERSISTENT | BACKUP, FLOAT, "0.2"}},
     {"LagdValueCache", {PERSISTENT, FLOAT, "0.2"}},

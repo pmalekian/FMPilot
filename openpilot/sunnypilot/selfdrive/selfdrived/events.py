@@ -265,6 +265,14 @@ EVENTS_SP: dict[int, dict[str, Alert | AlertCallbackType]] = {
       Priority.LOW, VisualAlert.none, AudibleAlert.prompt, 2.),
   },
 
+  EventNameSP.fmLaneChangeRoadEdgeQuiet: {
+    ET.WARNING: Alert(
+      "Lane Change Unavailable: Road Edge",
+      "",
+      AlertStatus.normal, AlertSize.small,
+      Priority.LOW, VisualAlert.none, AudibleAlert.none, 0.1),
+  },
+
   EventNameSP.fmDualModelFallback: {
     ET.PERMANENT: Alert(
       "Dual Model Unavailable",

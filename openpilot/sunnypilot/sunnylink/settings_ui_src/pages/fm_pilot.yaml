@@ -59,3 +59,79 @@ sections:
         label: Steering model
       - value: 1
         label: Gas and brake model
+- id: lane_change_and_turns
+  title: Lane Changes and Turns
+  description: Road-edge behavior and turn desires
+  items:
+  - key: RoadEdgeLaneChangeEnabled
+    widget: toggle
+    title: 'Block Lane Change: Road Edge Detection'
+    description: AP's existing setting. Blocks the lane change if the model sees a road edge on your signaled side. Needed
+      for the two settings below.
+  - key: FM_QuietRoadEdgeBlock
+    widget: toggle
+    title: Quiet Road Edge Block
+    description: Show a small gray message with no sound when a lane change is blocked by a road edge, instead of the orange
+      alert and beep.
+    enablement:
+    - type: param
+      key: RoadEdgeLaneChangeEnabled
+      equals: true
+  - key: FM_RoadEdgeTurnDesire
+    widget: toggle
+    title: Road Edge Turn Desire
+    description: Signaling toward a detected road edge plans a turn instead of rejecting the lane change. With this on, every
+      turn (including AP's Lane Turn Desire under 20 mph) waits for a nudge toward the blinker, then holds until the blinker
+      is cancelled. Off keeps stock behavior.
+    enablement:
+    - type: param
+      key: RoadEdgeLaneChangeEnabled
+      equals: true
+    sub_items:
+    - key: FM_RoadEdgeTurnMaxSpeed
+      widget: option
+      title: Road Edge Turn Max Speed
+      description: Highest speed at which signaling toward a road edge plans a turn.
+      min: 20
+      max: 45
+      step: 1
+      unit: mph
+      enablement:
+      - type: param
+        key: FM_RoadEdgeTurnDesire
+        equals: true
+- id: lane_keeping
+  title: Lane Keeping
+  description: Extra steering corrections from gerrylum's rx-wb
+  items:
+  - key: LaneGuardEnabled
+    widget: toggle
+    title: Lane Guard
+    description: A gentle steering correction on top of the driving model that keeps the body clear of lane lines and road
+      edges. It does nothing while the planned path stays clear, and pauses while you steer or signal. Can't be on together
+      with Lane Centering.
+    enablement:
+    - type: param
+      key: LaneCenteringEnabled
+      equals: false
+  - key: RivianOfftrackCompensationEnabled
+    widget: toggle
+    title: Rear-Axle Off-Tracking Compensation
+    description: Widens tight turns so the rear wheels, which cut inside the front's path, are less likely to clip a curb. A
+      geometric estimate, not curb sensing. Makes turns wider, so leave it off if turns already run wide.
+    visibility:
+    - type: capability
+      field: brand
+      equals: rivian
+    sub_items:
+    - key: RivianOfftrackCompensationGain
+      widget: option
+      title: Compensation Gain
+      description: 0 = off, 1 = full geometric compensation.
+      min: 0.0
+      max: 1.0
+      step: 0.05
+      enablement:
+      - type: param
+        key: RivianOfftrackCompensationEnabled
+        equals: true

@@ -378,6 +378,7 @@ struct OnroadEventSP @0xda96579883444c35 {
     bigModelReady @25;
     belowMadsMinEngageSpeed @26;
     fmDualModelFallback @27;
+    fmLaneChangeRoadEdgeQuiet @28;
   }
 }
 

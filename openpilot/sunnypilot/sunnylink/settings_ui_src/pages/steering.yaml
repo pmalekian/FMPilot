@@ -92,6 +92,10 @@ sections:
   - key: LaneCenteringEnabled
     widget: toggle
     title: Lane Centering
+    enablement:
+    - type: param
+      key: LaneGuardEnabled
+      equals: false
     description: Keep the car in the middle of the painted lane instead of wherever the driving model chooses to sit. Only
       acts when both lane lines are clearly visible (unless One-Line Mode is on), and steps aside for lane changes and turn
       signals.

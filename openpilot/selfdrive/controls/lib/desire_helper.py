@@ -3,6 +3,7 @@ from openpilot.common.constants import CV
 from openpilot.common.realtime import DT_MDL
 from openpilot.sunnypilot.selfdrive.controls.lib.auto_lane_change import AutoLaneChangeController, AutoLaneChangeMode
 from openpilot.sunnypilot.selfdrive.controls.lib.lane_turn_desire import LaneTurnController
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_desire import FmTurnDesire
 
 LaneChangeState = log.LaneChangeState
 LaneChangeDirection = log.LaneChangeDirection
@@ -28,6 +29,7 @@ class DesireHelper:
     self.alc = AutoLaneChangeController(self)
     self.lane_turn_controller = LaneTurnController(self)
     self.lane_turn_direction = TurnDirection.none
+    self.fm_turn = FmTurnDesire()  # FM Pilot: road-edge turn desire and the nudge rule for turns
 
   @staticmethod
   def get_lane_change_direction(CS):
@@ -45,7 +47,17 @@ class DesireHelper:
                                                left_blinker=carstate.leftBlinker, right_blinker=carstate.rightBlinker, v_ego=v_ego)
     self.lane_turn_direction = self.lane_turn_controller.get_turn_direction()
 
-    if not lateral_active or self.lane_change_timer > LANE_CHANGE_TIME_MAX or self.alc.lane_change_set_timer == AutoLaneChangeMode.OFF:
+    # FM Pilot: with road-edge turn desires on, turns are armed by the blinker, started by a nudge and held until the
+    # blinker is cancelled; an armed or active turn takes the place of a lane change
+    self.fm_turn.update(carstate, lateral_active, self.lane_turn_direction, left_edge_detected, right_edge_detected,
+                        self.alc.lane_change_set_timer)
+    fm_turn_armed = False
+    if self.fm_turn.enabled:
+      self.lane_turn_direction = self.fm_turn.turn_direction
+      fm_turn_armed = self.fm_turn.armed
+
+    if fm_turn_armed or not lateral_active or self.lane_change_timer > LANE_CHANGE_TIME_MAX or \
+       self.alc.lane_change_set_timer == AutoLaneChangeMode.OFF:
       self.lane_change_state = LaneChangeState.off
       self.lane_change_direction = LaneChangeDirection.none
       self.lane_change_timer = 0.0

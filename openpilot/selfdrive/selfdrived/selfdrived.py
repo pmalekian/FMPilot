@@ -120,6 +120,7 @@ class SelfdriveD(CruiseHelper):
     self.is_metric = self.params.get_bool("IsMetric")
     self.is_ldw_enabled = self.params.get_bool("IsLdwEnabled")
     self.disengage_on_accelerator = self.params.get_bool("DisengageOnAccelerator")
+    self.fm_quiet_road_edge_block = self.params.get_bool("FM_QuietRoadEdgeBlock")
 
     car_recognized = self.CP.brand != 'mock'
 
@@ -362,7 +363,9 @@ class SelfdriveD(CruiseHelper):
 
       elif (mdv2sp.leftLaneChangeEdgeBlock and direction == LaneChangeDirection.left) or \
            (mdv2sp.rightLaneChangeEdgeBlock and direction == LaneChangeDirection.right):
-        self.events_sp.add(custom.OnroadEventSP.EventName.laneChangeRoadEdge)
+        # FM Pilot: optionally a small gray message with no sound instead of the orange alert and beep
+        self.events_sp.add(custom.OnroadEventSP.EventName.fmLaneChangeRoadEdgeQuiet if self.fm_quiet_road_edge_block
+                           else custom.OnroadEventSP.EventName.laneChangeRoadEdge)
 
       else:
         if direction == LaneChangeDirection.left:
@@ -687,6 +690,7 @@ class SelfdriveD(CruiseHelper):
       self.is_metric = self.params.get_bool("IsMetric")
       self.is_ldw_enabled = self.params.get_bool("IsLdwEnabled")
       self.disengage_on_accelerator = self.params.get_bool("DisengageOnAccelerator")
+      self.fm_quiet_road_edge_block = self.params.get_bool("FM_QuietRoadEdgeBlock")
       self.experimental_mode = self.params.get_bool("ExperimentalMode") and self.CP.openpilotLongitudinalControl
       self.personality = self.params.get("LongitudinalPersonality", return_default=True)
 
