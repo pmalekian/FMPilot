@@ -266,6 +266,8 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"PlanplusControl", {PERSISTENT | BACKUP, FLOAT, "1.0"}},
 
     // FM Pilot: lateral and lane change additions
+    {"FM_CustomModelBaseRef", {PERSISTENT | BACKUP, STRING}},
+    {"FM_CustomModelPath", {PERSISTENT | BACKUP, STRING}},
     {"FM_QuietRoadEdgeBlock", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"FM_RoadEdgeTurnDesire", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"FM_RoadEdgeTurnMaxSpeed", {PERSISTENT | BACKUP, FLOAT, "45.0"}},
