@@ -23,7 +23,8 @@ from openpilot.system.ui.widgets.toggle import ON_COLOR
 
 from openpilot.system.ui.sunnypilot.lib.styles import style
 from openpilot.system.ui.sunnypilot.lib.utils import NoElideButtonAction, ScrollingButtonAction
-from openpilot.system.ui.sunnypilot.widgets.list_view import ListItemSP, toggle_item_sp, option_item_sp
+from openpilot.system.ui.sunnypilot.widgets.list_view import ListItemSP, toggle_item_sp, option_item_sp, multiple_button_item_sp
+from openpilot.sunnypilot.modeld_v2 import fm_dual_model as fm_dual
 from openpilot.system.ui.sunnypilot.widgets.download_status import download_status_item
 from openpilot.system.ui.sunnypilot.widgets.tree_dialog import TreeOptionDialog, TreeNode, TreeFolder
 
@@ -107,7 +108,32 @@ class ModelsLayout(Widget):
                                         1, None, True, "", style.BUTTON_ACTION_WIDTH, None, True,
                                         lambda v: f"{v / 100:.2f} m")
 
+    # FM Pilot: dual model selector, the same settings as on sunnylink's Models page
+    self.fm_dual_toggle = toggle_item_sp(tr("Dual Model Mode"),
+                                         tr("Steer with one driving model and control speed with another. Off runs your selected model " +
+                                            "exactly like stock. Applies on the next drive (Offroad Mode on and off works)."),
+                                         param=fm_dual.PARAM_ENABLED)
+    self.fm_lat_item = ListItemSP(title=tr("Steering (Lateral) Model"),
+                                  description=tr("Lists your downloaded favorite models. Star models in the model browser to add them."),
+                                  action_item=ScrollingButtonAction(tr("SELECT")),
+                                  callback=lambda: self._open_fm_slot_dialog(fm_dual.PARAM_LAT_REF))
+    self.fm_long_item = ListItemSP(title=tr("Gas and Brake (Longitudinal) Model"),
+                                   description=tr("The model that controls speed, following and stops."),
+                                   action_item=ScrollingButtonAction(tr("SELECT")),
+                                   callback=lambda: self._open_fm_slot_dialog(fm_dual.PARAM_LONG_REF))
+    self.fm_curve_item = multiple_button_item_sp(tr("Curve Speed Source"),
+                                                 tr("Which model's view of upcoming curves Curve Speed Control uses."),
+                                                 [tr("Steering"), tr("Gas/Brake")], param=fm_dual.PARAM_CURVE_SOURCE)
+    self.fm_label_toggle = toggle_item_sp(tr("Show Active Models on Screen"),
+                                          tr("A small line under the speed with the active models and the model run time."),
+                                          param=fm_dual.PARAM_SHOW_LABEL)
+    self._fm_slot_param = None
+    self._fm_slot_dialog = None
+    self._fm_options_time = 0.0
+    self._fm_options: list[dict] = []
+
     self.items = [self.small_model_item, self.big_model_item, self.cancel_download_item, self.download_item, self.refresh_item, self.clear_cache_item,
+                  self.fm_dual_toggle, self.fm_lat_item, self.fm_long_item, self.fm_curve_item, self.fm_label_toggle,
                   self.lane_turn_desire_toggle, self.lane_turn_value_control, self.lagd_toggle, self.delay_control, self.camera_offset]
 
   def _update_lagd_description(self, lagd_toggle: bool):
@@ -309,7 +335,44 @@ class ModelsLayout(Widget):
     bundle = get_selected_bundle(ui_state.params, source)
     return bundle.ref if bundle else "Default"
 
+  # FM Pilot: dual model slot picker, a list of "Same as selected model" plus the downloaded favorites
+  _FM_SAME = "__same__"
+
+  def _open_fm_slot_dialog(self, param):
+    self._fm_slot_param = param
+    options = fm_dual.get_slot_options()
+    nodes = [TreeNode(o["value"] or self._FM_SAME, {'display_name': o["label"]}) for o in options]
+    current = ui_state.params.get(param) or self._FM_SAME
+    self._fm_slot_dialog = TreeOptionDialog(tr("Select a Model"), [TreeFolder("", nodes)], current, on_exit=self._on_fm_slot_selected)
+    gui_app.push_widget(self._fm_slot_dialog)
+
+  def _on_fm_slot_selected(self, result):
+    dialog, self._fm_slot_dialog = self._fm_slot_dialog, None
+    if result != DialogResult.CONFIRM or dialog is None or self._fm_slot_param is None:
+      return
+    ref = dialog.selection_ref
+    if ref == self._FM_SAME:
+      ui_state.params.remove(self._fm_slot_param)
+    else:
+      ui_state.params.put(self._fm_slot_param, ref)
+    self._fm_options_time = 0.0
+
+  def _update_fm_dual_items(self):
+    if (now := time.monotonic()) - self._fm_options_time > 2.0:
+      self._fm_options_time = now
+      self._fm_options = fm_dual.get_slot_options()
+    labels = {o["value"]: o["label"] for o in self._fm_options}
+    enabled = ui_state.params.get_bool(fm_dual.PARAM_ENABLED)
+    self.fm_dual_toggle.action_item.set_state(enabled)
+    self.fm_label_toggle.action_item.set_state(ui_state.params.get_bool(fm_dual.PARAM_SHOW_LABEL))
+    for item, param in ((self.fm_lat_item, fm_dual.PARAM_LAT_REF), (self.fm_long_item, fm_dual.PARAM_LONG_REF)):
+      ref = ui_state.params.get(param) or ""
+      item.action_item.set_value(labels.get(ref, ref) or fm_dual.SAME_AS_SELECTED_LABEL)
+      item.action_item.set_enabled(enabled)
+    self.fm_curve_item.action_item.set_enabled(enabled)
+
   def _update_state(self):
+    self._update_fm_dual_items()
     advanced_controls: bool = ui_state.params.get_bool("ShowAdvancedControls")
     turn_desire: bool = ui_state.params.get_bool("LaneTurnDesire")
     live_delay: bool = ui_state.params.get_bool("LagdToggle")
