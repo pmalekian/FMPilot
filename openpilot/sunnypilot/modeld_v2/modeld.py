@@ -165,6 +165,14 @@ class ModelState(ModelStateBase):
   def run(self, bufs: dict[str, VisionBuf], transforms: dict[str, np.ndarray],
           inputs: dict[str, np.ndarray],
           after_enqueue: Callable[[], None] | None = None) -> dict[str, np.ndarray] | None:
+    raw_outputs = self.enqueue(bufs, transforms, inputs)
+    if after_enqueue is not None:
+      after_enqueue()
+    return self.collect(raw_outputs)
+
+  def enqueue(self, bufs: dict[str, VisionBuf], transforms: dict[str, np.ndarray], inputs: dict[str, np.ndarray]):
+    """Prepare inputs and queue the model on the GPU without waiting for it. FM Pilot's dual model mode queues
+    both models before collecting either, so one model's CPU work overlaps the other's GPU work."""
     self.adapter.copy_frames(bufs)
 
     desire_key = self.desire_key
@@ -185,11 +193,10 @@ class ModelState(ModelStateBase):
       self.numpy_inputs['tfm'][:, :] = transforms[self._road_key].reshape(3, 3)
       self.numpy_inputs['big_tfm'][:, :] = transforms[self._wide_key].reshape(3, 3)
 
-    raw_outputs = self.adapter.run()
+    return self.adapter.run()
 
-    if after_enqueue is not None:
-      after_enqueue()
-
+  def collect(self, raw_outputs) -> dict[str, np.ndarray]:
+    """Wait for a queued run and parse its outputs."""
     if self._combined_model_type == 'supercombo':
       model_output = raw_outputs.numpy().flatten()
       if self.chestnut and not np.all(np.isfinite(model_output)):
@@ -312,8 +319,10 @@ def setup_dual_models(params: Params, model: ModelState, cam_w: int, cam_h: int,
         lat_frames, lat_tfm, lat_inputs = lat_model.adapter.get_dummy_inputs()
         long_frames, long_tfm, long_inputs = long_model.adapter.get_dummy_inputs()
         st = time.perf_counter()
-        lat_model.run(lat_frames, lat_tfm, lat_inputs)
-        long_model.run(long_frames, long_tfm, long_inputs)
+        lat_raw = lat_model.enqueue(lat_frames, lat_tfm, lat_inputs)
+        long_raw = long_model.enqueue(long_frames, long_tfm, long_inputs)
+        lat_model.collect(lat_raw)
+        long_model.collect(long_raw)
         pair_times.append(time.perf_counter() - st)
       for m in (lat_model, long_model):
         m.adapter.reset_warmup_buffers()
@@ -529,12 +538,17 @@ def main(demo=False):
     try:
       send_chestnut = (chestnut_state is not None and
                        run_count % round(model.constants.MODEL_FREQ / SERVICE_LIST['chestnutGpuState'].frequency) == 0)
-      model_output = model.run(bufs, transforms, inputs, chestnut_state.send if send_chestnut else None)
-      if long_model is not None:
+      if long_model is None:
+        model_output = model.run(bufs, transforms, inputs, chestnut_state.send if send_chestnut else None)
+      else:
+        # FM Pilot: queue both models on the GPU, then collect both (pipelined)
         long_bufs = {name: buf_extra if 'big' in name else buf_main for name in long_model.vision_input_names}
         long_transforms = {name: model_transform_extra if 'big' in name else model_transform_main for name in long_model.vision_input_names}
         long_inputs = build_model_inputs(long_model, desire, traffic_convention, v_ego, lat_delay, lat_action_t, long_action_t)
-        long_output = long_model.run(long_bufs, long_transforms, long_inputs)
+        lat_raw = model.enqueue(bufs, transforms, inputs)
+        long_raw = long_model.enqueue(long_bufs, long_transforms, long_inputs)
+        model_output = model.collect(lat_raw)
+        long_output = long_model.collect(long_raw)
     except Exception:
       if not params.get_bool("ChestnutActive"):
         raise

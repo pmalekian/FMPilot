@@ -179,3 +179,17 @@ def test_slot_options(tmp_path):
   # default first; downloaded favorite kept; favorite not downloaded dropped; a slot's current value always kept
   assert [o["value"] for o in options] == ["", "a", "d"]
   assert options[0]["label"] == fm.SAME_AS_SELECTED_LABEL
+
+
+def test_label_text():
+  msg = custom.ModelDataV2SP.new_message()
+  msg.fmLateralModelName = "OP Model 16 Deep (June 03, 2026)"
+  msg.fmLongModelName = "Terrible Super Fantastic Do Over Model (August 15, 2026)"
+  msg.fmDualModelActive = True
+  assert fm.label_text(msg, 0.0384) == "L: OP 16 Deep | G: TSFDO | 38 ms"
+  msg.fmDualModelActive = False
+  msg.fmDualModelReason = "too slow (72 ms, limit 45)"
+  assert fm.label_text(msg, 0.036) == "OP 16 Deep | 36 ms | dual off: pair 72 ms"
+  msg.fmDualModelReason = ""
+  assert fm.label_text(msg, 0.036) == "OP 16 Deep | 36 ms"
+  assert all(ord(c) < 128 for c in fm.label_text(msg, 0.036))  # the UI font has no non-ASCII symbols

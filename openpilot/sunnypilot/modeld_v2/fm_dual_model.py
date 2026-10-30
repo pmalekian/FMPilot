@@ -226,3 +226,20 @@ def get_slot_options() -> list[dict]:
     return build_slot_options(params.get("ModelManager_Favs"), get_cached_bundles(params, "qcom"), Paths.model_root(), current)
   except Exception:
     return [{"value": "", "label": SAME_AS_SELECTED_LABEL}]
+
+
+def label_text(mdv2sp, execution_time: float) -> str:
+  """The on-screen model label: ASCII only (the UI font has no middle dot), short enough for the comma 4 screen.
+  Ends with the model step's live run time, the number that decides whether two models fit."""
+  lat, long = short_name(mdv2sp.fmLateralModelName), short_name(mdv2sp.fmLongModelName)
+  if not lat:
+    return ""
+  ms = f"{execution_time * 1000:.0f} ms"
+  if mdv2sp.fmDualModelActive:
+    return f"L: {lat} | G: {long} | {ms}"
+  reason = mdv2sp.fmDualModelReason
+  if reason:
+    timing = re.search(r"\((\d+) ms", reason)
+    reason = f"pair {timing.group(1)} ms" if reason.startswith("too slow") and timing else reason[:24]
+    return f"{lat} | {ms} | dual off: {reason}"
+  return f"{lat} | {ms}"
