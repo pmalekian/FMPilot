@@ -47,7 +47,6 @@ def _build_torque_options(versions: dict) -> list[dict]:
 
 
 def _inject_dynamic_options(schema: dict) -> None:
-  _inject_fm_model_slot_options(schema)
   versions = _load_torque_versions()
   if not versions:
     return
@@ -55,24 +54,6 @@ def _inject_dynamic_options(schema: dict) -> None:
 
   def visitor(item: dict) -> None:
     if item.get("key") == "TorqueControlTune":
-      item["options"] = options
-
-  _walk_all_items(schema, visitor)
-
-
-FM_MODEL_SLOT_KEYS = ("FM_LateralModelRef", "FM_LongModelRef")
-
-
-def _inject_fm_model_slot_options(schema: dict) -> None:
-  """FM Pilot: fill the dual model dropdowns with the downloaded favorite models, read live when sunnylink asks."""
-  try:
-    from openpilot.sunnypilot.modeld_v2.fm_dual_model import get_slot_options
-    options = get_slot_options()
-  except Exception:
-    return
-
-  def visitor(item: dict) -> None:
-    if item.get("key") in FM_MODEL_SLOT_KEYS:
       item["options"] = options
 
   _walk_all_items(schema, visitor)

@@ -73,16 +73,6 @@ def speed_limit_pre_active_alert(CP: car.CarParams, CS: car.CarState, sm: messag
     Priority.LOW, VisualAlert.none, AudibleAlertSP.promptSingleLow, .1)
 
 
-def fm_dual_model_fallback_alert(CP, CS, sm, metric: bool, soft_disable_time: int, personality) -> Alert:
-  """FM Pilot: dual model mode was requested but is not running; says why."""
-  reason = sm['modelDataV2SP'].fmDualModelReason or "running a single model"
-  return Alert(
-    "Dual Model Unavailable",
-    reason[:80],
-    AlertStatus.normal, AlertSize.mid,
-    Priority.LOW, VisualAlert.none, AudibleAlert.none, .2)
-
-
 class EventsSP(EventsBase):
   def __init__(self):
     super().__init__()
@@ -283,7 +273,4 @@ EVENTS_SP: dict[int, dict[str, Alert | AlertCallbackType]] = {
       Priority.LOW, VisualAlert.none, AudibleAlert.none, 0.1),
   },
 
-  EventNameSP.fmDualModelFallback: {
-    ET.PERMANENT: fm_dual_model_fallback_alert,
-  },
 }

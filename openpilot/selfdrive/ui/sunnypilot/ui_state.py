@@ -36,7 +36,7 @@ class UIStateSP:
     self.sm_services_ext = [
       "modelManagerSP", "selfdriveStateSP", "longitudinalPlanSP", "backupManagerSP",
       "gpsLocation", "lateralTorqueParameters", "carStateSP", "liveMapDataSP", "carParamsSP", "lateralDelay",
-      "carControlSP", "modelDataV2SP"
+      "carControlSP"
     ]
 
     self.sunnylink_state = SunnylinkState()
@@ -47,7 +47,6 @@ class UIStateSP:
     self.active_bundle = None
     self.model_runner_tinygrad: bool = False
     self.blindspot: bool = False
-    self.fm_show_model_label: bool = False
     self.chevron_metrics = None
     self.custom_interactive_timeout: int = 0
     self.developer_ui = None
@@ -169,7 +168,6 @@ class UIStateSP:
     self.developer_ui = self.params.get("DevUIInfo")
     self.hide_v_ego_ui = self.params.get_bool("HideVEgoUI")
     self.lane_centering_display = self.params.get_bool("LaneCenteringDisplay")
-    self.fm_show_model_label = self.params.get_bool("FM_ShowModelLabel")
     self.lane_centering_enabled = self.params.get_bool("LaneCenteringEnabled")
     self.onroad_brightness = int(float(self.params.get("OnroadScreenOffBrightness", return_default=True)))
     self.onroad_brightness_timer_param = self.params.get("OnroadScreenOffTimer", return_default=True)

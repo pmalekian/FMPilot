@@ -258,13 +258,12 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
 
     // sunnypilot model params
     {"CameraOffset", {PERSISTENT | BACKUP, FLOAT, "0.0"}},
-
-    // FM Pilot: dual model selector
-    {"FM_CurveSpeedSource", {PERSISTENT | BACKUP, INT, "0"}},
-    {"FM_DualModelEnabled", {PERSISTENT | BACKUP, BOOL, "0"}},
-    {"FM_LateralModelRef", {PERSISTENT | BACKUP, STRING}},
-    {"FM_LongModelRef", {PERSISTENT | BACKUP, STRING}},
-    {"FM_ShowModelLabel", {PERSISTENT | BACKUP, BOOL, "0"}},
+    {"LagdToggle", {PERSISTENT | BACKUP, BOOL, "1"}},
+    {"LagdToggleDelay", {PERSISTENT | BACKUP, FLOAT, "0.2"}},
+    {"LagdValueCache", {PERSISTENT, FLOAT, "0.2"}},
+    {"LaneTurnDesire", {PERSISTENT | BACKUP, BOOL, "0"}},
+    {"LaneTurnValue", {PERSISTENT | BACKUP, FLOAT, "19.0"}},
+    {"PlanplusControl", {PERSISTENT | BACKUP, FLOAT, "1.0"}},
 
     // FM Pilot: lateral and lane change additions
     {"FM_QuietRoadEdgeBlock", {PERSISTENT | BACKUP, BOOL, "0"}},
@@ -273,13 +272,6 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"LaneGuardEnabled", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"RivianOfftrackCompensationEnabled", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"RivianOfftrackCompensationGain", {PERSISTENT | BACKUP, FLOAT, "0.5"}},
-
-    {"LagdToggle", {PERSISTENT | BACKUP, BOOL, "1"}},
-    {"LagdToggleDelay", {PERSISTENT | BACKUP, FLOAT, "0.2"}},
-    {"LagdValueCache", {PERSISTENT, FLOAT, "0.2"}},
-    {"LaneTurnDesire", {PERSISTENT | BACKUP, BOOL, "0"}},
-    {"LaneTurnValue", {PERSISTENT | BACKUP, FLOAT, "19.0"}},
-    {"PlanplusControl", {PERSISTENT | BACKUP, FLOAT, "1.0"}},
 
     // mapd
     {"MapAdvisorySpeedLimit", {CLEAR_ON_ONROAD_TRANSITION, FLOAT}},

@@ -11,8 +11,7 @@ import pyray as rl
 from openpilot.cereal import custom
 from openpilot.selfdrive.ui.mici.widgets.dialog import BigConfirmationDialog, BigDialog
 from openpilot.sunnypilot.models.helpers import ACTIVE_BUNDLE_KEYS, get_selected_bundle
-from openpilot.selfdrive.ui.mici.widgets.button import BigButton, BigMultiParamToggle, BigParamControl
-from openpilot.sunnypilot.modeld_v2 import fm_dual_model as fm_dual
+from openpilot.selfdrive.ui.mici.widgets.button import BigButton
 from openpilot.selfdrive.ui.ui_state import ui_state, device
 from openpilot.selfdrive.ui.sunnypilot.model_info import (active_source, big_model_state, bundles_for_source, carrying_model,
                                                            default_model_name, model_cache_size_mb, model_info, queued_name,
@@ -96,19 +95,7 @@ class ModelsLayoutMici(NavScroller):
     self.clear_cache_btn.set_click_callback(self._confirm_clear_cache)
     self._cache_size_time = 0.0
 
-    # FM Pilot: dual model selector, the same settings as on sunnylink's Models page
-    self.fm_dual_toggle = BigParamControl(tr("dual model mode"), fm_dual.PARAM_ENABLED)
-    self.fm_lat_btn = BigButton(tr("steering model"))
-    self.fm_lat_btn.set_click_callback(lambda: self._show_fm_slot(fm_dual.PARAM_LAT_REF, self.fm_lat_btn))
-    self.fm_long_btn = BigButton(tr("gas & brake model"))
-    self.fm_long_btn.set_click_callback(lambda: self._show_fm_slot(fm_dual.PARAM_LONG_REF, self.fm_long_btn))
-    self.fm_curve_toggle = BigMultiParamToggle(tr("curve speed source"), fm_dual.PARAM_CURVE_SOURCE, [tr("steering"), tr("gas & brake")])
-    self.fm_label_toggle = BigParamControl(tr("show active models"), fm_dual.PARAM_SHOW_LABEL)
-    self._fm_options_time = 0.0
-    self._fm_options: list[dict] = []
-
-    self.main_items = [self.current_model_info, self.select_model_btn, self.cancel_download_btn, self.refresh_btn, self.clear_cache_btn,
-                       self.fm_dual_toggle, self.fm_lat_btn, self.fm_long_btn, self.fm_curve_toggle, self.fm_label_toggle]
+    self.main_items = [self.current_model_info, self.select_model_btn, self.cancel_download_btn, self.refresh_btn, self.clear_cache_btn]
     self._scroller.add_widgets(self.main_items)
 
   @property
@@ -212,39 +199,6 @@ class ModelsLayoutMici(NavScroller):
       btns.append(btn)
     self._push_selection_view(btns)
 
-  def _show_fm_slot(self, param, button):
-    self.focused_widget = button
-    btns = []
-    for option in fm_dual.get_slot_options():
-      btn = BigButton(option["label"].lower())
-      btn.set_click_callback(lambda ref=option["value"]: self._select_fm_slot(param, ref))
-      btns.append(btn)
-    self._push_selection_view(btns)
-
-  def _select_fm_slot(self, param, ref):
-    if ref:
-      ui_state.params.put(param, ref)
-    else:
-      ui_state.params.remove(param)
-    self._fm_options_time = 0.0
-    self._pop_to_main()
-
-  def _update_fm_dual(self):
-    if (now := time.monotonic()) - self._fm_options_time > 2.0:
-      self._fm_options_time = now
-      self._fm_options = fm_dual.get_slot_options()
-      # pick up changes made from sunnylink
-      self.fm_dual_toggle.refresh()
-      self.fm_label_toggle.refresh()
-      self.fm_curve_toggle._load_value()
-    labels = {o["value"]: o["label"] for o in self._fm_options}
-    enabled = ui_state.params.get_bool(fm_dual.PARAM_ENABLED)
-    for btn, param in ((self.fm_lat_btn, fm_dual.PARAM_LAT_REF), (self.fm_long_btn, fm_dual.PARAM_LONG_REF)):
-      ref = ui_state.params.get(param) or ""
-      btn.set_value((fm_dual.short_name(labels.get(ref, ref)) if ref else tr("same as selected")).lower())
-      btn.set_enabled(enabled)
-    self.fm_curve_toggle.set_enabled(enabled)
-
   def hide_event(self):
     super().hide_event()
     if self._was_downloading:
@@ -255,7 +209,6 @@ class ModelsLayoutMici(NavScroller):
     super()._update_state()
 
     self.select_model_btn.set_enabled(ui_state.is_offroad())
-    self._update_fm_dual()
     self.cancel_download_btn.set_visible(False)
     self.current_model_info.current_model_header._shimmer = False
     self.current_model_info.info_header._shimmer = False

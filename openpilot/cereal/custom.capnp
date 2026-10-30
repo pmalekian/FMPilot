@@ -377,8 +377,7 @@ struct OnroadEventSP @0xda96579883444c35 {
     laneChangeRoadEdge @24;
     bigModelReady @25;
     belowMadsMinEngageSpeed @26;
-    fmDualModelFallback @27;
-    fmLaneChangeRoadEdgeQuiet @28;
+    fmLaneChangeRoadEdgeQuiet @27;
   }
 }
 
@@ -498,13 +497,6 @@ struct ModelDataV2SP @0xa1680744031fdb2d {
   laneTurnDirection @0 :TurnDirection;
   leftLaneChangeEdgeBlock @1 :Bool;
   rightLaneChangeEdgeBlock @2 :Bool;
-
-  # FM Pilot: dual model status
-  fmDualModelActive @3 :Bool;
-  fmDualModelFallback @4 :Bool;  # true for a few seconds after dual mode was requested but could not run
-  fmLateralModelName @5 :Text;
-  fmLongModelName @6 :Text;
-  fmDualModelReason @7 :Text;  # why dual model mode is not running, empty when it is
 
   enum TurnDirection {
     none @0;
