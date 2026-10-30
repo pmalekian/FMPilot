@@ -504,6 +504,7 @@ struct ModelDataV2SP @0xa1680744031fdb2d {
   fmDualModelFallback @4 :Bool;  # true for a few seconds after dual mode was requested but could not run
   fmLateralModelName @5 :Text;
   fmLongModelName @6 :Text;
+  fmDualModelReason @7 :Text;  # why dual model mode is not running, empty when it is
 
   enum TurnDirection {
     none @0;

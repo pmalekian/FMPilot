@@ -182,6 +182,7 @@ class DualModelStatus:
     mdv2sp.fmDualModelFallback = self.notice_timer > 0.0
     mdv2sp.fmLateralModelName = self.lat_name
     mdv2sp.fmLongModelName = self.long_name
+    mdv2sp.fmDualModelReason = "" if self.active else self.fallback_reason
 
 
 SAME_AS_SELECTED_LABEL = "Same as selected model"

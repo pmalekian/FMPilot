@@ -160,7 +160,12 @@ class HudRendererSP(HudRenderer):
     lat, long = short_name(mdv2sp.fmLateralModelName), short_name(mdv2sp.fmLongModelName)
     if not lat:
       return
-    text = f"L: {lat} · G: {long}" if mdv2sp.fmDualModelActive else lat
+    if mdv2sp.fmDualModelActive:
+      text = f"L: {lat} · G: {long}"
+    elif mdv2sp.fmDualModelReason:
+      text = f"{lat} · dual off: {mdv2sp.fmDualModelReason[:40]}"
+    else:
+      text = lat
     size = measure_text_cached(self._font_semi_bold, text, FONT_SIZES.max_speed)
     pos = rl.Vector2(rect.x + rect.width / 2 - size.x / 2, rect.y + 355 - size.y / 2)
     rl.draw_text_ex(self._font_semi_bold, text, pos, FONT_SIZES.max_speed, 0, COLORS.WHITE_TRANSLUCENT)

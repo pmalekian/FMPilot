@@ -306,15 +306,25 @@ def setup_dual_models(params: Params, model: ModelState, cam_w: int, cam_h: int,
     if reason is None and type(lat_model.constants) is not type(long_model.constants):
       reason = "different run rate"
     if reason is None:
-      st = time.perf_counter()
-      lat_model.warmup()
-      long_model.warmup()
-      pair_time = time.perf_counter() - st
+      # time the pair the way the loop runs it: both models back to back, best of a few tries
+      pair_times = []
+      for _ in range(3):
+        lat_frames, lat_tfm, lat_inputs = lat_model.adapter.get_dummy_inputs()
+        long_frames, long_tfm, long_inputs = long_model.adapter.get_dummy_inputs()
+        st = time.perf_counter()
+        lat_model.run(lat_frames, lat_tfm, lat_inputs)
+        long_model.run(long_frames, long_tfm, long_inputs)
+        pair_times.append(time.perf_counter() - st)
+      for m in (lat_model, long_model):
+        m.adapter.reset_warmup_buffers()
+        m.prev_desire[:] = 0
+      pair_time = min(pair_times)
+      cloudlog.warning(f"fm dual model: pair runs in {pair_time * 1000:.0f} ms")
       if pair_time > fm_dual.MAX_DUAL_EXECUTION_TIME:
-        reason = f"too slow ({pair_time * 1000:.0f} ms)"
-  except Exception:
+        reason = f"too slow ({pair_time * 1000:.0f} ms, limit {fm_dual.MAX_DUAL_EXECUTION_TIME * 1000:.0f})"
+  except Exception as e:
     cloudlog.exception("fm dual model: load failed")
-    reason, lat_model, long_model = "load failed", model, None
+    reason, lat_model, long_model = f"load failed: {type(e).__name__} {str(e)[:60]}", model, None
 
   if reason is not None:
     cloudlog.warning(f"fm dual model: falling back to the selected model: {reason}")
