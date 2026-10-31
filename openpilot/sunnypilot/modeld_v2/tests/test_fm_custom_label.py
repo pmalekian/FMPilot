@@ -9,6 +9,7 @@ def test_custom_model_name():
 def test_label_text():
   assert label_text("", 0.03) == ""
   assert label_text(None, 0.03) == ""
-  assert label_text("fm_opm16d_rlm_splice", 0.0312) == "Custom model: fm_opm16d_rlm_splice | 31 ms"
-  assert label_text("splice", 0.0) == "Custom model: splice"
+  assert label_text("fm_opm16d_rlm_splice", 0.0312) == "Splice Model | 31 ms"
+  assert label_text("splice", 0.0) == "Splice Model"
+  assert label_text("other_model", 0.02) == "Custom Model | 20 ms"
   assert label_text("splice", 0.04).isascii()

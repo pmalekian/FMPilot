@@ -17,7 +17,7 @@ def label_text(active_name: str | None, model_execution_time: float) -> str:
   """ASCII only (the UI font has no middle dot). Empty when no custom model is loaded."""
   if not active_name:
     return ""
-  text = f"Custom model: {active_name}"
+  text = "Splice Model" if "splice" in active_name.lower() else "Custom Model"
   if model_execution_time > 0:
     text += f" | {model_execution_time * 1000:.0f} ms"
   return text
