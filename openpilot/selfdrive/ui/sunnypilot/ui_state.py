@@ -47,6 +47,7 @@ class UIStateSP:
     self.active_bundle = None
     self.model_runner_tinygrad: bool = False
     self.blindspot: bool = False
+    self.fm_custom_model: str = ""
     self.chevron_metrics = None
     self.custom_interactive_timeout: int = 0
     self.developer_ui = None
@@ -169,6 +170,7 @@ class UIStateSP:
     self.hide_v_ego_ui = self.params.get_bool("HideVEgoUI")
     self.lane_centering_display = self.params.get_bool("LaneCenteringDisplay")
     self.lane_centering_enabled = self.params.get_bool("LaneCenteringEnabled")
+    self.fm_custom_model = self.params.get("FM_CustomModelActive") or ""
     self.onroad_brightness = int(float(self.params.get("OnroadScreenOffBrightness", return_default=True)))
     self.onroad_brightness_timer_param = self.params.get("OnroadScreenOffTimer", return_default=True)
     self.rainbow_path = self.params.get_bool("RainbowMode")

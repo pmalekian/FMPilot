@@ -22,6 +22,7 @@ from openpilot.selfdrive.ui.onroad.hud_renderer import HudRenderer, UI_CONFIG, F
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.lib.multilang import tr
 from openpilot.system.ui.lib.text_measure import measure_text_cached
+from openpilot.sunnypilot.modeld_v2.fm_custom_label import label_text
 
 SLA_ACTIVE_COLOR = rl.Color(0x91, 0x9b, 0x95, 0xff)
 
@@ -148,3 +149,20 @@ class HudRendererSP(HudRenderer):
     self.turn_signal_controller.render(rect)
     self.circular_alerts_renderer.render(rect)
     self.rocket_fuel.render(rect, ui_state.sm)
+    self._draw_fm_model_label(rect)
+
+  def _draw_fm_model_label(self, rect: rl.Rectangle) -> None:
+    """FM Pilot: one small centered line while a custom (e.g. spliced) model is driving, with its run time. Hidden behind alerts."""
+    if ui_state.sm['selfdriveState'].alertSize != 0:
+      return
+    text = label_text(getattr(ui_state, 'fm_custom_model', ''), ui_state.sm['modelV2'].modelExecutionTime)
+    if not text:
+      return
+    # shrink to fit the screen width (the comma 4 screen is narrow)
+    font_size = FONT_SIZES.max_speed
+    size = measure_text_cached(self._font_semi_bold, text, font_size)
+    while size.x > rect.width - 40 and font_size > 22:
+      font_size -= 2
+      size = measure_text_cached(self._font_semi_bold, text, font_size)
+    pos = rl.Vector2(rect.x + rect.width / 2 - size.x / 2, rect.y + 355 - size.y / 2)
+    rl.draw_text_ex(self._font_semi_bold, text, pos, font_size, 0, COLORS.WHITE_TRANSLUCENT)

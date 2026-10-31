@@ -10,6 +10,7 @@ from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.system.ui.widgets import Widget
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.cereal import log
+from openpilot.sunnypilot.modeld_v2.fm_custom_label import label_text
 
 EventName = log.OnroadEvent.EventName
 
@@ -187,7 +188,25 @@ class HudRenderer(Widget):
 
     self._draw_model_source(rect)
 
+    self._draw_fm_model_label(rect)
+
     self._draw_steering_wheel(rect)
+
+  def _draw_fm_model_label(self, rect: rl.Rectangle) -> None:
+    """FM Pilot: one small centered line while a custom (e.g. spliced) model is driving, with its run time. Hidden behind alerts."""
+    if ui_state.sm['selfdriveState'].alertSize != 0:
+      return
+    text = label_text(getattr(ui_state, 'fm_custom_model', ''), ui_state.sm['modelV2'].modelExecutionTime)
+    if not text:
+      return
+    # shrink to fit the screen width (the comma 4 screen is narrow)
+    font_size = FONT_SIZES.max_speed
+    size = measure_text_cached(self._font_semi_bold, text, font_size)
+    while size.x > rect.width - 40 and font_size > 22:
+      font_size -= 2
+      size = measure_text_cached(self._font_semi_bold, text, font_size)
+    pos = rl.Vector2(rect.x + rect.width / 2 - size.x / 2, rect.y + 16)
+    rl.draw_text_ex(self._font_semi_bold, text, pos, font_size, 0, COLORS.WHITE_TRANSLUCENT)
 
   def _draw_model_source(self, rect: rl.Rectangle) -> None:
     if ui_state.sm.recv_frame['selfdriveState'] < ui_state.started_frame:
