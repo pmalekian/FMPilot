@@ -82,6 +82,9 @@ def _fm_custom_model_pkl(bundle):
   path, base_ref = params.get("FM_CustomModelPath"), params.get("FM_CustomModelBaseRef")
   if not path or bundle is None or not base_ref or bundle.ref != base_ref:
     return None
+  if not params.get_bool("FM_CustomModelEnabled"):
+    cloudlog.warning("fm custom model: switched off, using the selected model")
+    return None
   if not _pkl_exists(path):
     cloudlog.warning(f"fm custom model: {path} not found, using the selected model")
     return None

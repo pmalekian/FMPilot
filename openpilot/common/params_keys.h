@@ -269,6 +269,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     // FM Pilot: lateral and lane change additions
     {"FM_CustomModelActive", {CLEAR_ON_MANAGER_START, STRING}},
     {"FM_CustomModelBaseRef", {PERSISTENT | BACKUP, STRING}},
+    {"FM_CustomModelEnabled", {PERSISTENT | BACKUP, BOOL, "1"}},
     {"FM_CustomModelPath", {PERSISTENT | BACKUP, STRING}},
     {"FM_QuietRoadEdgeBlock", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"FM_RoadEdgeTurnDesire", {PERSISTENT | BACKUP, BOOL, "0"}},

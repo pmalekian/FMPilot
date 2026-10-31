@@ -11,7 +11,7 @@ import pyray as rl
 from openpilot.cereal import custom
 from openpilot.selfdrive.ui.mici.widgets.dialog import BigConfirmationDialog, BigDialog
 from openpilot.sunnypilot.models.helpers import ACTIVE_BUNDLE_KEYS, get_selected_bundle
-from openpilot.selfdrive.ui.mici.widgets.button import BigButton
+from openpilot.selfdrive.ui.mici.widgets.button import BigButton, BigParamControl
 from openpilot.selfdrive.ui.ui_state import ui_state, device
 from openpilot.selfdrive.ui.sunnypilot.model_info import (active_source, big_model_state, bundles_for_source, carrying_model,
                                                            default_model_name, model_cache_size_mb, model_info, queued_name,
@@ -95,7 +95,12 @@ class ModelsLayoutMici(NavScroller):
     self.clear_cache_btn.set_click_callback(self._confirm_clear_cache)
     self._cache_size_time = 0.0
 
-    self.main_items = [self.current_model_info, self.select_model_btn, self.cancel_download_btn, self.refresh_btn, self.clear_cache_btn]
+    # FM Pilot: switch the compiled splice (custom) model on and off; shown once one has been built on this device
+    self.fm_custom_toggle = BigParamControl(tr("use splice model"), "FM_CustomModelEnabled")
+    self._fm_custom_time = 0.0
+
+    self.main_items = [self.current_model_info, self.select_model_btn, self.cancel_download_btn, self.refresh_btn, self.clear_cache_btn,
+                       self.fm_custom_toggle]
     self._scroller.add_widgets(self.main_items)
 
   @property
@@ -208,6 +213,10 @@ class ModelsLayoutMici(NavScroller):
   def _update_state(self):
     super()._update_state()
 
+    if (now := time.monotonic()) - self._fm_custom_time > 2.0:
+      self._fm_custom_time = now
+      self.fm_custom_toggle.refresh()  # pick up changes made from sunnylink
+      self.fm_custom_toggle.set_visible(bool(ui_state.params.get("FM_CustomModelPath")))
     self.select_model_btn.set_enabled(ui_state.is_offroad())
     self.cancel_download_btn.set_visible(False)
     self.current_model_info.current_model_header._shimmer = False

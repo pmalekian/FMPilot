@@ -101,6 +101,11 @@ class ModelsLayout(Widget):
                                         1, None, True, "", style.BUTTON_ACTION_WIDTH, None, True, lambda v: f"{v / 100:.2f}s")
 
     self.lagd_toggle = toggle_item_sp(tr("Live Learning Steer Delay"), "", param="LagdToggle")
+    # FM Pilot: switch the compiled splice (custom) model on and off; shown once one has been built on this device
+    self.fm_custom_toggle = toggle_item_sp(tr("Use Splice Model"),
+                                           tr("On: while its base model (Rebel Legion) is selected, drive with the splice model compiled on " +
+                                              "this device. Off: use the standard model. Applies on the next drive."),
+                                           param="FM_CustomModelEnabled")
 
     self.camera_offset = option_item_sp(tr("Adjust Camera Offset"), "CameraOffset", -35, 35,
                                         tr("Virtually shift camera's perspective to move model's center to Left(+ values) or Right (- values)"),
@@ -108,6 +113,7 @@ class ModelsLayout(Widget):
                                         lambda v: f"{v / 100:.2f} m")
 
     self.items = [self.small_model_item, self.big_model_item, self.cancel_download_item, self.download_item, self.refresh_item, self.clear_cache_item,
+                  self.fm_custom_toggle,
                   self.lane_turn_desire_toggle, self.lane_turn_value_control, self.lagd_toggle, self.delay_control, self.camera_offset]
 
   def _update_lagd_description(self, lagd_toggle: bool):
@@ -323,6 +329,8 @@ class ModelsLayout(Widget):
     if self.lane_turn_value_control.action_item is not None and self.lane_turn_value_control.action_item.value_change_step != new_step:
       self.lane_turn_value_control.action_item.value_change_step = new_step
     self.camera_offset.set_visible(camera_offset)
+    self.fm_custom_toggle.set_visible(bool(ui_state.params.get("FM_CustomModelPath")))
+    self.fm_custom_toggle.action_item.set_state(ui_state.params.get_bool("FM_CustomModelEnabled"))
 
     self._update_lagd_description(live_delay)
     self.model_manager = ui_state.sm["modelManagerSP"]

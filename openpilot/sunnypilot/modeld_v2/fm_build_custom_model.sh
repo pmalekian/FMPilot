@@ -6,7 +6,8 @@
 #
 # <base model ref> is the catalog ref of the model the custom file is built on; its settings (generation, 20 Hz
 # timing, smoothing) are used, and the custom file only loads while that model is the selected one.
-# To go back to the stock file:  bash fm_build_custom_model.sh --off
+# Once built, "Use Splice Model" on the Models page (device or Sunnylink) switches it on and off.
+# To remove it entirely:  bash fm_build_custom_model.sh --off
 set -euo pipefail
 
 ROOT=/data/openpilot
@@ -39,4 +40,5 @@ DEV=QCOM IMAGE=1 FLOAT16=1 NOLOCALS=1 JIT_BATCH_SIZE=0 OPENPILOT_HACKS=1 \
 
 put_param FM_CustomModelPath "$OUT"
 put_param FM_CustomModelBaseRef "$BASE_REF"
+put_param FM_CustomModelEnabled "1"
 echo "done: $OUT will load on the next drive while the model with ref $BASE_REF is selected"
