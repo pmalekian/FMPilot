@@ -5,7 +5,7 @@ State as of Nov 3, 2026 (evening). Read this with `FM_PILOT.md` (features, setti
 ## Setup
 
 - **Truck and device:** Frankie's 2022 Rivian R1S Launch Edition (Gen 1), comma 4, torque harness.
-- **Fork:** GitHub `pmalekian/fmpilot`, branch **`fm-dev-max`**, latest commit at the time of writing `8c00f4e`. Installer:
+- **Fork:** GitHub `pmalekian/fmpilot`, branch **`fm-dev-max`**, latest feature commit at the time of writing `ba7b308`. Installer:
   `pmalekian/fm-dev-max`. Based on AdventurePilot `dev` (`github.com/AdventurePilotDev/AdventurePilot`), synced up to
   `980dd5c` (Oct 31).
 - **Working on the code in a new chat:**
@@ -39,8 +39,18 @@ State as of Nov 3, 2026 (evening). Read this with `FM_PILOT.md` (features, setti
   up to +0.4 m/s². It needs the model's gas/brake-press predictions; check `modelV2.meta.disengagePredictions` in a
   TSFDOM rlog has `gasPressProbs`/`brakePressProbs` filled (if empty, Predictive does nothing).
 - **Custom model:** the OPM16D + Rebel Legion splice is built on the device but switched off. He gave it up for TSFDOM.
-- **Turn Boost / Turn Hold:** built (`1616b20b`), off by default, **not yet driven**. Plan: Turn Hold alone first, then
-  add Boost (defaults left 1.10, right 1.20), hands hovering, and send turn segments.
+- **Turn Assist** (all off by default, **none driven yet**): Turn Boost, Turn Hold (`1616b20b`), and from StarPilot's
+  Model Turn Assist (Nov 3): **Turn Lead** (`111c97a`), Turn Hold options **Hold Path Source** (`2dbc4f8`) and **Hold
+  Adds Your Steering** (`ba7b308`), and the shared **Turn Path Tightest Radius** slider (8–20 m, default 12 m; 8 m is
+  StarPilot's fixed cap).
+  - Frankie's slow turns **start late**, so Turn Lead is first: Turn Lead alone, hands hovering, send turn segments.
+    Then Turn Hold (optionally with its two options), then Boost (defaults left 1.10, right 1.20) only if turns still
+    go wide. Lead and Hold can run together, but the settings recommend one at a time.
+  - Turn Lead works about 7–16 mph (StarPilot's band, smooth fade added); nothing below 7 mph yet. Next step for it: add
+    path-curve-onset vs request-onset timing to `tools/fm/turns.py`, check whether the path is reliable below 7 mph,
+    and tune the radius.
+  - Hold Path Source only works under about 2 mph and when the corner is right there (path turned 10° within 1.5 m for
+    full weight, none past 5 m). Time stopped no longer counts toward Turn Hold's 8 s.
   - **Builds before `b9c5a55` (Nov 3) had left and right swapped** (curvature is right-positive; Turn Assist assumed
     left-positive), so Boost scaled away-from-the-turn requests and Hold could hold the wrong way. Don't drive either
     feature on an older build.
@@ -109,4 +119,6 @@ When AP takes in the big sunnypilot sync (branch `fix/pr10-personality`, not in 
 - **A road-edge guard for curves,** only if more examples show confident edges being crossed.
 - **Upstream PR candidates for AP**, each as a clean branch off AP dev: Road Edge Turn Desire, Turn Boost / Hold, the
   quiet road-edge block, and the compile fix.
-- **Later:** port StarPilot's navigation.
+- **Later:** port StarPilot's navigation, or comma's nav alpha (openpilot #39066, simpler and closer to our code).
+- **StarPilot items looked at Nov 3 and set aside:** Force Stop (holds at most 2 s at a light, doesn't fix early
+  take-offs; a simple FM "hold until RES/gas" would, if wanted later), Turn Assist's twitch guard, Blendful.
