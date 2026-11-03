@@ -40,10 +40,11 @@ HOLD_MAX_TIME = 8.0  # s
 
 
 def turn_sign(direction) -> int:
-  """Curvature sign of a turn: left is positive."""
-  if direction == TurnDirection.turnLeft:
-    return 1
+  """Curvature sign of a turn. desiredCurvature is positive to the RIGHT (calibrated frame is forward-right-down;
+  controlsd's curvature is -VM.calc_curvature of a left-positive steering angle), so a right turn is +1."""
   if direction == TurnDirection.turnRight:
+    return 1
+  if direction == TurnDirection.turnLeft:
     return -1
   return 0
 
@@ -100,7 +101,7 @@ class FmTurnAssist:
     toward = sign * out  # positive when the request turns the turn's way
 
     if self.boost_enabled and toward > 0.0:
-      gain = self.boost_left if sign > 0 else self.boost_right
+      gain = self.boost_right if sign > 0 else self.boost_left
       out = out * (1.0 + (gain - 1.0) * self.amount)
       toward = sign * out
 
