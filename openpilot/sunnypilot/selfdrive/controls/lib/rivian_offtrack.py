@@ -1,3 +1,4 @@
+# FM Pilot: rear-axle off-tracking compensation from gerrylum's rx-wb fork (commit ce7e5c8), MIT license.
 import math
 
 

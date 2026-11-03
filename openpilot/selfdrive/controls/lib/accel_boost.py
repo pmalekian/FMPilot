@@ -1,3 +1,5 @@
+# FM Pilot: Gas Override Boost, ported unchanged from sunnypilot master (originally openpilot #39015, Harald Schäfer), MIT
+# license. Upstream AP now carries the same file; at the next sync this copy and its planner call give way to theirs.
 import numpy as np
 from openpilot.common.constants import CV
 from openpilot.common.realtime import DT_MDL

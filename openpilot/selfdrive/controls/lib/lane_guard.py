@@ -1,3 +1,5 @@
+# FM Pilot: Lane Guard, with its Rivian tune, from gerrylum's rx-wb fork (commit 17ea338), used as is.
+# https://github.com/gerrylum (openpilot fork, MIT license). Wired into controlsd by sunnypilot/selfdrive/controls/lib/fm_lateral.py.
 import math
 from dataclasses import dataclass
 
