@@ -1,6 +1,6 @@
 # FM Pilot: handoff for new chats
 
-State as of Nov 3, 2026. Read this with `FM_PILOT.md` (features, settings, credits) and `tools/fm/README.md` (log tools).
+State as of Nov 3, 2026 (evening). Read this with `FM_PILOT.md` (features, settings, credits) and `tools/fm/README.md` (log tools).
 
 ## Setup
 
@@ -34,7 +34,10 @@ State as of Nov 3, 2026. Read this with `FM_PILOT.md` (features, settings, credi
 - **Model:** TSFDOM. He prefers its longitudinal by far; its lateral is "good enough" with his help.
 - **Steering:** lane centering on (One-Line Mode on), Lane Guard off, off-tracking off.
 - **Turns and road edge:** Road Edge Turn Desire on (max 40 mph), quiet road-edge block on.
-- **Longitudinal:** Experimental Mode, gas boost.
+- **Longitudinal:** Experimental Mode. **Accel Boost** (`FM_AccelBoostMode`, Cruise page): Off / Gas / Predictive, default
+  Gas. Predictive (sunnypilot's model-predicted boost, `c5f251a`) is built but **not yet driven**; on aggressive it adds
+  up to +0.4 m/s². It needs the model's gas/brake-press predictions; check `modelV2.meta.disengagePredictions` in a
+  TSFDOM rlog has `gasPressProbs`/`brakePressProbs` filled (if empty, Predictive does nothing).
 - **Custom model:** the OPM16D + Rebel Legion splice is built on the device but switched off. He gave it up for TSFDOM.
 - **Turn Boost / Turn Hold:** built (`1616b20b`), off by default, **not yet driven**. Plan: Turn Hold alone first, then
   add Boost (defaults left 1.10, right 1.20), hands hovering, and send turn segments.
@@ -56,6 +59,9 @@ State as of Nov 3, 2026. Read this with `FM_PILOT.md` (features, settings, credi
 When AP takes in the big sunnypilot sync (branch `fix/pr10-personality`, not in dev yet):
 
 - **Gas Override Boost** arrives upstream as the same `accel_boost.py`; drop ours to avoid boosting twice.
+- **Predictive Boost** (sunnypilot `AccelBoostSP`, branch `booooost`, likely on by default with its own `AccelBoostSP`
+  param): keep FM Pilot's selector as the only switch, point Predictive at their file, and make sure their param can't
+  turn on a second boost.
 - **Acceleration Control** (a fixed lift by personality) is a new optional setting worth trying.
 - **Road-edge lane change** changes (RELC decoupled from blind-spot blocking, nudge override): re-check Road Edge Turn
   Desire and the quiet block.
@@ -87,8 +93,10 @@ When AP takes in the big sunnypilot sync (branch `fix/pr10-personality`, not in 
   - Suggested: raise AP's minimum MADS engage speed to 8–10 mph, or pause steering in garages. Worth reporting to AP.
 - **Driver monitoring:** distraction mostly reads as "phone" from fidgeting with a phone (PopSocket grip). Thresholds must
   not be loosened: comma bans forks that weaken driver monitoring.
-- **Straight-road sway:** about 0.7° of wheel with a period near 5 s. Mostly the model; lane centering's One-Line Mode
-  adds about 25% where a line is faint.
+- **Straight-road sway:** about 0.7° of wheel with a period near 5 s, measured on the OPM16D + Rebel Legion splice.
+  Frankie doesn't feel it with TSFDOM. One-Line Mode added about 25% where a line was faint.
+- **Blendful** (sunnypilot lane-centering blend, alpha): looked at Nov 3, left alone for now. Centers off one line at half
+  strength on straights, ignores road edges.
 
 ## Ideas backlog
 
