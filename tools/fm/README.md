@@ -11,7 +11,8 @@ pip install numpy pycapnp zstandard onnx onnxruntime
 Run from this folder (`cd tools/fm`); the scripts import the fork's own `cereal` from the repo, so no openpilot build is needed.
 
 Get logs from the comma (`scp -O comma@<ip>:/data/media/0/realdata/<route>--<segment>/rlog.zst .`) or Comma Connect.
-Each segment is one minute; the model file modeld loaded is only logged in a drive's first segment (`--0`).
+Each segment is one minute. modeld logs the model file it loaded only in a drive's first segment (`--0`); for later
+segments the tools work the model out from the settings saved at the start of the drive and mark it "(from settings)".
 
 ## Log tools
 
