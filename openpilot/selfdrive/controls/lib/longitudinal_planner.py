@@ -9,7 +9,8 @@ from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.common.realtime import DT_MDL
 from openpilot.selfdrive.modeld.constants import ModelConstants
 from openpilot.selfdrive.controls.lib.longcontrol import LongCtrlState
-from openpilot.selfdrive.controls.lib.accel_boost import AccelBoost
+from openpilot.common.params import Params
+from openpilot.selfdrive.controls.lib.fm_boost_mode import FmBoostMode
 from openpilot.selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import LongitudinalMpc, LongitudinalPlanSource
 from openpilot.selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import T_IDXS as T_IDXS_MPC
 from openpilot.selfdrive.controls.lib.drive_helpers import CONTROL_N, get_accel_from_plan, should_stop
@@ -64,7 +65,7 @@ class LongitudinalPlanner(LongitudinalPlannerSP):
     self.fcw = False
     self.dt = dt
     self.allow_throttle = True
-    self.accel_boost = AccelBoost()
+    self.accel_boost = FmBoostMode(Params())  # FM Pilot: No Boost / Gas Boost / Predictive Boost (FM_AccelBoostMode)
 
     self.v_desired_filter = FirstOrderFilter(init_v, 2.0, self.dt)
     self.a_cruise = init_a
@@ -147,7 +148,8 @@ class LongitudinalPlanner(LongitudinalPlannerSP):
                                      accel_coast, self.allow_throttle)
     cruise_should_stop = should_stop(v_ego, self.a_cruise)
 
-    # FM Pilot: gas boost, ported from upstream sunnypilot. Only raises the model (e2e) target; no effect at -1 m/s^2 or harder braking.
+    # FM Pilot: the selected boost (Gas or Predictive, see fm_boost_mode.py). Only raises the model (e2e) target; each boost fades
+    # out before the model brakes hard (Gas below -1 m/s^2, Predictive below -0.7 m/s^2).
     output_a_target_e2e = self.accel_boost.update(sm, output_a_target_e2e, output_a_target_mpc, self.a_cruise)
 
     candidates = [(output_a_target_mpc, self.mpc.source, output_should_stop_mpc),

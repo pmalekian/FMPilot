@@ -8,7 +8,7 @@ features below. Every FM Pilot commit starts with "FM Pilot".
 
 | Feature | Settings (Sunnylink page) | Code | Default |
 |---|---|---|---|
-| Gas Override Boost: after the driver presses the gas while the model holds the car below what the lead and set speed allow, adds up to +0.2 m/s² to the model's acceleration for that engagement | always on | `selfdrive/controls/lib/accel_boost.py`, `longitudinal_planner.py` | on |
+| Accel Boost, one of three (exclusive, never stacked): **Off**; **Gas** (Gas Override Boost: after the driver presses the gas while the model holds the car below what the lead and set speed allow, adds up to +0.2 m/s² to the model's acceleration for that engagement); **Predictive** (sunnypilot's predictive boost: adds acceleration whenever the model predicts no reason to slow, up to +0.4 / 0.25 / 0.1 m/s² for aggressive / standard / relaxed, fading out in tight curves and when the model wants to stop) | `FM_AccelBoostMode` (Cruise) | `selfdrive/controls/lib/fm_boost_mode.py`, `accel_boost.py`, `sunnypilot/selfdrive/controls/lib/accel_boost.py`, `longitudinal_planner.py` | Gas |
 | Lane Guard: small correction only when the planned path brings the body too close to a line or edge; exclusive with lane centering | `LaneGuardEnabled` (Steering) | `selfdrive/controls/lib/lane_guard.py`, `sunnypilot/selfdrive/controls/lib/fm_lateral.py` | off |
 | Rear-axle off-tracking compensation: widens tight turns by the rear axle's cut-in | `RivianOfftrackCompensationEnabled`, `…Gain` (Steering) | `sunnypilot/selfdrive/controls/lib/rivian_offtrack.py`, `fm_lateral.py` | off |
 | Quiet road-edge block: small gray message, no sound | `FM_QuietRoadEdgeBlock` (Steering) | `selfdrived.py`, `sunnypilot/selfdrive/selfdrived/events.py`, `cereal/custom.capnp` | off |
@@ -28,6 +28,8 @@ Removed: dual model mode (two small models do not fit the comma 4's 50 ms model 
   added its own version from the same work (`0d85a260b`); the two will be merged at the next sync.
 - **Gas Override Boost**: openpilot #39015 (Harald Schäfer), via sunnypilot master (MIT). Upstream AdventurePilot now
   carries the same file; ours gives way to it at the next sync.
+- **Predictive Boost**: sunnypilot `AccelBoostSP`, branch `booooost` (James Vecellio-Grant / Discountchubbs, Nov 3, 2026;
+  MIT), logic unchanged. When sunnypilot ships it and AP takes it in, ours gives way to theirs and the mode selector stays.
 - Everything else here is FM Pilot's own, built on AdventurePilot, sunnypilot and openpilot (MIT).
 
 ## Upstreaming to AdventurePilot

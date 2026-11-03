@@ -43,6 +43,23 @@ sections:
       label: Relaxed
     enablement:
     - $ref: '#/macros/longitudinal'
+  - key: FM_AccelBoostMode
+    widget: multiple_button
+    title: Accel Boost
+    description: 'Adds a little acceleration on top of the model''s. Gas Boost: after you press the gas while the model
+      holds the car below what the lead and set speed allow, adds up to +0.2 m/s² for that engagement. Predictive Boost:
+      adds acceleration whenever the model predicts no reason to slow, sized by driving personality (up to +0.4 m/s²
+      aggressive, +0.25 standard, +0.1 relaxed); fades out in tight curves and when the model wants to stop. Only one
+      can be on.'
+    options:
+    - value: 0
+      label: 'Off'
+    - value: 1
+      label: Gas
+    - value: 2
+      label: Predictive
+    enablement:
+    - $ref: '#/macros/longitudinal'
   - key: SPStopDistance
     widget: option
     title: Minimum Stop Distance
