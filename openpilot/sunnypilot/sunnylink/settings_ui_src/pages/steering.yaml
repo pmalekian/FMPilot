@@ -552,6 +552,17 @@ sections:
       request near the turn's strongest point, easing off gradually, until the truck has turned about 75 degrees, the blinker
       is cancelled, or you steer. Works with Turn Lead, but using one at a time is recommended so each turn is easier to
       judge.
+    sub_items:
+    - key: FM_TurnHoldPathSource
+      widget: toggle
+      title: Hold Path Source
+      description: When starting a turn from a stop or a crawl (under about 2 mph), also take the turn from the planned
+        path, so the truck turns even if the model's steering request still says straight. Never tighter than Turn Path
+        Tightest Radius. From StarPilot's Model Turn Assist.
+      enablement:
+      - type: param
+        key: FM_TurnHoldEnabled
+        equals: true
   - key: FM_TurnLeadEnabled
     widget: toggle
     title: Turn Lead
@@ -563,13 +574,18 @@ sections:
     - key: FM_TurnPathMinRadius
       widget: option
       title: Turn Path Tightest Radius
-      description: The tightest turn Turn Lead may ask for, as a radius. Smaller is stronger; 8 m is the strongest. Default
-        12 m.
+      description: The tightest turn Turn Lead and Hold Path Source may ask for, as a radius. Smaller is stronger; 8 m is
+        the strongest. Default 12 m.
       min: 8
       max: 20
       step: 1
       unit: m
       enablement:
-      - type: param
-        key: FM_TurnLeadEnabled
-        equals: true
+      - type: any
+        conditions:
+        - type: param
+          key: FM_TurnLeadEnabled
+          equals: true
+        - type: param
+          key: FM_TurnHoldPathSource
+          equals: true

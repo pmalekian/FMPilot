@@ -14,8 +14,8 @@ features below. Every FM Pilot commit starts with "FM Pilot".
 | Quiet road-edge block: small gray message, no sound | `FM_QuietRoadEdgeBlock` (Steering) | `selfdrived.py`, `sunnypilot/selfdrive/selfdrived/events.py`, `cereal/custom.capnp` | off |
 | Road Edge Turn Desire: signaling toward a road edge (20–45 mph) plans a turn; every turn starts on the blinker alone and holds until the blinker is cancelled | `FM_RoadEdgeTurnDesire`, `FM_RoadEdgeTurnMaxSpeed` (Steering) | `sunnypilot/selfdrive/controls/lib/fm_turn_desire.py`, `desire_helper.py` | off |
 | Turn Boost: tighter requests during low-speed blinker turns, per side | `FM_TurnBoostEnabled`, `FM_TurnBoostLeft`, `FM_TurnBoostRight` (Steering) | `sunnypilot/selfdrive/controls/lib/fm_turn_assist.py`, `fm_lateral.py` | off (1.10 / 1.20) |
-| Turn Hold: keeps a model from letting go of a turn halfway | `FM_TurnHoldEnabled` (Steering) | `fm_turn_assist.py` | off |
-| Turn Lead: starts blinker turns on time when the model turns in late (about 7–16 mph), from the planned path's curve 1.3 s ahead, handing back as the truck catches up; never tighter than Turn Path Tightest Radius. Can run with Turn Hold; one at a time recommended | `FM_TurnLeadEnabled`, `FM_TurnPathMinRadius` (Steering) | `fm_turn_assist.py` | off (12 m, 8–20) |
+| Turn Hold: keeps a model from letting go of a turn halfway (time stopped doesn't count toward its 8 s). Option Hold Path Source: when starting a turn from a stop or a crawl (under about 2 mph), also takes the turn from the planned path, never tighter than Turn Path Tightest Radius | `FM_TurnHoldEnabled`, `FM_TurnHoldPathSource` (Steering) | `fm_turn_assist.py` | off |
+| Turn Lead: starts blinker turns on time when the model turns in late (about 7–16 mph), from the planned path's curve 1.3 s ahead, handing back as the truck catches up; never tighter than Turn Path Tightest Radius (shared with Hold Path Source). Can run with Turn Hold; one at a time recommended | `FM_TurnLeadEnabled`, `FM_TurnPathMinRadius` (Steering) | `fm_turn_assist.py` | off (12 m, 8–20) |
 | Custom (spliced) model: load a model compiled on the device in place of its base model; on-screen "Splice Model / Custom Model \| ms" label | `FM_CustomModelEnabled` (Models); `FM_CustomModelPath` / `FM_CustomModelBaseRef` set by the build script | `sunnypilot/modeld_v2/modeld.py`, `fm_build_custom_model.sh`, `fm_custom_label.py`, HUD renderers | on once built |
 | On-device compile fix for the comma GPU (QCOM, IMAGE=1) miscompile of the point-policy residual add (NaN lane lines, meta and pose) | `FM_CONTIGUOUS_OUTPUTS` (build script sets `linear_2`) | `sunnypilot/modeld_v2/fm_compile_fixes.py`, `compile_modeld.py` | used by the build script |
 | Model check tools | n/a | `fm_check_model.py` (NaN check, `--compare`), `fm_debug_nan.py`, `fm_debug_variants.py` | n/a |
@@ -31,8 +31,8 @@ Removed: dual model mode (two small models do not fit the comma 4's 50 ms model 
   carries the same file; ours gives way to it at the next sync.
 - **Predictive Boost**: sunnypilot `AccelBoostSP`, branch `booooost` (James Vecellio-Grant / Discountchubbs, Nov 3, 2026;
   MIT), logic unchanged. When sunnypilot ships it and AP takes it in, ours gives way to theirs and the mode selector stays.
-- **Turn Lead**: StarPilot's Model Turn Assist "turn lead" (`openpilot/starpilot/lateral/model_turn_assist.py`, Dom branch,
-  Nov 2026, firestar5683 and StarPilot contributors, MIT). FM Pilot changes: smooth speed fade, radius cap as a setting.
+- **Turn Lead** and **Hold Path Source**: StarPilot's Model Turn Assist "turn lead" and curvature-hold plan source (`openpilot/starpilot/lateral/model_turn_assist.py`, Dom branch,
+  Nov 2026, firestar5683 and StarPilot contributors, MIT). FM Pilot changes: smooth speed fade for Turn Lead, radius cap as a setting.
 - Everything else here is FM Pilot's own, built on AdventurePilot, sunnypilot and openpilot (MIT).
 
 ## Upstreaming to AdventurePilot

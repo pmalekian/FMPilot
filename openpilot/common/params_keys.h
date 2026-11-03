@@ -279,6 +279,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"FM_TurnBoostLeft", {PERSISTENT | BACKUP, FLOAT, "1.1"}},
     {"FM_TurnBoostRight", {PERSISTENT | BACKUP, FLOAT, "1.2"}},
     {"FM_TurnHoldEnabled", {PERSISTENT | BACKUP, BOOL, "0"}},
+    {"FM_TurnHoldPathSource", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"FM_TurnLeadEnabled", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"FM_TurnPathMinRadius", {PERSISTENT | BACKUP, FLOAT, "12.0"}},
     {"LaneGuardEnabled", {PERSISTENT | BACKUP, BOOL, "0"}},

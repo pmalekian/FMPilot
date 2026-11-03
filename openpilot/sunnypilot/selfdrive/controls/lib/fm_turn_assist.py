@@ -11,8 +11,14 @@ only change the requested curvature, so every steering limit after them still ap
     gets there sooner. It never reduces a request and never boosts a request that steers away from the turn.
   - Turn Hold keeps a model from letting go of a turn halfway (TSFDOM eases from about an 11 m radius to 30 m mid-turn).
     It tracks the turn's peak request and keeps the request at no less than 90% of it, a floor that drops by 15% of the
-    peak per second after the peak. It releases for good once the truck has turned 75 degrees, after 8 s, when the driver
-    steers, or when the turn ends.
+    peak per second after the peak. It releases for good once the truck has turned 75 degrees, after 8 s of moving, when
+    the driver steers, or when the turn ends.
+    Option Hold Path Source: when starting a turn from a stop or a crawl (under about 2 mph), also take the turn from the
+    planned path, so a model whose steering request still says straight there turns anyway. It uses 85% of the gentler
+    of the path's curves at 4 m and 7 m, weighted down unless the path has already turned more than 10 degrees within
+    1.5 m (none past 5 m: the corner must be right there) and reaches at least 12 m ahead (none under 7 m), and never
+    tighter than Turn Path Tightest Radius. Turn Hold then holds that as usual. From StarPilot's Model Turn Assist
+    curvature hold (plan source), same thresholds. Time stopped (waiting to turn) doesn't count toward Turn Hold's 8 s.
   - Turn Lead starts the turn on time when a model turns in late. Between about 7 and 16 mph it reads the curve of the
     planned path 1.3 s ahead (4 to 14 m) and, if that bends harder toward the turn than the model's request, asks for
     85% of it instead. It fades out as the truck's actual curve catches up (gone once the truck turns as tightly as the
@@ -40,6 +46,7 @@ PARAM_BOOST_LEFT = "FM_TurnBoostLeft"
 PARAM_BOOST_RIGHT = "FM_TurnBoostRight"
 PARAM_HOLD = "FM_TurnHoldEnabled"
 PARAM_LEAD = "FM_TurnLeadEnabled"
+PARAM_HOLD_PATH = "FM_TurnHoldPathSource"
 PARAM_MIN_RADIUS = "FM_TurnPathMinRadius"
 
 BOOST_LIMITS = (1.0, 1.5)
@@ -49,7 +56,8 @@ FADE_TIME = 0.5  # s
 HOLD_RATIO = 0.9
 HOLD_DECAY = 0.15  # fraction of the peak per second, after the peak
 HOLD_MAX_HEADING = math.radians(75.)
-HOLD_MAX_TIME = 8.0  # s
+HOLD_MAX_TIME = 8.0  # s of moving
+HOLD_MOVING_SPEED = 0.5  # m/s
 
 # Turn Lead (from StarPilot's TURN_LEAD_*)
 LEAD_TIME = 1.3  # s of travel to the path point it reads
@@ -62,6 +70,14 @@ LEAD_ENGAGED_FRAC = 0.5  # full until the truck turns half as tightly as the pat
 LEAD_MODEL_OPPOSE = 0.003  # 1/m: no Lead while the model steers away from the turn by more than this
 LEAD_STOP_MARGIN = 1.5
 LEAD_DECEL_GATE = -0.5  # m/s^2
+
+# Turn Hold path source (from StarPilot's CURVATURE_HOLD_PLAN_* / ONSET_* / REACH_*)
+HOLD_PATH_MAX_SPEED = 2.0 * CV.MPH_TO_MS
+HOLD_PATH_LOOKAHEAD = (4.0, 7.0)  # m
+HOLD_PATH_SCALE = 0.85
+HOLD_PATH_ONSET_HEADING = 10.0  # deg
+HOLD_PATH_ONSET = (1.5, 5.0)  # m: full weight if the path starts turning within 1.5 m, none past 5 m
+HOLD_PATH_REACH = (7.0, 12.0)  # m: none if the path reaches less than 7 m ahead, full from 12 m
 
 MIN_RADIUS_LIMITS = (8.0, 20.0)  # m
 MIN_RADIUS_DEFAULT = 12.0
@@ -85,6 +101,18 @@ def plan_circle_curvature(xs, ys, lookahead: float) -> float:
   if d2 < 1.0:
     return 0.0
   return 2.0 * py / d2
+
+
+def plan_turn_onset(model_v2) -> float:
+  """Distance to the first planned point where the path heads more than 10 degrees off straight. From StarPilot."""
+  xs, ys = model_v2.position.x, model_v2.position.y
+  for i in range(2, min(len(xs), len(ys))):
+    dx, dy = xs[i] - xs[i - 1], ys[i] - ys[i - 1]
+    if abs(dx) < 0.001 and abs(dy) < 0.001:
+      continue
+    if abs(math.degrees(math.atan2(dy, dx))) > HOLD_PATH_ONSET_HEADING:
+      return math.hypot(xs[i], ys[i])
+  return math.inf
 
 
 def plan_dual_probe(model_v2, d_near: float, d_far: float) -> float:
@@ -118,6 +146,7 @@ class FmTurnAssist:
     self.boost_right = 1.0
     self.hold_enabled = False
     self.lead_enabled = False
+    self.hold_path = False
     self.max_curvature = 1.0 / MIN_RADIUS_DEFAULT
     self.amount = 0.0  # 0..1 fade
     self._reset_turn(0)
@@ -135,6 +164,7 @@ class FmTurnAssist:
     self.boost_right = gain(PARAM_BOOST_RIGHT)
     self.hold_enabled = self.params.get_bool(PARAM_HOLD)
     self.lead_enabled = self.params.get_bool(PARAM_LEAD)
+    self.hold_path = self.params.get_bool(PARAM_HOLD_PATH)
     try:
       radius = float(self.params.get(PARAM_MIN_RADIUS, return_default=True) or MIN_RADIUS_DEFAULT)
     except (TypeError, ValueError):
@@ -171,6 +201,21 @@ class FmTurnAssist:
     engage_w = float(np.clip((1.0 - engaged) / (1.0 - LEAD_ENGAGED_FRAC), 0.0, 1.0))
     return lead * speed_w * engage_w
 
+  def hold_path_curvature(self, model_v2, sign: int) -> float:
+    """Turn Hold's path source toward the turn (>= 0, before the fade), or 0."""
+    try:
+      xs = model_v2.position.x
+      reach = float(xs[-1]) if len(xs) else 0.0
+      path = sign * plan_dual_probe(model_v2, *HOLD_PATH_LOOKAHEAD) * HOLD_PATH_SCALE
+      onset = plan_turn_onset(model_v2)
+    except (AttributeError, IndexError, TypeError, ValueError, OverflowError):
+      return 0.0
+    if not (math.isfinite(reach) and math.isfinite(path)) or path <= 0.0:
+      return 0.0
+    onset_w = float(np.interp(onset, HOLD_PATH_ONSET, [1.0, 0.0])) if math.isfinite(onset) else 0.0
+    reach_w = float(np.interp(reach, HOLD_PATH_REACH, [0.0, 1.0]))
+    return min(path, self.max_curvature) * onset_w * reach_w
+
   def update(self, desired_curvature: float, turn_direction, v_ego: float, actual_curvature: float,
              steering_pressed: bool, lat_active: bool, model_v2=None, a_ego: float = 0.0,
              lane_changing: bool = False) -> float:
@@ -200,11 +245,17 @@ class FmTurnAssist:
         toward = sign * out
 
     if self.hold_enabled and not self.hold_released:
-      self.turn_time += DT_CTRL
+      if v_ego >= HOLD_MOVING_SPEED:
+        self.turn_time += DT_CTRL  # time stopped (waiting to turn) doesn't count toward the 8 s
       self.heading += sign * actual_curvature * v_ego * DT_CTRL
       if steering_pressed or self.heading >= HOLD_MAX_HEADING or self.turn_time >= HOLD_MAX_TIME:
         self.hold_released = True
       else:
+        if self.hold_path and model_v2 is not None and v_ego < HOLD_PATH_MAX_SPEED:
+          path = self.hold_path_curvature(model_v2, sign)
+          if path > toward:
+            out = sign * (toward + (path - toward) * self.amount)
+            toward = sign * out
         if toward >= self.peak:
           self.peak, self.since_peak = toward, 0.0
         else:

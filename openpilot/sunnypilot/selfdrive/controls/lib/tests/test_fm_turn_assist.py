@@ -7,7 +7,7 @@ from openpilot.common.constants import CV
 from openpilot.common.realtime import DT_CTRL
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_assist import (FmTurnAssist, TurnDirection, PARAM_BOOST, PARAM_BOOST_LEFT,
                                                                          PARAM_BOOST_RIGHT, PARAM_HOLD, HOLD_MAX_HEADING, FADE_TIME,
-                                                                         PARAM_LEAD, PARAM_MIN_RADIUS, MIN_RADIUS_DEFAULT,
+                                                                         PARAM_LEAD, PARAM_MIN_RADIUS, MIN_RADIUS_DEFAULT, PARAM_HOLD_PATH,
                                                                          plan_circle_curvature)
 
 LEFT, RIGHT, NONE = TurnDirection.turnLeft, TurnDirection.turnRight, TurnDirection.none
@@ -16,7 +16,7 @@ FADE_STEPS = int(FADE_TIME / DT_CTRL) + 2
 
 class FakeParams:
   def __init__(self, **values):
-    self.values = {PARAM_BOOST: False, PARAM_BOOST_LEFT: 1.1, PARAM_BOOST_RIGHT: 1.2, PARAM_HOLD: False, PARAM_LEAD: False,
+    self.values = {PARAM_BOOST: False, PARAM_BOOST_LEFT: 1.1, PARAM_BOOST_RIGHT: 1.2, PARAM_HOLD: False, PARAM_LEAD: False, PARAM_HOLD_PATH: False,
                    PARAM_MIN_RADIUS: MIN_RADIUS_DEFAULT} | values
 
   def get_bool(self, key):
@@ -35,15 +35,18 @@ def run(assist, k, direction, mph=10, steps=1, actual=None, pressed=False, lat=T
 
 
 def path(radius=None, start=2.0, side=1, length=60):
-  """Planned path: straight for `start` m, then an arc of `radius` m turning right (side=1) or left (side=-1)."""
+  """Planned path: straight for `start` m, then a 90 degree corner of `radius` m turning right (side=1) or left (side=-1),
+  then straight out of the corner."""
   xs, ys = [], []
   for i in range(length + 1):
     s = float(i)
     if radius is None or s <= start:
       x, y = s, 0.0
-    else:
+    elif s <= start + radius * math.pi / 2:
       th = (s - start) / radius
       x, y = start + radius * math.sin(th), side * radius * (1.0 - math.cos(th))
+    else:
+      x, y = start + radius, side * (radius + s - start - radius * math.pi / 2)
     xs.append(x)
     ys.append(y)
   return SimpleNamespace(position=SimpleNamespace(x=xs, y=ys))
@@ -153,8 +156,64 @@ class TestTurnHold:
     run(a, 0.09, RIGHT, steps=FADE_STEPS, actual=0.001)
     assert run(a, 0.03, RIGHT, actual=0.001) == pytest.approx(0.081, rel=0.01)
 
+  def test_waiting_stopped_does_not_use_up_the_hold(self):
+    a = self.hold()
+    run(a, 0.0, RIGHT, mph=0, steps=int(20 / DT_CTRL), actual=0.0)  # 20 s waiting at the corner
+    run(a, 0.09, RIGHT, steps=FADE_STEPS, actual=0.001)
+    assert run(a, 0.03, RIGHT, actual=0.001) == pytest.approx(0.081, rel=0.01)
+
   def test_heading_math(self):
     assert math.degrees(HOLD_MAX_HEADING) == pytest.approx(75)
+
+
+class TestHoldPathSource:
+  def hold(self, path_source=True, **values):
+    return FmTurnAssist(FakeParams(**({PARAM_HOLD: True, PARAM_HOLD_PATH: path_source} | values)))
+
+  def test_off_by_default(self):
+    a = self.hold(path_source=False)
+    assert run(a, 0.0, RIGHT, mph=1, steps=FADE_STEPS, model=path(10.0, start=1.0), actual=0.0) == 0.0
+
+  def test_turns_from_a_crawl_when_model_says_straight(self):
+    a = self.hold()
+    out = run(a, 0.0, RIGHT, mph=1, steps=FADE_STEPS, model=path(10.0, start=0.0), actual=0.0)
+    assert 0.02 < out <= 1 / MIN_RADIUS_DEFAULT + 1e-9
+
+  def test_left(self):
+    a = self.hold()
+    assert run(a, 0.0, LEFT, mph=1, steps=FADE_STEPS, model=path(10.0, start=0.0, side=-1), actual=0.0) < -0.02
+
+  def test_radius_cap(self):
+    gentle = run(self.hold(**{PARAM_MIN_RADIUS: 20.0}), 0.0, RIGHT, mph=1, steps=FADE_STEPS, model=path(10.0, start=0.0),
+                 actual=0.0)
+    default = run(self.hold(), 0.0, RIGHT, mph=1, steps=FADE_STEPS, model=path(10.0, start=0.0), actual=0.0)
+    assert 0.0 < gentle <= 1 / 20.0
+    assert default > gentle
+
+  def test_holds_path_turn_after_speeding_up(self):
+    a = self.hold()
+    asked = run(a, 0.0, RIGHT, mph=1, steps=FADE_STEPS, model=path(10.0, start=0.0), actual=0.0)
+    assert run(a, 0.0, RIGHT, mph=5, model=path(10.0, start=0.0), actual=0.0) == pytest.approx(asked * 0.9, rel=0.02)
+
+  def test_only_below_2_mph(self):
+    a = self.hold()
+    assert run(a, 0.0, RIGHT, mph=3, steps=FADE_STEPS, model=path(10.0, start=0.0), actual=0.0) == 0.0
+
+  def test_turn_must_start_close(self):
+    a = self.hold()
+    assert run(a, 0.0, RIGHT, mph=1, steps=FADE_STEPS, model=path(10.0, start=8.0), actual=0.0) == 0.0
+
+  def test_short_path_ignored(self):
+    a = self.hold()
+    assert run(a, 0.0, RIGHT, mph=1, steps=FADE_STEPS, model=path(10.0, start=0.0, length=6), actual=0.0) == 0.0
+
+  def test_never_toward_the_other_side(self):
+    a = self.hold()
+    assert run(a, 0.0, RIGHT, mph=1, steps=FADE_STEPS, model=path(10.0, start=0.0, side=-1), actual=0.0) == 0.0
+
+  def test_needs_turn_hold_on(self):
+    a = FmTurnAssist(FakeParams(**{PARAM_HOLD_PATH: True}))
+    assert run(a, 0.0, RIGHT, mph=1, steps=FADE_STEPS, model=path(10.0, start=0.0), actual=0.0) == 0.0
 
 
 class TestTurnLead:
