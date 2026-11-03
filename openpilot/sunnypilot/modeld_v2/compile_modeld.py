@@ -24,6 +24,7 @@ import numpy as np
 
 from openpilot.common.file_chunker import chunk_file, get_chunk_targets, open_file_chunked
 from openpilot.sunnypilot.modeld_v2.helpers import dump_oob, load_oob
+from openpilot.sunnypilot.modeld_v2 import fm_compile_fixes
 import openpilot.sunnypilot.modeld_v2.stock_dependencies as stock
 from openpilot.system.camerad.cameras.nv12_info import get_nv12_info
 
@@ -371,7 +372,7 @@ def _load_policy_runners(args: argparse.Namespace) -> tuple[list, list]:
   runners, keys = [], []
   for name, onnx_arg in [('policy', args.policy_onnx), ('off_policy', args.off_policy_onnx), ('on_policy', args.on_policy_onnx)]:
     if onnx_arg:
-      runners.append(OnnxRunner(onnx_arg))
+      runners.append(fm_compile_fixes.apply(OnnxRunner(onnx_arg)))
       keys.append(name)
   return runners, keys
 
@@ -438,7 +439,7 @@ if __name__ == "__main__":
   if is_unified_supercombo:
     output_data['metadata'] = {'model': model_metadata, **model_metadata}
     output_data['input_devices'] = {'model': Device.DEFAULT}
-    model_runner = OnnxRunner(args.supercombo_onnx)
+    model_runner = fm_compile_fixes.apply(OnnxRunner(args.supercombo_onnx))
     features_slice = model_metadata['output_slices']['hidden_state']
     run_policy = make_run_policy(None, [model_runner], features_slice, derived_frame_skip, model_metadata['input_shapes'])
     for cam_w, cam_h in set(args.camera_resolutions):
@@ -456,15 +457,15 @@ if __name__ == "__main__":
     gc.collect()
     output_data['metadata']['warp_dev'] = Device.DEFAULT
   else:
-    vision_runner = OnnxRunner(args.vision_onnx) if args.vision_onnx else None
+    vision_runner = fm_compile_fixes.apply(OnnxRunner(args.vision_onnx)) if args.vision_onnx else None
 
     if args.model_type == 'vision_policy':
       assert vision_runner and args.policy_onnx
-      policy_runners = [OnnxRunner(args.policy_onnx)]
+      policy_runners = [fm_compile_fixes.apply(OnnxRunner(args.policy_onnx))]
       output_data['metadata'] = {'vision': make_metadata_dict(args.vision_onnx), 'policy': make_metadata_dict(args.policy_onnx)}
     elif args.model_type == 'supercombo':
       assert args.supercombo_onnx
-      policy_runners = [OnnxRunner(args.supercombo_onnx)]
+      policy_runners = [fm_compile_fixes.apply(OnnxRunner(args.supercombo_onnx))]
       output_data['metadata'] = {'model': make_metadata_dict(args.supercombo_onnx)}
     elif args.model_type == 'vision_multi_policy':
       assert vision_runner

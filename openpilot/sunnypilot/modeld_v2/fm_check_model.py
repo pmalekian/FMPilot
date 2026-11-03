@@ -6,6 +6,11 @@
 With no arguments it checks the custom (splice) model and the downloaded Rebel Legion model. Each file is run the way
 modeld runs it (same loader and adapter) for 20 frames of random camera images. Run it with the car off: modeld must
 not be running.
+
+  ... fm_check_model.py --compare custom.pkl reference.pkl
+
+runs both on the same frames and prints how far each output differs. A splice should match its base model exactly
+everywhere except action (the spliced steering).
 """
 import gc
 import glob
@@ -33,7 +38,8 @@ def default_paths() -> list[str]:
   return paths
 
 
-def check(path: str) -> None:
+def check(path: str, results: dict | None = None) -> bool:
+  """True when every output is free of NaN. The last frame's outputs go into results."""
   from openpilot.sunnypilot.modeld_v2.modeld import ModelState
   print(f"\n=== {path}")
   os.environ['COMBINED_MODEL_PKL'] = path
@@ -46,7 +52,7 @@ def check(path: str) -> None:
       continue
   if model is None:
     print("  could not load (no matching camera warp)")
-    return
+    return False
   print(f"  format: {'native' if model.adapter.is_native else 'legacy'} {model._combined_model_type}, camera {cam_w}x{cam_h}")
 
   rng = np.random.default_rng(0)
@@ -70,13 +76,41 @@ def check(path: str) -> None:
   good = sorted(k for k, v in nan_any.items() if not v)
   print(f"  NaN outputs: {', '.join(bad) if bad else 'none'}")
   print(f"  OK outputs:  {', '.join(good)}")
+  if results is not None:
+    results.update({k: np.asarray(v, dtype=np.float32).copy() for k, v in outputs.items()})
   del model
   gc.collect()
+  return not bad
+
+
+def compare(path_a: str, path_b: str) -> bool:
+  a, b = {}, {}
+  check(path_a, a)
+  check(path_b, b)
+  print(f"\n=== difference, {os.path.basename(path_a)} vs {os.path.basename(path_b)} (last frame)")
+  ok = True
+  for k in sorted(set(a) & set(b)):
+    if a[k].shape != b[k].shape:
+      print(f"  {k:28s} shapes differ {a[k].shape} vs {b[k].shape}")
+      continue
+    diff = float(np.nanmax(np.abs(a[k] - b[k]))) if a[k].size else 0.0
+    scale = float(np.nanmax(np.abs(b[k]))) if b[k].size else 0.0
+    close = diff <= 0.05 * max(scale, 1e-3) + 1e-3
+    expected = k.startswith('action')
+    ok = ok and (close or expected)
+    print(f"  {k:28s} max diff {diff:10.4f}  (size {scale:9.4f})  {'match' if close else ('differs, expected' if expected else 'DIFFERS')}")
+  print(f"  {'all outputs match apart from action' if ok else 'MISMATCH: something besides action differs'}")
+  return ok
 
 
 if __name__ == "__main__":
+  if len(sys.argv) == 4 and sys.argv[1] == '--compare':
+    sys.exit(0 if compare(sys.argv[2], sys.argv[3]) else 1)
+  ok = True
   for p in (sys.argv[1:] or default_paths()):
     try:
-      check(p)
+      ok = check(p) and ok
     except Exception as e:  # keep going so one bad file does not hide the others
       print(f"  failed: {type(e).__name__}: {e}")
+      ok = False
+  sys.exit(0 if ok else 1)

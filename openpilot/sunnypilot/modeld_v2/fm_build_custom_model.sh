@@ -32,11 +32,19 @@ mkdir -p "$OUT_DIR"
 OUT="$OUT_DIR/$(basename "${ONNX%.onnx}")_tinygrad.pkl"
 
 echo "compiling $ONNX -> $OUT (this takes several minutes)"
-# same tinygrad flags the openpilot build uses for the comma's GPU
+# same tinygrad flags the openpilot build uses for the comma's GPU. FM_CONTIGUOUS_OUTPUTS works around a miscompile of
+# the point-policy residual add on the comma (see fm_compile_fixes.py); names not in the model are ignored.
+FM_CONTIGUOUS_OUTPUTS="${FM_CONTIGUOUS_OUTPUTS-linear_2}" \
 DEV=QCOM IMAGE=1 FLOAT16=1 NOLOCALS=1 JIT_BATCH_SIZE=0 OPENPILOT_HACKS=1 \
   python3 openpilot/sunnypilot/modeld_v2/compile_modeld.py \
     --model-type supercombo --model-size 512x256 --camera-resolutions 1928x1208 1344x760 \
     --supercombo-onnx "$ONNX" --output "$OUT"
+
+echo "checking $OUT for NaN outputs"
+if ! python3 openpilot/sunnypilot/modeld_v2/fm_check_model.py "$OUT"; then
+  echo "NOT switched on: the compiled model gives NaN outputs (see above). The previous setting is unchanged."
+  exit 1
+fi
 
 put_param FM_CustomModelPath "$OUT"
 put_param FM_CustomModelBaseRef "$BASE_REF"
