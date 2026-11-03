@@ -5,7 +5,8 @@ requested and sent, lane lines, the driver's hands, blinker and turn desire, in 
 usage: timeline.py rlog.zst [--step 2] [--start 0] [--end 60]
 
 Sign conventions (this fork, Rivian): curvature and lateral accel are positive to the RIGHT (controlsd's
--VM.calc_curvature); steering angle and hand torque are negative to the right; actuators torque is positive to the LEFT.
+-VM.calc_curvature); steering angle and hand torque are positive to the LEFT; actuators/sent torque are positive to the
+LEFT. Lane line y is positive to the right. See README.md.
 """
 import argparse
 

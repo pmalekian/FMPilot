@@ -23,9 +23,23 @@ Each segment is one minute; the model file modeld loaded is only logged in a dri
 | `sway.py rlog.zst ...` | Straight-road sway: wheel, model, lane centering's share, dominant period |
 | `dm.py rlog.zst ...` | Driver monitoring: % distracted and why (pose / eyes / phone), alert levels |
 
-Sign conventions in this fork's logs (Rivian): curvature and lateral accel positive to the right; steering angle and hand
-torque negative to the right; `carControl.actuators.torque` positive to the left. Hand torque is the column's torsion
-bar, so it also reads the reaction of a loosely held wheel to openpilot's own torque.
+### Sign conventions (Rivian, this fork)
+
+Checked against `controlsd.py`, `latcontrol_torque.py` and the Rivian car code on Nov 3, 2026.
+
+| Signal | Positive means | Why |
+|---|---|---|
+| `controlsState.curvature`, `controlsState.desiredCurvature`, `modelV2.action.desiredCurvature`, `torqueState.actualLateralAccel` / `desiredLateralAccel` | **right** | Model outputs are in the calibrated frame (forward, right, down), and controlsd / latcontrol_torque compute curvature as `-VM.calc_curvature(steeringAngleDeg)` |
+| `modelV2.laneLines[i].y`, `roadEdges[i].y` | right of the camera | Same frame. `laneLines[1]` is the near left line, `[2]` the near right |
+| `carState.steeringAngleDeg` | **left** | opendbc convention; raw `EPAS_InternalSas`. The minus above makes curvature right-positive |
+| `carState.steeringTorque` (hands / column) | **left** | Raw `EPAS_TorsionBarTorque`. Same sign as the torque command: `apply_driver_steer_torque_limits` relies on that |
+| `carControl.actuators.torque`, `carOutput.actuatorsOutput.torque`, `torqueState.output` | **left** | latcontrol_torque works right-positive internally, then returns and logs `-output_torque` ("left is positive") |
+
+The angle and hand-torque signs come straight from the EPAS, so the code can only assume them; lateral control would not
+work at all if the angle were flipped. To confirm in a log: with openpilot off, turn the wheel left by hand and both
+should read positive.
+
+Hand torque is the column's torsion bar, so it also reads the reaction of a loosely held wheel to openpilot's own torque.
 
 ## Model tools
 
