@@ -19,7 +19,7 @@ Each segment is one minute; the model file modeld loaded is only logged in a dri
 |---|---|
 | `timeline.py rlog.zst [--step 2]` | Steering over time: model / final / achieved curvature, torque requested and sent, lane lines, hands, blinker, turn desire, faults |
 | `events.py rlog.zst` | Version, model, FM-related settings, on-screen alerts, onroad events, fault and model-load log messages |
-| `turns.py rlog.zst ...` | Every sharp turn: tightest radius asked vs driven, time at the torque limit, hand force and its direction |
+| `turns.py rlog.zst ...` | Every sharp turn: tightest radius asked vs driven, time at the torque limit, hand force: with or against openpilot's torque while it steers, into the turn while you steer |
 | `sway.py rlog.zst ...` | Straight-road sway: wheel, model, lane centering's share, dominant period |
 | `dm.py rlog.zst ...` | Driver monitoring: % distracted and why (pose / eyes / phone), alert levels |
 
@@ -40,6 +40,9 @@ work at all if the angle were flipped. To confirm in a log: with openpilot off, 
 should read positive.
 
 Hand torque is the column's torsion bar, so it also reads the reaction of a loosely held wheel to openpilot's own torque.
+That reaction always points against openpilot's torque. So `turns.py` splits the hands by what openpilot was sending:
+*with* openpilot's torque is certainly you helping, while *against* it (marked `*`) is you resisting **or** just the
+wheel's reaction, and this sensor can't tell those apart. While you steer alone, *into the turn* is your own effort.
 
 ## Model tools
 
