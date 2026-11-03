@@ -19,6 +19,10 @@ put_param() {
   python3 -c "import sys; from openpilot.common.params import Params; p = Params(); p.remove(sys.argv[1]) if sys.argv[2] == '' else p.put(sys.argv[1], sys.argv[2])" "$1" "$2"
 }
 
+put_bool() {
+  python3 -c "import sys; from openpilot.common.params import Params; Params().put_bool(sys.argv[1], sys.argv[2] == '1')" "$1" "$2"
+}
+
 if [ "${1:-}" = "--off" ]; then
   put_param FM_CustomModelPath ""
   put_param FM_CustomModelBaseRef ""
@@ -48,5 +52,5 @@ fi
 
 put_param FM_CustomModelPath "$OUT"
 put_param FM_CustomModelBaseRef "$BASE_REF"
-put_param FM_CustomModelEnabled "1"
+put_bool FM_CustomModelEnabled 1
 echo "done: $OUT will load on the next drive while the model with ref $BASE_REF is selected"
