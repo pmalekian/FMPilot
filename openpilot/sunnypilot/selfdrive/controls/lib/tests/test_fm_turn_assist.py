@@ -8,7 +8,7 @@ from openpilot.common.realtime import DT_CTRL
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_assist import (FmTurnAssist, TurnDirection, PARAM_BOOST, PARAM_BOOST_LEFT,
                                                                          PARAM_BOOST_RIGHT, PARAM_HOLD, HOLD_MAX_HEADING, FADE_TIME,
                                                                          PARAM_LEAD, PARAM_MIN_RADIUS, MIN_RADIUS_DEFAULT, PARAM_HOLD_PATH,
-                                                                         PARAM_HOLD_DRIVER,
+                                                                         PARAM_HOLD_DRIVER, PARAM_LEAD_MIN_SPEED,
                                                                          plan_circle_curvature)
 
 LEFT, RIGHT, NONE = TurnDirection.turnLeft, TurnDirection.turnRight, TurnDirection.none
@@ -18,7 +18,8 @@ FADE_STEPS = int(FADE_TIME / DT_CTRL) + 2
 class FakeParams:
   def __init__(self, **values):
     self.values = {PARAM_BOOST: False, PARAM_BOOST_LEFT: 1.1, PARAM_BOOST_RIGHT: 1.2, PARAM_HOLD: False, PARAM_LEAD: False,
-                   PARAM_HOLD_PATH: False, PARAM_HOLD_DRIVER: False, PARAM_MIN_RADIUS: MIN_RADIUS_DEFAULT} | values
+                   PARAM_HOLD_PATH: False, PARAM_HOLD_DRIVER: False, PARAM_LEAD_MIN_SPEED: 7.0,
+                   PARAM_MIN_RADIUS: MIN_RADIUS_DEFAULT} | values
 
   def get_bool(self, key):
     return bool(self.values.get(key))
@@ -313,6 +314,19 @@ class TestTurnLead:
     a = self.lead()
     out = run(a, 0.0, RIGHT, mph=mph, steps=FADE_STEPS, model=path(15.0), actual=0.0)
     assert (out > 0.0) == active
+
+  @pytest.mark.parametrize("setting,mph,active", [(7.0, 6, False), (3.0, 2, False), (3.0, 4, True), (2.0, 3, True),
+                                                  (1.0, 1.5, False), (10.0, 6, False)])
+  def test_min_speed_setting(self, setting, mph, active):
+    a = self.lead(**{PARAM_LEAD_MIN_SPEED: setting})  # clipped to 2..7 mph
+    out = run(a, 0.0, RIGHT, mph=mph, steps=FADE_STEPS, model=path(15.0), actual=0.0)
+    assert (out > 0.0) == active
+
+  def test_full_strength_about_2_mph_above_min(self):
+    a = self.lead(**{PARAM_LEAD_MIN_SPEED: 3.0})
+    full = run(a, 0.0, RIGHT, mph=9, steps=FADE_STEPS, model=path(15.0, start=0.0), actual=0.0)  # a circle: same curve at any distance
+    b = self.lead(**{PARAM_LEAD_MIN_SPEED: 3.0})
+    assert run(b, 0.0, RIGHT, mph=5.3, steps=FADE_STEPS, model=path(15.0, start=0.0), actual=0.0) == pytest.approx(full, rel=0.05)
 
   def test_not_when_stopping_short(self):
     a = self.lead()

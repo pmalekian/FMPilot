@@ -46,9 +46,10 @@ State as of Nov 3, 2026 (evening). Read this with `FM_PILOT.md` (features, setti
   - Frankie's slow turns **start late**, so Turn Lead is first: Turn Lead alone, hands hovering, send turn segments.
     Then Turn Hold (optionally with its two options), then Boost (defaults left 1.10, right 1.20) only if turns still
     go wide. Lead and Hold can run together, but the settings recommend one at a time.
-  - Turn Lead works about 7–16 mph (StarPilot's band, smooth fade added); nothing below 7 mph yet. Next step for it: add
-    path-curve-onset vs request-onset timing to `tools/fm/turns.py`, check whether the path is reliable below 7 mph,
-    and tune the radius.
+  - Turn Lead works from **Turn Lead Min Speed** (`FM_TurnLeadMinSpeed`, 2–7 mph, default 7 ≈ StarPilot's 3 m/s; full
+    strength about 2.2 mph above it) to about 16 mph. Frankie's turns often start late **pulling away from a stop**, so
+    lowering it is expected; at 2 mph it meets Hold Path Source. Next step: add path-curve-onset vs request-onset timing
+    to `tools/fm/turns.py`, check how steady the path is at low speed, and tune the min speed and radius.
   - Hold Path Source only works under about 2 mph and when the corner is right there (path turned 10° within 1.5 m for
     full weight, none past 5 m). Time stopped no longer counts toward Turn Hold's 8 s.
   - **Builds before `b9c5a55` (Nov 3) had left and right swapped** (curvature is right-positive; Turn Assist assumed

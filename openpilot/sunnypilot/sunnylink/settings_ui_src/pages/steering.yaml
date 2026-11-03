@@ -576,11 +576,25 @@ sections:
   - key: FM_TurnLeadEnabled
     widget: toggle
     title: Turn Lead
-    description: During a blinker turn between about 7 and 16 mph, start turning on time when the model turns in late. Reads
-      the curve of the planned path just ahead and asks for it until the truck catches up, then hands back to the model.
-      Never asks for a tighter turn than Turn Path Tightest Radius. Works with Turn Hold, but using one at a time is
+    description: During a blinker turn from Turn Lead Min Speed up to about 16 mph, start turning on time when the model
+      turns in late. Reads the curve of the planned path just ahead and asks for it until the truck catches up, then hands
+      back to the model. Never asks for a tighter turn than Turn Path Tightest Radius. Works with Turn Hold, but using one at a time is
       recommended so each turn is easier to judge. From StarPilot's Model Turn Assist.
     sub_items:
+    - key: FM_TurnLeadMinSpeed
+      widget: option
+      title: Turn Lead Min Speed
+      description: Lowest speed Turn Lead works at; it reaches full strength about 2 mph above this. Lower it to help turns
+        that start late when pulling away from a stop. 7 mph is about StarPilot's fixed value. Below 2 mph, Turn Hold's Hold Path
+        Source covers turns from a stop.
+      min: 2
+      max: 7
+      step: 1
+      unit: mph
+      enablement:
+      - type: param
+        key: FM_TurnLeadEnabled
+        equals: true
     - key: FM_TurnPathMinRadius
       widget: option
       title: Turn Path Tightest Radius
