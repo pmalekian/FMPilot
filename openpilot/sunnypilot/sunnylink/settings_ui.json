@@ -885,7 +885,7 @@
               "key": "FM_RoadEdgeTurnDesire",
               "widget": "toggle",
               "title": "Road Edge Turn Desire",
-              "description": "Signaling toward a detected road edge plans a turn instead of rejecting the lane change. With this on, every turn (including AP's Lane Turn Desire under 20 mph) waits for a nudge toward the blinker, then holds until the blinker is cancelled. Off keeps stock behavior.",
+              "description": "Signaling toward a detected road edge plans a turn instead of rejecting the lane change. With this on, every turn (including AP's Lane Turn Desire under 20 mph) starts on the blinker alone, no nudge, and holds until the blinker is cancelled. Off keeps stock behavior.",
               "enablement": [
                 {
                   "type": "param",

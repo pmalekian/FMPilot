@@ -4,17 +4,16 @@ FM Pilot: road-edge turn desire.
 With the setting on, a blinker toward a detected road edge (between 20 mph and the max-speed setting) becomes a turn
 desire instead of a rejected lane change, and every turn desire follows one rule:
 
-  1. Armed by the blinker. Under 20 mph that is AP's Lane Turn Desire as it stands (its own setting and speed); from
-     20 mph to the max speed the road edge must also be detected on that side. No arming toward an occupied blind spot.
-  2. Started by a nudge toward the blinker (or right away when lane changes are set to an automatic mode).
-  3. Held until the blinker is cancelled or switched, whatever the speed does, including stops.
+  1. Started by the blinker alone, no nudge. Under 20 mph that is AP's Lane Turn Desire as it stands (its own setting
+     and speed); from 20 mph to the max speed the road edge must also be detected on that side. No turn starts toward
+     an occupied blind spot.
+  2. Held until the blinker is cancelled or switched, whatever the speed does, including stops.
 
-While a turn is armed or active, no lane change starts and no lane change prompt or road-edge message shows.
+While a turn is active, no lane change starts and no lane change prompt or road-edge message shows.
 With the setting off, nothing here runs and turn desires behave exactly like stock AP.
 """
 from openpilot.cereal import custom
 from openpilot.common.constants import CV
-from openpilot.sunnypilot.selfdrive.controls.lib.auto_lane_change import AutoLaneChangeMode
 
 TurnDirection = custom.ModelDataV2SP.TurnDirection
 
@@ -51,8 +50,7 @@ class FmTurnDesire:
   def armed(self) -> bool:
     return self.direction != TurnDirection.none
 
-  def update(self, carstate, lateral_active: bool, stock_turn_direction, left_edge: bool, right_edge: bool,
-             lane_change_mode: int) -> None:
+  def update(self, carstate, lateral_active: bool, stock_turn_direction, left_edge: bool, right_edge: bool) -> None:
     self.frame += 1
     if self.frame % PARAMS_PERIOD_FRAMES == 0:
       self.read_params()
@@ -83,13 +81,7 @@ class FmTurnDesire:
       edge_turn = LANE_CHANGE_SPEED_MIN <= v_ego <= self.max_speed and edge
       if not blindspot and lateral_active and (under_lane_change_speed or edge_turn):
         self.direction = blinker_dir
-
-    if self.armed and lateral_active:
-      left = self.direction == TurnDirection.turnLeft
-      nudged = carstate.steeringPressed and ((carstate.steeringTorque > 0) if left else (carstate.steeringTorque < 0))
-      automatic = lane_change_mode is not None and lane_change_mode not in (AutoLaneChangeMode.NUDGE, AutoLaneChangeMode.OFF)
-      if nudged or automatic:
-        self.active = True
+        self.active = True  # the blinker alone starts the turn
 
   @property
   def turn_direction(self):

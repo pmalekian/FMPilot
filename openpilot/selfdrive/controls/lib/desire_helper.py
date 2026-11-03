@@ -29,7 +29,7 @@ class DesireHelper:
     self.alc = AutoLaneChangeController(self)
     self.lane_turn_controller = LaneTurnController(self)
     self.lane_turn_direction = TurnDirection.none
-    self.fm_turn = FmTurnDesire()  # FM Pilot: road-edge turn desire and the nudge rule for turns
+    self.fm_turn = FmTurnDesire()  # FM Pilot: road-edge turn desire and the held-turn rule
 
   @staticmethod
   def get_lane_change_direction(CS):
@@ -47,10 +47,9 @@ class DesireHelper:
                                                left_blinker=carstate.leftBlinker, right_blinker=carstate.rightBlinker, v_ego=v_ego)
     self.lane_turn_direction = self.lane_turn_controller.get_turn_direction()
 
-    # FM Pilot: with road-edge turn desires on, turns are armed by the blinker, started by a nudge and held until the
-    # blinker is cancelled; an armed or active turn takes the place of a lane change
-    self.fm_turn.update(carstate, lateral_active, self.lane_turn_direction, left_edge_detected, right_edge_detected,
-                        self.alc.lane_change_set_timer)
+    # FM Pilot: with road-edge turn desires on, turns start on the blinker (no nudge) and are held until the blinker
+    # is cancelled; an active turn takes the place of a lane change
+    self.fm_turn.update(carstate, lateral_active, self.lane_turn_direction, left_edge_detected, right_edge_detected)
     fm_turn_armed = False
     if self.fm_turn.enabled:
       self.lane_turn_direction = self.fm_turn.turn_direction
