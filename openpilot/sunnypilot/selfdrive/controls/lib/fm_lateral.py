@@ -6,9 +6,12 @@ clip_curvature, so they work the same with torque and angle steering.
     body too close to a lane line or road edge. Exclusive with AP's lane centering: it never runs while lane centering
     is on.
   - Rear-axle off-tracking compensation (from rx-wb): widens turns by gain x the rear axle's cut-in. Rivian only.
+  - Turn Boost and Turn Hold (fm_turn_assist.py): stronger, steadier requests during low-speed blinker turns. Applied
+    first, so off-tracking (if on) still widens the result.
 """
 from openpilot.common.realtime import DT_CTRL
 from openpilot.selfdrive.controls.lib.lane_guard import STOCK, TUNES, LaneGuard
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_assist import FmTurnAssist
 from openpilot.sunnypilot.selfdrive.controls.lib.rivian_offtrack import offtrack_curvature
 
 PARAM_LANE_GUARD = "LaneGuardEnabled"
@@ -18,9 +21,14 @@ PARAMS_PERIOD = 1.0  # s
 
 
 class FmLateral:
-  def __init__(self, CP, params):
+  def __init__(self, CP, params, turn_sm=None):
     self.CP = CP
     self.params = params
+    self.turn_assist = FmTurnAssist(params)
+    if turn_sm is None:
+      from openpilot.cereal import messaging
+      turn_sm = messaging.SubMaster(['modelDataV2SP'])  # the active turn desire, published by modeld
+    self.turn_sm = turn_sm
     self.lane_guard = LaneGuard(TUNES.get(CP.brand, STOCK))
     self.lane_guard_enabled = False
     self.offtrack_gain = 0.0
@@ -35,11 +43,20 @@ class FmLateral:
     if self.CP.brand == 'rivian' and self.params.get_bool(PARAM_OFFTRACK):
       gain = float(self.params.get(PARAM_OFFTRACK_GAIN, return_default=True) or 0.0)
     self.offtrack_gain = gain
+    if hasattr(self, 'turn_assist'):
+      self.turn_assist.read_params()
 
-  def update(self, desired_curvature: float, model_v2, CS, lat_active: bool, lane_centering_enabled: bool) -> float:
+  def update(self, desired_curvature: float, model_v2, CS, lat_active: bool, lane_centering_enabled: bool,
+             actual_curvature: float = 0.0) -> float:
     self.frame += 1
     if self.frame % int(PARAMS_PERIOD / DT_CTRL) == 0:
       self.read_params()
+
+    if self.turn_assist.enabled:
+      self.turn_sm.update(0)
+      turn_direction = self.turn_sm['modelDataV2SP'].laneTurnDirection if self.turn_sm.seen['modelDataV2SP'] else None
+      desired_curvature = self.turn_assist.update(desired_curvature, turn_direction, CS.vEgo, actual_curvature,
+                                                  CS.steeringPressed, lat_active)
 
     # Lane Guard and lane centering are exclusive: lane centering wins if both are on
     guard_active = self.lane_guard_enabled and not lane_centering_enabled and lat_active and not CS.steeringPressed

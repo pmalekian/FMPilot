@@ -42,7 +42,7 @@ class Controls(ControlsExt):
 
     # Initialize sunnypilot controlsd extension and base model state
     ControlsExt.__init__(self, self.CP, self.params)
-    self.fm_lateral = FmLateral(self.CP, self.params)  # FM Pilot: Lane Guard, rear-axle off-tracking
+    self.fm_lateral = FmLateral(self.CP, self.params)  # FM Pilot: Turn Boost/Hold, Lane Guard, rear-axle off-tracking
 
     self.CI = interfaces[self.CP.carFingerprint](self.CP, self.CP_SP)
 
@@ -149,7 +149,8 @@ class Controls(ControlsExt):
     new_desired_curvature = self.lane_centering.update(new_desired_curvature, model_v2, CS.vEgo,
                                                        bool(CS.leftBlinker or CS.rightBlinker), CC.latActive,
                                                        bool(self.sm.all_checks(['modelV2'])), CS.steeringPressed)
-    new_desired_curvature = self.fm_lateral.update(new_desired_curvature, model_v2, CS, CC.latActive, self.lane_centering.enabled)
+    new_desired_curvature = self.fm_lateral.update(new_desired_curvature, model_v2, CS, CC.latActive, self.lane_centering.enabled,
+                                                   self.curvature)
     self.desired_curvature, curvature_limited = clip_curvature(CS.vEgo, self.desired_curvature, new_desired_curvature, lp.roll)
     lat_delay = self.sm["lateralDelay"].lateralDelay + LAT_SMOOTH_SECONDS
 
