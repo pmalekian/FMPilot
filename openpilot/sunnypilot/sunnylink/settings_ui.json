@@ -971,6 +971,19 @@
                       "equals": true
                     }
                   ]
+                },
+                {
+                  "key": "FM_TurnHoldDriverAdds",
+                  "widget": "toggle",
+                  "title": "Hold Adds Your Steering",
+                  "description": "When you steer into the turn, Turn Hold keeps the curve you gave it (up to Turn Path Tightest Radius) instead of letting go, so the help stays once you let go of the wheel. Steering against the turn still releases it. From StarPilot's Model Turn Assist.",
+                  "enablement": [
+                    {
+                      "type": "param",
+                      "key": "FM_TurnHoldEnabled",
+                      "equals": true
+                    }
+                  ]
                 }
               ]
             },
@@ -984,7 +997,7 @@
                   "key": "FM_TurnPathMinRadius",
                   "widget": "option",
                   "title": "Turn Path Tightest Radius",
-                  "description": "The tightest turn Turn Lead and Hold Path Source may ask for, as a radius. Smaller is stronger; 8 m is the strongest. Default 12 m.",
+                  "description": "The tightest turn Turn Lead, Hold Path Source and Hold Adds Your Steering may ask for, as a radius. Smaller is stronger; 8 m is the strongest. Default 12 m.",
                   "min": 8,
                   "max": 20,
                   "step": 1,
@@ -1001,6 +1014,11 @@
                         {
                           "type": "param",
                           "key": "FM_TurnHoldPathSource",
+                          "equals": true
+                        },
+                        {
+                          "type": "param",
+                          "key": "FM_TurnHoldDriverAdds",
                           "equals": true
                         }
                       ]

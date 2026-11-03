@@ -19,6 +19,11 @@ only change the requested curvature, so every steering limit after them still ap
     1.5 m (none past 5 m: the corner must be right there) and reaches at least 12 m ahead (none under 7 m), and never
     tighter than Turn Path Tightest Radius. Turn Hold then holds that as usual. From StarPilot's Model Turn Assist
     curvature hold (plan source), same thresholds. Time stopped (waiting to turn) doesn't count toward Turn Hold's 8 s.
+    Option Hold Adds Your Steering: when you steer into the turn (hand torque toward the turn while the truck is turning
+    that way), Turn Hold takes the truck's current curve, up to Turn Path Tightest Radius, as the turn to hold instead of
+    releasing, so it keeps the help you gave once you let go. Steering against the turn still releases it at once. Hand
+    torque toward the turn is the same direction openpilot steers, so the wheel's own reaction (which reads against
+    openpilot) can't trigger it. From StarPilot's Model Turn Assist curvature hold (driver-confirmed wind).
   - Turn Lead starts the turn on time when a model turns in late. Between about 7 and 16 mph it reads the curve of the
     planned path 1.3 s ahead (4 to 14 m) and, if that bends harder toward the turn than the model's request, asks for
     85% of it instead. It fades out as the truck's actual curve catches up (gone once the truck turns as tightly as the
@@ -47,6 +52,7 @@ PARAM_BOOST_RIGHT = "FM_TurnBoostRight"
 PARAM_HOLD = "FM_TurnHoldEnabled"
 PARAM_LEAD = "FM_TurnLeadEnabled"
 PARAM_HOLD_PATH = "FM_TurnHoldPathSource"
+PARAM_HOLD_DRIVER = "FM_TurnHoldDriverAdds"
 PARAM_MIN_RADIUS = "FM_TurnPathMinRadius"
 
 BOOST_LIMITS = (1.0, 1.5)
@@ -78,6 +84,8 @@ HOLD_PATH_SCALE = 0.85
 HOLD_PATH_ONSET_HEADING = 10.0  # deg
 HOLD_PATH_ONSET = (1.5, 5.0)  # m: full weight if the path starts turning within 1.5 m, none past 5 m
 HOLD_PATH_REACH = (7.0, 12.0)  # m: none if the path reaches less than 7 m ahead, full from 12 m
+
+HOLD_DRIVER_MIN_CURVATURE = 0.003  # 1/m: the truck must already be turning the turn's way (StarPilot's CONFIRM_MIN)
 
 MIN_RADIUS_LIMITS = (8.0, 20.0)  # m
 MIN_RADIUS_DEFAULT = 12.0
@@ -147,6 +155,7 @@ class FmTurnAssist:
     self.hold_enabled = False
     self.lead_enabled = False
     self.hold_path = False
+    self.hold_driver = False
     self.max_curvature = 1.0 / MIN_RADIUS_DEFAULT
     self.amount = 0.0  # 0..1 fade
     self._reset_turn(0)
@@ -165,6 +174,7 @@ class FmTurnAssist:
     self.hold_enabled = self.params.get_bool(PARAM_HOLD)
     self.lead_enabled = self.params.get_bool(PARAM_LEAD)
     self.hold_path = self.params.get_bool(PARAM_HOLD_PATH)
+    self.hold_driver = self.params.get_bool(PARAM_HOLD_DRIVER)
     try:
       radius = float(self.params.get(PARAM_MIN_RADIUS, return_default=True) or MIN_RADIUS_DEFAULT)
     except (TypeError, ValueError):
@@ -218,7 +228,7 @@ class FmTurnAssist:
 
   def update(self, desired_curvature: float, turn_direction, v_ego: float, actual_curvature: float,
              steering_pressed: bool, lat_active: bool, model_v2=None, a_ego: float = 0.0,
-             lane_changing: bool = False) -> float:
+             lane_changing: bool = False, steering_torque: float = 0.0) -> float:
     sign = turn_sign(turn_direction) if self.enabled else 0
     if sign != self.sign:
       self._reset_turn(sign)
@@ -248,9 +258,17 @@ class FmTurnAssist:
       if v_ego >= HOLD_MOVING_SPEED:
         self.turn_time += DT_CTRL  # time stopped (waiting to turn) doesn't count toward the 8 s
       self.heading += sign * actual_curvature * v_ego * DT_CTRL
-      if steering_pressed or self.heading >= HOLD_MAX_HEADING or self.turn_time >= HOLD_MAX_TIME:
+      # Hand torque is positive to the LEFT and curvature positive to the RIGHT, so torque into the turn is sign * torque < 0
+      driver_adds = (steering_pressed and self.hold_driver and sign * steering_torque < 0.0 and
+                     sign * actual_curvature > HOLD_DRIVER_MIN_CURVATURE)
+      if (steering_pressed and not driver_adds) or self.heading >= HOLD_MAX_HEADING or self.turn_time >= HOLD_MAX_TIME:
         self.hold_released = True
       else:
+        if driver_adds:
+          wound = min(sign * actual_curvature, self.max_curvature)
+          if wound > toward:
+            out = sign * (toward + (wound - toward) * self.amount)
+            toward = sign * out
         if self.hold_path and model_v2 is not None and v_ego < HOLD_PATH_MAX_SPEED:
           path = self.hold_path_curvature(model_v2, sign)
           if path > toward:

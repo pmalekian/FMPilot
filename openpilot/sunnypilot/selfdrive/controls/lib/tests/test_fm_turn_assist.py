@@ -8,6 +8,7 @@ from openpilot.common.realtime import DT_CTRL
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_assist import (FmTurnAssist, TurnDirection, PARAM_BOOST, PARAM_BOOST_LEFT,
                                                                          PARAM_BOOST_RIGHT, PARAM_HOLD, HOLD_MAX_HEADING, FADE_TIME,
                                                                          PARAM_LEAD, PARAM_MIN_RADIUS, MIN_RADIUS_DEFAULT, PARAM_HOLD_PATH,
+                                                                         PARAM_HOLD_DRIVER,
                                                                          plan_circle_curvature)
 
 LEFT, RIGHT, NONE = TurnDirection.turnLeft, TurnDirection.turnRight, TurnDirection.none
@@ -16,8 +17,8 @@ FADE_STEPS = int(FADE_TIME / DT_CTRL) + 2
 
 class FakeParams:
   def __init__(self, **values):
-    self.values = {PARAM_BOOST: False, PARAM_BOOST_LEFT: 1.1, PARAM_BOOST_RIGHT: 1.2, PARAM_HOLD: False, PARAM_LEAD: False, PARAM_HOLD_PATH: False,
-                   PARAM_MIN_RADIUS: MIN_RADIUS_DEFAULT} | values
+    self.values = {PARAM_BOOST: False, PARAM_BOOST_LEFT: 1.1, PARAM_BOOST_RIGHT: 1.2, PARAM_HOLD: False, PARAM_LEAD: False,
+                   PARAM_HOLD_PATH: False, PARAM_HOLD_DRIVER: False, PARAM_MIN_RADIUS: MIN_RADIUS_DEFAULT} | values
 
   def get_bool(self, key):
     return bool(self.values.get(key))
@@ -26,11 +27,12 @@ class FakeParams:
     return self.values.get(key)
 
 
-def run(assist, k, direction, mph=10, steps=1, actual=None, pressed=False, lat=True, model=None, a_ego=0.0, lane_changing=False):
+def run(assist, k, direction, mph=10, steps=1, actual=None, pressed=False, lat=True, model=None, a_ego=0.0, lane_changing=False,
+        torque=0.0):
   out = k
   for _ in range(steps):
     out = assist.update(k, direction, mph * CV.MPH_TO_MS, k if actual is None else actual, pressed, lat, model_v2=model,
-                        a_ego=a_ego, lane_changing=lane_changing)
+                        a_ego=a_ego, lane_changing=lane_changing, steering_torque=torque)
   return out
 
 
@@ -214,6 +216,54 @@ class TestHoldPathSource:
   def test_needs_turn_hold_on(self):
     a = FmTurnAssist(FakeParams(**{PARAM_HOLD_PATH: True}))
     assert run(a, 0.0, RIGHT, mph=1, steps=FADE_STEPS, model=path(10.0, start=0.0), actual=0.0) == 0.0
+
+
+class TestHoldDriverAdds:
+  # hand torque is positive to the LEFT; curvature positive to the RIGHT
+  INTO_RIGHT, INTO_LEFT = -1.5, 1.5
+
+  def hold(self, adds=True, **values):
+    return FmTurnAssist(FakeParams(**({PARAM_HOLD: True, PARAM_HOLD_DRIVER: adds} | values)))
+
+  def test_off_driver_still_releases(self):
+    a = self.hold(adds=False)
+    run(a, 0.03, RIGHT, steps=FADE_STEPS, actual=0.03)
+    assert run(a, 0.03, RIGHT, pressed=True, torque=self.INTO_RIGHT, actual=0.06) == 0.03
+    assert a.hold_released
+
+  def test_steering_into_the_turn_adds(self):
+    a = self.hold()
+    run(a, 0.03, RIGHT, steps=FADE_STEPS, actual=0.03)
+    assert run(a, 0.03, RIGHT, pressed=True, torque=self.INTO_RIGHT, actual=0.06) == pytest.approx(0.06)
+    assert not a.hold_released
+    assert run(a, 0.03, RIGHT, actual=0.06) == pytest.approx(0.06 * 0.9, rel=0.01)  # let go: keeps the help
+
+  def test_left_turn(self):
+    a = self.hold()
+    run(a, -0.03, LEFT, steps=FADE_STEPS, actual=-0.03)
+    assert run(a, -0.03, LEFT, pressed=True, torque=self.INTO_LEFT, actual=-0.06) == pytest.approx(-0.06)
+    assert not a.hold_released
+
+  def test_steering_against_the_turn_releases(self):
+    a = self.hold()
+    run(a, 0.06, RIGHT, steps=FADE_STEPS, actual=0.06)
+    assert run(a, 0.03, RIGHT, pressed=True, torque=self.INTO_LEFT, actual=0.06) == 0.03
+    assert a.hold_released
+
+  def test_not_turning_that_way_releases(self):
+    a = self.hold()
+    run(a, 0.03, RIGHT, steps=FADE_STEPS, actual=0.0)
+    run(a, 0.03, RIGHT, pressed=True, torque=self.INTO_RIGHT, actual=0.0)
+    assert a.hold_released
+
+  def test_capped_at_tightest_radius(self):
+    a = self.hold()
+    run(a, 0.03, RIGHT, steps=FADE_STEPS, actual=0.03)
+    assert run(a, 0.03, RIGHT, pressed=True, torque=self.INTO_RIGHT, actual=0.2) == pytest.approx(1 / MIN_RADIUS_DEFAULT)
+
+  def test_needs_turn_hold_on(self):
+    a = FmTurnAssist(FakeParams(**{PARAM_HOLD_DRIVER: True}))
+    assert run(a, 0.03, RIGHT, steps=FADE_STEPS, pressed=True, torque=self.INTO_RIGHT, actual=0.06) == 0.03
 
 
 class TestTurnLead:

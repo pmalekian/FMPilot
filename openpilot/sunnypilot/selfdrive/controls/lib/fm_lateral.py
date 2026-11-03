@@ -59,7 +59,8 @@ class FmLateral:
       desired_curvature = self.turn_assist.update(desired_curvature, turn_direction, CS.vEgo, actual_curvature,
                                                   CS.steeringPressed, lat_active, model_v2=model_v2,
                                                   a_ego=float(getattr(CS, 'aEgo', 0.0)),
-                                                  lane_changing=lane_change_state != 0)
+                                                  lane_changing=lane_change_state != 0,
+                                                  steering_torque=float(getattr(CS, 'steeringTorque', 0.0)))
 
     # Lane Guard and lane centering are exclusive: lane centering wins if both are on
     guard_active = self.lane_guard_enabled and not lane_centering_enabled and lat_active and not CS.steeringPressed
