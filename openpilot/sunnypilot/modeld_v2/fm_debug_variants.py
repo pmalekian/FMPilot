@@ -16,36 +16,44 @@ from openpilot.sunnypilot.modeld_v2.compile_modeld import make_metadata_dict
 
 POINT_POLICY_OUTPUTS = ('lane_lines', 'lane_lines_prob', 'road_edges', 'meta', 'desire_pred', 'pose', 'wide_from_device_euler',
                         'road_transform')
-FLOAT, FLOAT16 = 1, 10
 
 
-def rewrite(nodes, variant):
-  """Return the node list with add_12 computed the given way."""
+def rewrite(runner, variant):
+  """Set runner.graph_nodes with add_12 (and for *_both also add_13) computed the given way."""
+  nodes = runner.graph_nodes
   by_out = {n.outputs[0]: n for n in nodes}
-  add, lin2 = by_out['add_12'], by_out['linear_2']
+  add, add13, lin = by_out['add_12'], by_out['add_13'], by_out['linear']
   ops = add.opset_id
+  dtype = runner.graph_values[lin.inputs[1]].dtype  # dtype of the weights as tinygrad holds them
 
   def node(op, inputs, output, **opts):
     return OnnxNode(op, ops, tuple(inputs), (output,), opts)
 
+  def eye_sum(a, b, out, tag):
+    """out = a + b as Concat([a, b]) @ [[I], [I]], one matmul kernel instead of an elementwise add."""
+    eye = f'fm_eye_{tag}'
+    runner.graph_values[eye] = Tensor(np.vstack([np.eye(512), np.eye(512)]).astype(np.float32)).cast(dtype).realize()
+    return [node('Concat', [a, b], f'fm_cat_{tag}', axis=-1), node('MatMul', [f'fm_cat_{tag}', eye], out)]
+
   out = []
   for n in nodes:
-    if variant == 'contiguous' and n is add:
-      out += [node('FMContiguous', ['linear'], 'fm_linear_c'), node('Add', ['linear_2', 'fm_linear_c'], 'add_12')]
-    elif variant == 'gemm_c' and n is lin2:
-      out.append(OnnxNode('Gemm', lin2.opset_id, (lin2.inputs[0], lin2.inputs[1], 'linear'), ('add_12',), dict(lin2.opts)))
-    elif variant == 'gemm_c' and n is add:
-      continue
-    elif variant == 'swap' and n is add:
-      out.append(node('Add', ['linear', 'linear_2'], 'add_12'))
-    elif variant == 'fp32' and n is add:
-      out += [node('Cast', ['linear'], 'fm_a', to=FLOAT), node('Cast', ['linear_2'], 'fm_b', to=FLOAT),
-              node('Add', ['fm_b', 'fm_a'], 'fm_s'), node('Cast', ['fm_s'], 'add_12', to=FLOAT16)]
-    elif variant == 'sub_neg' and n is add:
-      out += [node('Neg', ['linear'], 'fm_n'), node('Sub', ['linear_2', 'fm_n'], 'add_12')]
+    if variant == 'contig_l2' and n is add:
+      out += [node('FMContiguous', ['linear_2'], 'fm_l2c'), node('Add', ['fm_l2c', 'linear'], 'add_12')]
+    elif variant == 'contig_both' and n is add:
+      out += [node('FMContiguous', ['linear_2'], 'fm_l2c'), node('FMContiguous', ['linear'], 'fm_lc'),
+              node('Add', ['fm_l2c', 'fm_lc'], 'add_12')]
+    elif variant == 'dup_linear' and n is add:
+      # recompute the hidden state separately for the residual (alpha and beta 2 then x0.5 so tinygrad cannot merge it with "linear")
+      out += [OnnxNode('Gemm', lin.opset_id, tuple(lin.inputs), ('fm_lin2x',), {**dict(lin.opts), 'alpha': 2.0, 'beta': 2.0}),
+              node('Mul', ['fm_lin2x', 'fm_half'], 'fm_lin_dup'), node('Add', ['linear_2', 'fm_lin_dup'], 'add_12')]
+      runner.graph_values['fm_half'] = Tensor([0.5]).cast(dtype).realize()
+    elif variant in ('eye_sum', 'eye_sum_both') and n is add:
+      out += eye_sum('linear_2', 'linear', 'add_12', 'a')
+    elif variant == 'eye_sum_both' and n is add13:
+      out += eye_sum('linear_4', 'add_12', 'add_13', 'b')
     else:
       out.append(n)
-  return tuple(out)
+  runner.graph_nodes = tuple(out)
 
 
 def make_inputs(runner):
@@ -75,7 +83,7 @@ def main(path, variants):
     try:
       runner = OnnxRunner(path)
       runner.onnx_ops = {**runner.onnx_ops, 'FMContiguous': lambda x: x.contiguous()}
-      runner.graph_nodes = rewrite(runner.graph_nodes, variant)
+      rewrite(runner, variant)
       out = next(iter(runner(make_inputs(runner)).values())).float().numpy().reshape(-1)
     except Exception as e:
       print(f"{variant:11s} failed: {type(e).__name__}: {e}")
@@ -89,4 +97,4 @@ def main(path, variants):
 
 
 if __name__ == "__main__":
-  main(sys.argv[1], sys.argv[2:] or ['baseline', 'contiguous', 'gemm_c', 'swap', 'fp32', 'sub_neg'])
+  main(sys.argv[1], sys.argv[2:] or ['contig_l2', 'contig_both', 'dup_linear', 'eye_sum', 'eye_sum_both'])
