@@ -65,6 +65,8 @@ That reaction always points against openpilot's torque. So `turns.py` splits the
 *with* openpilot's torque is certainly you helping, while *against* it (marked `*`) is you resisting **or** just the
 wheel's reaction, and this sensor can't tell those apart. While you steer alone, *into the turn* is your own effort.
 
+Tests: `python -m pytest tests` (small synthetic logs; no device or real logs needed).
+
 ## Model tools
 
 | Script | What it does |
