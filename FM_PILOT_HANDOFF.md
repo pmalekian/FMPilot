@@ -5,7 +5,7 @@ State as of Nov 3, 2026. Read this with `FM_PILOT.md` (features, settings, credi
 ## Setup
 
 - **Truck and device:** Frankie's 2022 Rivian R1S Launch Edition (Gen 1), comma 4, torque harness.
-- **Fork:** GitHub `pmalekian/fmpilot`, branch **`fm-dev-max`**, latest commit at the time of writing `a0dca062`. Installer:
+- **Fork:** GitHub `pmalekian/fmpilot`, branch **`fm-dev-max`**, latest commit at the time of writing `8c00f4e`. Installer:
   `pmalekian/fm-dev-max`. Based on AdventurePilot `dev` (`github.com/AdventurePilotDev/AdventurePilot`), synced up to
   `980dd5c` (Oct 31).
 - **Working on the code in a new chat:**
@@ -20,8 +20,14 @@ State as of Nov 3, 2026. Read this with `FM_PILOT.md` (features, settings, credi
   - Always `scp -O` (plain scp hangs).
   - `scp` runs at the `PS C:\...>` prompt; device commands run after `ssh comma@192.168.1.246`.
   - Give exact, copy-pasteable commands.
-- **Logs:** each segment is one minute; send `<route>--<n>/rlog.zst`. The loaded model is only logged in `--0`. Comma
-  Connect's download sometimes hands out `--0` when later segments haven't uploaded yet.
+- **Logs:** each segment is one minute; send `<route>--<n>/rlog.zst`. The loaded model is only logged in `--0`; the
+  tools work it out from initData for other segments and mark it "(from settings)". Comma Connect's download sometimes
+  hands out `--0` when later segments haven't uploaded yet.
+- **tools/fm** takes several segments, folders or wildcards and joins one drive's segments (`--3 +12.4s` times).
+  Tests: `cd tools/fm && python -m pytest tests`. Sign conventions are verified in its README: **curvature and lateral
+  accel are positive to the right; angle, hand torque and all torque commands positive to the left.**
+- **Hand torque** is the column torsion bar: while openpilot steers, a loose wheel's reaction reads *against*
+  openpilot's torque. `turns.py` reports "with openpilot" (certainly the driver) and "against it*" (driver or reaction).
 
 ## What Frankie drives now
 
@@ -32,6 +38,9 @@ State as of Nov 3, 2026. Read this with `FM_PILOT.md` (features, settings, credi
 - **Custom model:** the OPM16D + Rebel Legion splice is built on the device but switched off. He gave it up for TSFDOM.
 - **Turn Boost / Turn Hold:** built (`1616b20b`), off by default, **not yet driven**. Plan: Turn Hold alone first, then
   add Boost (defaults left 1.10, right 1.20), hands hovering, and send turn segments.
+  - **Builds before `b9c5a55` (Nov 3) had left and right swapped** (curvature is right-positive; Turn Assist assumed
+    left-positive), so Boost scaled away-from-the-turn requests and Hold could hold the wrong way. Don't drive either
+    feature on an older build.
 
 ## Next update to the branch (agreed, not yet done)
 
