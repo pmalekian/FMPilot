@@ -1,0 +1,5 @@
+# analysis scripts: same rules as the repo, minus a few style checks that only matter for library code
+extend = "../../pyproject.toml"
+
+[lint]
+extend-ignore = ["ISC002", "B023", "C401"]
