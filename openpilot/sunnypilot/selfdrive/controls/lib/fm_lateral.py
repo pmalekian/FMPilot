@@ -6,8 +6,8 @@ clip_curvature, so they work the same with torque and angle steering.
     body too close to a lane line or road edge. Exclusive with AP's lane centering: it never runs while lane centering
     is on.
   - Rear-axle off-tracking compensation (from rx-wb): widens turns by gain x the rear axle's cut-in. Rivian only.
-  - Turn Boost and Turn Hold (fm_turn_assist.py): stronger, steadier requests during low-speed blinker turns. Applied
-    first, so off-tracking (if on) still widens the result.
+  - Turn Boost, Turn Lead and Turn Hold (fm_turn_assist.py): stronger, earlier, steadier requests during low-speed
+    blinker turns. Applied first, so off-tracking (if on) still widens the result.
 """
 from openpilot.common.realtime import DT_CTRL
 from openpilot.selfdrive.controls.lib.lane_guard import STOCK, TUNES, LaneGuard
@@ -55,8 +55,11 @@ class FmLateral:
     if self.turn_assist.enabled:
       self.turn_sm.update(0)
       turn_direction = self.turn_sm['modelDataV2SP'].laneTurnDirection if self.turn_sm.seen['modelDataV2SP'] else None
+      lane_change_state = getattr(getattr(model_v2, 'meta', None), 'laneChangeState', 0)
       desired_curvature = self.turn_assist.update(desired_curvature, turn_direction, CS.vEgo, actual_curvature,
-                                                  CS.steeringPressed, lat_active)
+                                                  CS.steeringPressed, lat_active, model_v2=model_v2,
+                                                  a_ego=float(getattr(CS, 'aEgo', 0.0)),
+                                                  lane_changing=lane_change_state != 0)
 
     # Lane Guard and lane centering are exclusive: lane centering wins if both are on
     guard_active = self.lane_guard_enabled and not lane_centering_enabled and lat_active and not CS.steeringPressed

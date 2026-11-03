@@ -550,4 +550,26 @@ sections:
     title: Turn Hold
     description: During a blinker turn under 20 mph, keep the model from letting go of the turn halfway. Holds the steering
       request near the turn's strongest point, easing off gradually, until the truck has turned about 75 degrees, the blinker
-      is cancelled, or you steer.
+      is cancelled, or you steer. Works with Turn Lead, but using one at a time is recommended so each turn is easier to
+      judge.
+  - key: FM_TurnLeadEnabled
+    widget: toggle
+    title: Turn Lead
+    description: During a blinker turn between about 7 and 16 mph, start turning on time when the model turns in late. Reads
+      the curve of the planned path just ahead and asks for it until the truck catches up, then hands back to the model.
+      Never asks for a tighter turn than Turn Path Tightest Radius. Works with Turn Hold, but using one at a time is
+      recommended so each turn is easier to judge. From StarPilot's Model Turn Assist.
+    sub_items:
+    - key: FM_TurnPathMinRadius
+      widget: option
+      title: Turn Path Tightest Radius
+      description: The tightest turn Turn Lead may ask for, as a radius. Smaller is stronger; 8 m is the strongest. Default
+        12 m.
+      min: 8
+      max: 20
+      step: 1
+      unit: m
+      enablement:
+      - type: param
+        key: FM_TurnLeadEnabled
+        equals: true
