@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Driver monitoring summary: how much of each segment counted as distracted, and why (head pose, eyes, phone).
+"""Driver monitoring summary: how much of a drive counted as distracted, and why (head pose, eyes, phone).
 
-usage: dm.py rlog.zst [rlog.zst ...]
+usage: dm.py rlog.zst [rlog.zst ...] [--each]
+  Segments of one drive are joined into one summary; --each gives one line per file.
 """
-import sys
-
 import numpy as np
 
-from fmlog import read
+from fmlog import load_drives, log_args
 
 
-def main(path):
-  dm = [e.driverMonitoringState for e in read(path) if e.which() == "driverMonitoringState"]
+def main(drive):
+  path = drive.label()
+  dm = [e.driverMonitoringState for e in drive.evs if e.which() == "driverMonitoringState"]
   if not dm:
     print(f"{path}: no driver monitoring data")
     return
@@ -23,5 +23,6 @@ def main(path):
 
 
 if __name__ == "__main__":
-  for p in sys.argv[1:]:
-    main(p)
+  args = log_args(__doc__).parse_args()
+  for d in load_drives(args.rlog, args.each):
+    main(d)

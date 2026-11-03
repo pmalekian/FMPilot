@@ -1,24 +1,25 @@
 #!/usr/bin/env python3
-"""Every sharp turn (radius under 40 m, moving) in one or more segments: what the model asked for, what the truck did,
-how long torque sat at its limit, and how hard and which way the driver's hands pushed.
+"""Every sharp turn (radius under 40 m, moving) in a drive: what the model asked for, what the truck did, how long
+torque sat at its limit, and how hard and which way the driver's hands pushed.
+
+usage: turns.py rlog.zst [rlog.zst ...] [--each]
+  Segments of one drive are joined, so a turn across a segment boundary is one turn. Times read "--3 +12.4s":
+  segment 3, 12.4 s in.
 
 Hand torque is the column's torsion bar, which also twists when openpilot's torque turns a loosely held wheel. That
 reaction always reads AGAINST openpilot's torque, so while openpilot steers the hands are split by openpilot's sent
 torque: "with" it is certainly the driver helping; "against" it is the driver resisting OR the wheel's reaction, which
 this sensor can't tell apart. While the driver steers alone, "into the turn" is the driver's own effort.
-
-usage: turns.py rlog.zst [rlog.zst ...]
 """
-import sys
-
 import numpy as np
 
+from fmlog import MPH, load_drives, log_args, model_name, pct, split_runs
+
+TURN_RADIUS_M = 40.0
 HANDS_NM = 0.5     # column torque that counts as pushing
 SENT_MIN = 0.05    # openpilot torque (fraction of max) that counts as steering one way
 AMBIGUOUS_NOTE = ("* against openpilot = you resisting OR the loose wheel's reaction to openpilot's torque; the column "
                   "sensor can't tell them apart")
-
-from fmlog import MPH, model_name, read
 
 
 def hand_split(hand, sent, lat_active, turn_lp):
@@ -36,12 +37,13 @@ def hand_split(hand, sent, lat_active, turn_lp):
   }
 
 
-def series(evs):
-  t0 = next(e.logMonoTime for e in evs if e.which() == "carState")
+def series(drive):
   cs, ctl, cc, md, co = [], [], [], [], []
-  for e in evs:
-    t = (e.logMonoTime - t0) / 1e9
+  for e in drive.evs:
     w = e.which()
+    if w not in ("carState", "controlsState", "carControl", "modelV2", "carOutput"):
+      continue
+    t = drive.t(e)
     if w == "carState":
       c = e.carState
       cs.append((t, c.vEgo, c.steeringAngleDeg, float(c.steeringPressed), c.steeringTorque))
@@ -53,43 +55,56 @@ def series(evs):
       cc.append((t, float(e.carControl.latActive)))
     elif w == "modelV2":
       md.append((t, e.modelV2.action.desiredCurvature))
-    elif w == "carOutput":
+    else:
       co.append((t, e.carOutput.actuatorsOutput.torque))
   co = co or [(0.0, 0.0)]
   return [np.array(x, float) for x in (cs, ctl, cc, md, co)]
 
 
-def main(path):
-  evs = read(path)
-  cs, ctl, cc, md, co = series(evs)
+def find_turns(t, curv, v):
+  """(start, end) index windows of turns tighter than TURN_RADIUS_M lasting over 1 s, padded 0.6 s before and 0.2 s
+  after, never across a gap in the log."""
+  turning = (np.abs(curv) > 1 / TURN_RADIUS_M) & (v > 1.5)
+  out = []
+  for r in split_runs(t, turning):
+    if t[r[-1]] - t[r[0]] > 1:
+      a, b = r[0], r[-1] + 1
+      while a > 0 and r[0] - a < 60 and t[a] - t[a - 1] < 1:
+        a -= 1
+      while b < len(t) - 1 and b - r[-1] < 20 and t[b + 1] - t[b] < 1:
+        b += 1
+      out.append((a, b))
+  return out
+
+
+def main(drive):
+  cs, ctl, cc, md, co = series(drive)
+  if not len(cs) or not len(ctl):
+    print(f"{drive.label()}: no carState / controlsState")
+    return
   at = lambda arr, t, c: np.interp(t, arr[:, 0], arr[:, c])  # noqa: E731
   t, curv = ctl[:, 0], ctl[:, 1]
   v = at(cs, t, 1)
-  turning = (np.abs(curv) > 1 / 40) & (v > 1.5)
-  segs, s = [], None
-  for i, on in enumerate(turning):
-    if on and s is None:
-      s = i
-    if (not on or i == len(turning) - 1) and s is not None:
-      if t[i] - t[s] > 1:
-        segs.append((max(0, s - 60), min(len(t) - 1, i + 20)))
-      s = None
-  print(f"{path}: model {model_name(evs)}, {len(segs)} sharp turns")
-  if segs:
+  turns = find_turns(t, curv, v)
+  print(f"{drive.label()}: model {model_name(drive.evs)}, {len(turns)} sharp turns")
+  if turns:
     print(f"  {AMBIGUOUS_NOTE}")
-  for a, b in segs:
+  for a, b in turns:
     tt = t[a:b]
     la = at(cc, tt, 1) > 0.5
     ang, hand = at(cs, tt, 2), at(cs, tt, 4)
     mk, ak, out = np.abs(at(md, tt, 1)), np.abs(curv[a:b]), np.abs(ctl[a:b, 3])
-    turn_sign = np.sign(np.mean(ang[np.abs(ang) > 30])) if (np.abs(ang) > 30).any() else np.sign(np.mean(ang))
-    h = hand_split(hand, at(co, tt, 1), la, turn_sign)
-    print(f"  t={tt[0]:5.1f}s {np.mean(v[a:b]) * MPH:4.1f} mph {'R' if turn_sign < 0 else 'L'} | openpilot steering {la.mean() * 100:3.0f}% | "
-          f"wheel max {np.abs(ang).max():4.0f} deg | tightest asked r {1 / max(mk.max(), 1e-4):5.1f} m, driven r {1 / max(ak.max(), 1e-4):5.1f} m | "
-          f"torque at limit {np.mean(out >= 0.95) * 100:3.0f}% | hands {np.abs(hand).mean():.2f} Nm avg; openpilot steering: "
-          f"with it {h['with_op']:3.0f}%, against it* {h['against_op']:3.0f}%; you steering: into the turn {h['driver_into']:3.0f}%")
+    big = np.abs(ang) > 30
+    turn_lp = np.sign(np.mean(ang[big])) if big.any() else np.sign(np.mean(ang))  # angle is left-positive
+    h = hand_split(hand, at(co, tt, 1), la, turn_lp)
+    print(f"  {drive.where(tt[0])} {np.mean(v[a:b]) * MPH:4.1f} mph {'L' if turn_lp > 0 else 'R'} | openpilot steering "
+          f"{la.mean() * 100:3.0f}% | wheel max {np.abs(ang).max():4.0f} deg | tightest asked r {1 / max(mk.max(), 1e-4):5.1f} m, "
+          f"driven r {1 / max(ak.max(), 1e-4):5.1f} m | torque at limit {np.mean(out >= 0.95) * 100:3.0f}% | hands "
+          f"{np.abs(hand).mean():.2f} Nm avg; openpilot steering: with it {pct(h['with_op'])}, against it* {pct(h['against_op'])}; "
+          f"you steering: into the turn {pct(h['driver_into'])}")
 
 
 if __name__ == "__main__":
-  for p in sys.argv[1:]:
-    main(p)
+  args = log_args(__doc__).parse_args()
+  for d in load_drives(args.rlog, args.each):
+    main(d)
