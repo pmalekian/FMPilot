@@ -258,8 +258,8 @@ class TestHoldDriverAdds:
     out = run(a, 0.03, RIGHT, pressed=True, torque=self.INTO_RIGHT, actual=0.0)
     assert not a.hold_released
     assert out == pytest.approx(0.09 * 0.9, rel=0.01)  # still holding the turn
-    assert run(a, 0.03, RIGHT, pressed=True, torque=self.INTO_RIGHT, actual=0.12) == pytest.approx(1 / MIN_RADIUS_DEFAULT)
-    assert not a.hold_released  # once the truck turns, its curve is adopted (capped here; next commit lifts the cap)
+    assert run(a, 0.03, RIGHT, pressed=True, torque=self.INTO_RIGHT, actual=0.12) == pytest.approx(0.12)
+    assert not a.hold_released  # once the truck turns, its curve is adopted
 
   def test_off_steering_in_still_releases(self):
     a = self.hold(adds=False)
@@ -267,10 +267,17 @@ class TestHoldDriverAdds:
     run(a, 0.03, RIGHT, pressed=True, torque=self.INTO_RIGHT, actual=0.0)
     assert a.hold_released
 
-  def test_capped_at_tightest_radius(self):
+  def test_follows_your_curve_past_the_slider(self):
+    # route 0000002d loops: the driver turned 5 to 6.6 m while the 8 m cap made openpilot push out; now it follows
+    a = self.hold(**{PARAM_MIN_RADIUS: 8.0})
+    run(a, 0.03, RIGHT, steps=FADE_STEPS, actual=0.03)
+    assert run(a, 0.03, RIGHT, pressed=True, torque=self.INTO_RIGHT, actual=0.19) == pytest.approx(0.19)
+    assert run(a, 0.03, RIGHT, actual=0.19) == pytest.approx(0.19 * 0.9, rel=0.02)  # let go: keeps your turn
+
+  def test_bad_reading_guard(self):
     a = self.hold()
     run(a, 0.03, RIGHT, steps=FADE_STEPS, actual=0.03)
-    assert run(a, 0.03, RIGHT, pressed=True, torque=self.INTO_RIGHT, actual=0.2) == pytest.approx(1 / MIN_RADIUS_DEFAULT)
+    assert run(a, 0.03, RIGHT, pressed=True, torque=self.INTO_RIGHT, actual=0.9) == pytest.approx(0.25)
 
   def test_needs_turn_hold_on(self):
     a = FmTurnAssist(FakeParams(**{PARAM_HOLD_DRIVER: True}))

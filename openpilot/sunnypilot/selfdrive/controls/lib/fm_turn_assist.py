@@ -20,8 +20,9 @@ only change the requested curvature, so every steering limit after them still ap
     tighter than Turn Path Tightest Radius. Turn Hold then holds that as usual. From StarPilot's Model Turn Assist
     curvature hold (plan source), same thresholds. Time stopped (waiting to turn) doesn't count toward Turn Hold's 8 s.
     Option Hold Adds Your Steering: when you steer into the turn (hand torque toward the turn while the truck is turning
-    that way), Turn Hold takes the truck's current curve, up to Turn Path Tightest Radius, as the turn to hold instead of
-    releasing, so it keeps the help you gave once you let go. Steering into the turn never releases it, even before the
+    that way), Turn Hold takes the truck's current curve as the turn to hold, up to full lock (Turn Path Tightest Radius
+    doesn't apply: it is your curve), instead of releasing, so it keeps the help you gave once you let go and doesn't
+    push back toward a wider turn while you hold the wheel in. Steering into the turn never releases it, even before the
     truck has started turning; steering against the turn still releases it at once. Hand
     torque toward the turn is the same direction openpilot steers, so the wheel's own reaction (which reads against
     openpilot) can't trigger it. From StarPilot's Model Turn Assist curvature hold (driver-confirmed wind).
@@ -92,6 +93,7 @@ HOLD_PATH_ONSET = (1.5, 5.0)  # m: full weight if the path starts turning within
 HOLD_PATH_REACH = (7.0, 12.0)  # m: none if the path reaches less than 7 m ahead, full from 12 m
 
 HOLD_DRIVER_MIN_CURVATURE = 0.003  # 1/m: the truck must already be turning the turn's way (StarPilot's CONFIRM_MIN)
+HOLD_DRIVER_MAX_CURVATURE = 0.25  # 1/m (4 m): beyond the R1S's full lock (about 6.6 m), only guards a bad reading
 
 MIN_RADIUS_LIMITS = (8.0, 20.0)  # m
 MIN_RADIUS_DEFAULT = 12.0
@@ -282,7 +284,7 @@ class FmTurnAssist:
         self.hold_released = True
       else:
         if driver_adds:
-          wound = min(sign * actual_curvature, self.max_curvature)
+          wound = min(sign * actual_curvature, HOLD_DRIVER_MAX_CURVATURE)  # your curve, not the slider's
           if wound > toward:
             out = sign * (toward + (wound - toward) * self.amount)
             toward = sign * out
