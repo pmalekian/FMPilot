@@ -23,7 +23,9 @@ SEG_RE = re.compile(r"([0-9a-f]{8}--[0-9a-f]{10}|\d{4}-\d{2}-\d{2}--\d{2}-\d{2}-
 GAP_S = 2.0  # a jump in time longer than this is a missing piece of the drive, never bridged
 
 
-def read(path):
+def read(path, keep=None):
+  """All events of one log file. keep: a set of message types to keep; the rest are dropped and the kept ones copied
+  out, so the file's whole buffer can be freed (an hour of logs otherwise runs out of memory)."""
   with open(path, "rb") as f:
     data = f.read()
   if data[:4] == b"\x28\xb5\x2f\xfd":
@@ -32,7 +34,11 @@ def read(path):
   elif data[:3] == b"BZh":
     import bz2
     data = bz2.decompress(data)
-  return list(log.Event.read_multiple_bytes(data))
+  evs = log.Event.read_multiple_bytes(data)
+  if keep is None:
+    return list(evs)
+  # copies sized to the message (the default first segment is 8 KB each, which an hour of small messages can't afford)
+  return [e.as_builder(num_first_segment_words=e.total_size.word_count + 1).as_reader() for e in evs if e.which() in keep]
 
 
 def log_msg(e):
@@ -178,10 +184,10 @@ class Drive:
     return f"--{n} +{t - self.starts[i]:4.1f}s"
 
 
-def load_drives(paths, each=False):
+def load_drives(paths, each=False, keep=None):
   """Read logs and join the segments of each drive. Files are grouped by the route in their path and put in segment
   order; files whose path names no route are taken as one drive in time order. each=True keeps every file separate."""
-  loaded = [(*route_segment(p), p, read(p)) for p in expand(paths)]
+  loaded = [(*route_segment(p), p, read(p, keep)) for p in expand(paths)]
   if each:
     return [Drive(r, [(n, p, evs)]) for r, n, p, evs in loaded]
   groups = {}

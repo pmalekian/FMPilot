@@ -147,6 +147,12 @@ class TestDrive:
     assert d.where(32.0).strip() == "--3 + 2.0s"
     assert d.where(41.0).strip() == "--4 + 1.0s"
 
+  def test_keep_reads_only_some_messages(self, drive_dir):
+    p = str(drive_dir / f"{ROUTE}--0" / "rlog.zst")
+    kept = fmlog.read(p, keep={"initData", "carState"})
+    assert {e.which() for e in kept} == {"initData", "carState"}
+    assert len([e for e in kept if e.which() == "carState"]) == len([e for e in fmlog.read(p) if e.which() == "carState"])
+
   def test_gap_has_no_segment_label(self, drive_dir):
     (d,) = fmlog.load_drives([str(drive_dir)])
     assert d.where(25.0).strip() == "25.0s"  # inside the missing --2
