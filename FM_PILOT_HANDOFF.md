@@ -5,7 +5,7 @@ State as of Nov 3, 2026 (evening). Read this with `FM_PILOT.md` (features, setti
 ## Setup
 
 - **Truck and device:** Frankie's 2022 Rivian R1S Launch Edition (Gen 1), comma 4, torque harness.
-- **Fork:** GitHub `pmalekian/fmpilot`, branch **`fm-dev-max`**, latest feature commit at the time of writing `ba7b308`. Installer:
+- **Fork:** GitHub `pmalekian/fmpilot`, branch **`fm-dev-max`**, latest commit at the time of writing `01ca584`. Installer:
   `pmalekian/fm-dev-max`. Based on AdventurePilot `dev` (`github.com/AdventurePilotDev/AdventurePilot`), synced up to
   `980dd5c` (Oct 31).
 - **Working on the code in a new chat:**
@@ -52,6 +52,12 @@ State as of Nov 3, 2026 (evening). Read this with `FM_PILOT.md` (features, setti
     to `tools/fm/turns.py`, check how steady the path is at low speed, and tune the min speed and radius.
   - Hold Path Source only works under about 2 mph and when the corner is right there (path turned 10° within 1.5 m for
     full weight, none past 5 m). Time stopped no longer counts toward Turn Hold's 8 s.
+  - **First drive with Turn Assist: route `0000002d--2f1a05a219` (Nov 3, 63 min, all 64 rlogs).** Lead + Hold + both
+    options on, min speed 2 mph, radius 8 m; Boost turned on from Sunnylink at 1:25 (off 53:27, on 61:26), off-tracking
+    0.25. Turn Lead turned the truck in when TSFDOM asked for nearly straight (60:50: model -8e-3, request -114e-3).
+    Two problems, both fixed: steering into the turn before the truck turned released Turn Hold (`6124165`), and Hold
+    Adds Your Steering capped your curve at the slider, so openpilot pushed out of 5–6.6 m loops (`ed7bd8b`: now up
+    to full lock). Not yet driven with the fixes.
   - **Builds before `b9c5a55` (Nov 3) had left and right swapped** (curvature is right-positive; Turn Assist assumed
     left-positive), so Boost scaled away-from-the-turn requests and Hold could hold the wrong way. Don't drive either
     feature on an older build.
@@ -106,6 +112,13 @@ When AP takes in the big sunnypilot sync (branch `fix/pr10-personality`, not in 
   not be loosened: comma bans forks that weaken driver monitoring.
 - **Straight-road sway:** about 0.7° of wheel with a period near 5 s, measured on the OPM16D + Rebel Legion splice.
   Frankie doesn't feel it with TSFDOM. One-Line Mode added about 25% where a line was faint.
+- **Pull to the right, route `0000002d` (Nov 3):** from about minute 30–37 (highway) to the end, the truck sat 5–10 cm
+  right of lane centre (earlier 3–7 cm left), and Frankie pushed left over 0.5 Nm for 5–10 s of each minute on
+  straights, against a slightly right request (model +0.1 to +0.9e-3 1/m while he pushed). Not Turn Assist (blinker
+  off), not the Sunnylink changes after 50 min (it started before), not lane centering (it added a little left). Roads
+  were crowned (roll +2 to +2.8°) and the wheel sat about 1° left on straights. Likely TSFDOM's lane position plus
+  crown; unproven. Learned torque params: latAccelOffset about -0.35 m/s² all drive (large; worth a look), factor 2.59
+  → 2.73. Suggested test: Camera Offset +0.05 m (shifts the model's centre left).
 - **Blendful** (sunnypilot lane-centering blend, alpha): looked at Nov 3, left alone for now. Centers off one line at half
   strength on straights, ignores road edges.
 
