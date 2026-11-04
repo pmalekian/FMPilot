@@ -251,9 +251,19 @@ class TestHoldDriverAdds:
     assert run(a, 0.03, RIGHT, pressed=True, torque=self.INTO_LEFT, actual=0.06) == 0.03
     assert a.hold_released
 
-  def test_not_turning_that_way_releases(self):
+  def test_steering_in_before_the_truck_turns_keeps_the_hold(self):
+    # 60:50 of route 0000002d: the driver turned the wheel in while the truck still pointed straight; the hold must stay
     a = self.hold()
-    run(a, 0.03, RIGHT, steps=FADE_STEPS, actual=0.0)
+    run(a, 0.09, RIGHT, steps=FADE_STEPS, actual=0.0)
+    out = run(a, 0.03, RIGHT, pressed=True, torque=self.INTO_RIGHT, actual=0.0)
+    assert not a.hold_released
+    assert out == pytest.approx(0.09 * 0.9, rel=0.01)  # still holding the turn
+    assert run(a, 0.03, RIGHT, pressed=True, torque=self.INTO_RIGHT, actual=0.12) == pytest.approx(1 / MIN_RADIUS_DEFAULT)
+    assert not a.hold_released  # once the truck turns, its curve is adopted (capped here; next commit lifts the cap)
+
+  def test_off_steering_in_still_releases(self):
+    a = self.hold(adds=False)
+    run(a, 0.09, RIGHT, steps=FADE_STEPS, actual=0.0)
     run(a, 0.03, RIGHT, pressed=True, torque=self.INTO_RIGHT, actual=0.0)
     assert a.hold_released
 

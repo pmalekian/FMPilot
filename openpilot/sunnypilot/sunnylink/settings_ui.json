@@ -976,7 +976,7 @@
                   "key": "FM_TurnHoldDriverAdds",
                   "widget": "toggle",
                   "title": "Hold Adds Your Steering",
-                  "description": "When you steer into the turn, Turn Hold keeps the curve you gave it (up to Turn Path Tightest Radius) instead of letting go, so the help stays once you let go of the wheel. Steering against the turn still releases it. From StarPilot's Model Turn Assist.",
+                  "description": "When you steer into the turn, Turn Hold keeps the curve you gave it (up to Turn Path Tightest Radius) instead of letting go, so the help stays once you let go of the wheel. Steering into the turn never releases it, even before the truck starts turning; steering against the turn still releases it. From StarPilot's Model Turn Assist.",
                   "enablement": [
                     {
                       "type": "param",

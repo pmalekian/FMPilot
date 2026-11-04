@@ -21,7 +21,8 @@ only change the requested curvature, so every steering limit after them still ap
     curvature hold (plan source), same thresholds. Time stopped (waiting to turn) doesn't count toward Turn Hold's 8 s.
     Option Hold Adds Your Steering: when you steer into the turn (hand torque toward the turn while the truck is turning
     that way), Turn Hold takes the truck's current curve, up to Turn Path Tightest Radius, as the turn to hold instead of
-    releasing, so it keeps the help you gave once you let go. Steering against the turn still releases it at once. Hand
+    releasing, so it keeps the help you gave once you let go. Steering into the turn never releases it, even before the
+    truck has started turning; steering against the turn still releases it at once. Hand
     torque toward the turn is the same direction openpilot steers, so the wheel's own reaction (which reads against
     openpilot) can't trigger it. From StarPilot's Model Turn Assist curvature hold (driver-confirmed wind).
   - Turn Lead starts the turn on time when a model turns in late. Between Turn Lead Min Speed (2 to 7 mph, default 7;
@@ -273,9 +274,11 @@ class FmTurnAssist:
         self.turn_time += DT_CTRL  # time stopped (waiting to turn) doesn't count toward the 8 s
       self.heading += sign * actual_curvature * v_ego * DT_CTRL
       # Hand torque is positive to the LEFT and curvature positive to the RIGHT, so torque into the turn is sign * torque < 0
-      driver_adds = (steering_pressed and self.hold_driver and sign * steering_torque < 0.0 and
-                     sign * actual_curvature > HOLD_DRIVER_MIN_CURVATURE)
-      if (steering_pressed and not driver_adds) or self.heading >= HOLD_MAX_HEADING or self.turn_time >= HOLD_MAX_TIME:
+      # Steering into the turn never releases the hold (you often start turning the wheel before the truck turns);
+      # the truck's curve is only adopted once it is actually turning that way.
+      into_turn = steering_pressed and self.hold_driver and sign * steering_torque < 0.0
+      driver_adds = into_turn and sign * actual_curvature > HOLD_DRIVER_MIN_CURVATURE
+      if (steering_pressed and not into_turn) or self.heading >= HOLD_MAX_HEADING or self.turn_time >= HOLD_MAX_TIME:
         self.hold_released = True
       else:
         if driver_adds:
