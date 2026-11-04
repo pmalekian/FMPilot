@@ -37,7 +37,7 @@ def curvature_at(t):
   return 0.05 if 8.0 <= t < 13.0 else 0.0
 
 
-def segment(n, prm, loaded=None, turn=curvature_at, hand=0.0):
+def segment(n, prm, loaded=None, turn=curvature_at, hand=0.0, init_t=None):
   """Events of segment n: 100 Hz car/controls, 20 Hz model; drive time t = n * SEG_S + local time."""
   evs = []
 
@@ -47,7 +47,7 @@ def segment(n, prm, loaded=None, turn=curvature_at, hand=0.0):
     e.valid = True
     return e, (e.init(kind) if kind != "logMessage" else None)
 
-  e, init = ev(n * SEG_S, "initData")
+  e, init = ev(n * SEG_S if init_t is None else init_t, "initData")
   init.gitCommit = prm["GitCommit"].decode()
   entries = init.init("params").init("entries", len(prm))
   for x, (k, v) in zip(entries, prm.items(), strict=True):
@@ -137,6 +137,15 @@ class TestDrive:
     assert d.where(12.5).strip() == "--1 + 2.5s"
     t = [d.t(e) for e in d.evs]
     assert t == sorted(t)
+
+  def test_labels_when_init_data_carries_the_drive_start(self, tmp_path):
+    # on the device every segment's initData has the drive's start time (route 0000002d: --3 and --4 labelled as --4)
+    prm = settings()
+    paths = [write(tmp_path / f"{ROUTE}--{n}" / "rlog.zst", segment(n, prm, init_t=0.0)) for n in (0, 3, 4)]
+    (d,) = fmlog.load_drives(paths)
+    assert d.where(5.0).strip() == "--0 + 5.0s"
+    assert d.where(32.0).strip() == "--3 + 2.0s"
+    assert d.where(41.0).strip() == "--4 + 1.0s"
 
   def test_gap_has_no_segment_label(self, drive_dir):
     (d,) = fmlog.load_drives([str(drive_dir)])

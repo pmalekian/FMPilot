@@ -142,8 +142,14 @@ class Drive:
     self.segs = segs  # [(segment number or None, path, events)], in drive order
     self.evs = [e for _, _, evs in segs for e in evs]
     self.t0 = next((e.logMonoTime for e in self.evs if e.which() == "carState"), self.evs[0].logMonoTime if self.evs else 0)
-    self.starts = [((evs[0].logMonoTime - self.t0) / 1e9 if evs else 0.0) for _, _, evs in segs]
+    # a segment's start = its first carState: initData carries the drive's start time in every segment
+    self.starts = [((self._first(evs) - self.t0) / 1e9 if evs else 0.0) for _, _, evs in segs]
     self.ends = [((evs[-1].logMonoTime - self.t0) / 1e9 if evs else 0.0) for _, _, evs in segs]
+
+  @staticmethod
+  def _first(evs):
+    return next((e.logMonoTime for e in evs if e.which() == "carState"),
+                min((e.logMonoTime for e in evs if e.which() != "initData"), default=evs[0].logMonoTime))
 
   def t(self, e):
     return (e.logMonoTime - self.t0) / 1e9
