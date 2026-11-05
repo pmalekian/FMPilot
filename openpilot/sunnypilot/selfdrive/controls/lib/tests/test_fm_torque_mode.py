@@ -110,3 +110,82 @@ def test_bad_setting_is_off(bad):
   fm, _ = make(bad)
   assert fm.mode == OFF
   assert run(fm, steps=BLEND_STEPS) == (1.0, 1.0)
+
+
+
+# --- Controller level: the request in carControl.actuators.torque, on every torque controller sunnypilot can pick ---
+# Nov 5 drives (00000038, 00000039): Headroom and Full both stopped at exactly 1.00 because EnforceTorqueControl on with
+# TorqueControlTune 0 (and EnforceTorqueControl off) run latcontrol_torque_v0, which had no Higher Torque hook.
+
+def _rivian(panda=True):
+  from opendbc.car.car_helpers import interfaces
+  from opendbc.car.rivian.values import CAR
+  from opendbc.car.vehicle_model import VehicleModel
+  from openpilot.selfdrive.car.helpers import convert_to_capnp
+  CarInterface = interfaces[CAR.RIVIAN_R1]
+  CP = CarInterface.get_non_essential_params(CAR.RIVIAN_R1)
+  CP_SP = CarInterface.get_non_essential_params_sp(CP, CAR.RIVIAN_R1)
+  if panda:
+    CP_SP.flags |= RivianFlagsSP.HIGH_TORQUE_PANDA.value
+  return CP.as_reader(), convert_to_capnp(CP_SP).as_reader(), CarInterface(CP, CP_SP), VehicleModel(CP)
+
+
+def _controllers():
+  from openpilot.selfdrive.controls.lib.latcontrol_torque import LatControlTorque as V1
+  from openpilot.sunnypilot.selfdrive.controls.lib.latcontrol_torque_v0 import LatControlTorque as V0
+  return {"v1": V1, "v0": V0}
+
+
+def _controller(version, mode, panda=True):
+  CP, CP_SP, CI, VM = _rivian(panda)
+  lac = _controllers()[version](CP, CP_SP, CI, DT_CTRL)
+  lac.fm_torque = FmTorqueMode(CP, CP_SP, FakeParams(mode))
+  return lac, VM
+
+
+def _drive(lac, VM, v_ego, curvature, frames=300):
+  from opendbc.car.structs import car
+  CS = car.CarState(vEgo=v_ego, steeringAngleDeg=0.0)
+  lp = SimpleNamespace(angleOffsetDeg=0.0, roll=0.0)
+  out = 0.0
+  for _ in range(frames):
+    out, _, _ = lac.update(True, CS, VM, lp, False, curvature, None, False, 0.2)
+  return out
+
+
+@pytest.mark.parametrize("version", ["v0", "v1"])
+@pytest.mark.parametrize("mode", [HEADROOM, FULL])
+def test_controllers_go_past_one_at_low_speed(version, mode):
+  lac, VM = _controller(version, mode)
+  out = _drive(lac, VM, 4.0, -0.1)  # tight left turn at 9 mph, far past the cap
+  assert out == pytest.approx(481 / 385, abs=1e-3), f"{version} stuck at {out}"
+
+
+@pytest.mark.parametrize("version", ["v0", "v1"])
+def test_controllers_off_no_panda_and_highway_stay_at_one(version):
+  lac, VM = _controller(version, OFF)
+  assert _drive(lac, VM, 4.0, -0.1) == pytest.approx(1.0)
+  lac, VM = _controller(version, FULL, panda=False)
+  assert _drive(lac, VM, 4.0, -0.1) == pytest.approx(1.0)
+  lac, VM = _controller(version, HEADROOM)
+  assert abs(_drive(lac, VM, 30.0, -0.01)) == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize("version", ["v0", "v1"])
+def test_controllers_full_scales_small_requests(version):
+  base = _drive(*_controller(version, OFF), 4.0, -0.002)
+  full = _drive(*_controller(version, FULL), 4.0, -0.002)
+  assert 0 < base < 0.9
+  assert full == pytest.approx(base * 481 / 385, rel=1e-3)
+
+
+@pytest.mark.parametrize("enforce,tune", [(False, 0.0), (False, 1.0), (True, 0.0), (True, 1.0)])
+def test_every_selectable_torque_controller_has_the_hook(enforce, tune):
+  from openpilot.sunnypilot.selfdrive.controls.controlsd_ext import ControlsExt
+  CP, CP_SP, CI, _ = _rivian()
+  vals = {"EnforceTorqueControl": enforce, "TorqueControlTune": tune}
+  host = SimpleNamespace(CP=CP, CP_SP=CP_SP,
+                         params=SimpleNamespace(get_bool=lambda k: bool(vals[k]), get=lambda k, **kw: vals[k]))
+  chosen = ControlsExt.initialize_lateral_control(host, _controllers()["v1"](CP, CP_SP, CI, DT_CTRL), CI, DT_CTRL)
+  assert isinstance(getattr(chosen, "fm_torque", None), FmTorqueMode), type(chosen).__module__
+  assert chosen.fm_torque.available
