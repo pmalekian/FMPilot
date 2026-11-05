@@ -7,6 +7,7 @@ See the LICENSE.md file in the root directory for more details.
 """
 
 from collections.abc import Callable
+from functools import partial
 import os
 os.environ['GMMU'] = '0'
 import numpy as np
@@ -38,6 +39,7 @@ from openpilot.selfdrive.modeld.modeld import ChestnutGpuState
 
 from openpilot.sunnypilot.modeld_v2.fill_model_msg import fill_model_msg, fill_pose_msg, PublishState, get_curvature_from_output
 from openpilot.sunnypilot.modeld_v2.parse_model_outputs import Parser
+from openpilot.sunnypilot.modeld_v2.blendful import Blendful
 from openpilot.sunnypilot.modeld_v2.constants import ModelConstants, Plan
 from openpilot.sunnypilot.modeld_v2.meta_helper import load_meta_constants
 from openpilot.sunnypilot.modeld_v2.camera_offset_helper import CameraOffsetHelper
@@ -47,6 +49,7 @@ from openpilot.sunnypilot.modeld_v2.helpers import load_oob
 from openpilot.sunnypilot.modeld_v2.model_adapters import get_model_adapter
 from openpilot.sunnypilot.models.helpers import get_active_bundle
 from openpilot.sunnypilot.selfdrive.controls.lib.relc import RoadEdgeLaneChangeController
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_lane_keep_mode import MODE_BLENDFUL, get_lane_keep_mode
 
 PROCESS_NAME = "openpilot.selfdrive.modeld.modeld_tinygrad"
 BIG_MODEL_TIMEOUT = 60
@@ -252,7 +255,8 @@ class ModelState(ModelStateBase):
     return outputs
 
   def get_action_from_model(self, model_output: dict[str, np.ndarray], prev_action: log.ModelDataV2.Action,
-                            lat_action_t: float, long_action_t: float, v_ego: float) -> log.ModelDataV2.Action:
+                            lat_action_t: float, long_action_t: float, v_ego: float,
+                            blendful: Callable[[float], float] | None = None) -> log.ModelDataV2.Action:
     if 'action' not in model_output:
       plan = model_output['plan'][0]
       desired_accel = get_accel_from_plan(plan[:, Plan.VELOCITY][:, 0], plan[:, Plan.ACCELERATION][:, 0], self.constants.T_IDXS,
@@ -264,6 +268,9 @@ class ModelState(ModelStateBase):
     else:
       desired_accel = model_output['action'][0, 1]
       desired_curvature = model_output['action'][0, 0] / (max(1.0, v_ego))**2
+    # FM Pilot: Blendful (sunnypilot #2073) adds its lane-center nudge here; it returns exactly 0.0 unless selected
+    if blendful is not None:
+      desired_curvature += blendful(desired_curvature)
 
     stop = v_ego < 0.3 and desired_accel < 0.1
     desired_accel = smooth_value(desired_accel, prev_action.desiredAcceleration, self.LONG_SMOOTH_SECONDS)
@@ -378,6 +385,8 @@ def main(demo=False):
   DH = DesireHelper()
   meta_constants = load_meta_constants()
   RELC = RoadEdgeLaneChangeController()
+  blendful = Blendful()
+  blendful_enabled = get_lane_keep_mode(params) == MODE_BLENDFUL  # FM Pilot: FM_LaneKeepMode picks Blendful
 
   while True:
     # Keep receiving frames until we are at least 1 frame ahead of previous extra frame
@@ -421,6 +430,7 @@ def main(demo=False):
       model.lat_delay = get_lat_delay(params, sm["lateralDelay"].lateralDelay)
       model.PLANPLUS_CONTROL = params.get("PlanplusControl", return_default=True)
       camera_offset_helper.set_offset(params.get("CameraOffset", return_default=True))
+      blendful_enabled = get_lane_keep_mode(params) == MODE_BLENDFUL
     lat_delay = model.lat_delay + model.LAT_SMOOTH_SECONDS
     if sm.updated["extrinsicsCalibration"] and sm.seen['narrowRoadCameraState'] and sm.seen['deviceState']:
       device_from_calib_euler = np.array(sm["extrinsicsCalibration"].rpyCalib, dtype=np.float32)
@@ -492,7 +502,10 @@ def main(demo=False):
       posenet_send = messaging.new_message('cameraOdometry')
       mdv2sp_send = messaging.new_message('modelDataV2SP')
 
-      action = model.get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego)
+      # Blendful only acts with no desire and no lane change (turns, lane changes stay the model's own)
+      blendful_active = desire == log.Desire.none and DH.lane_change_state == log.LaneChangeState.off
+      action = model.get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego,
+                                           partial(blendful.update, model_output, v_ego, blendful_active, enabled=blendful_enabled))
       prev_action = action
       fill_model_msg(drivingdata_send, modelv2_send, model_output, action,
                      publish_state, meta_main.frame_id, meta_extra.frame_id, frame_id,
@@ -509,6 +522,13 @@ def main(demo=False):
       modelv2_send.modelV2.meta.laneChangeDirection = DH.lane_change_direction
       mdv2sp_send.valid = modelv2_send.valid
       mdv2sp_send.modelDataV2SP.laneTurnDirection = DH.lane_turn_direction
+      mdv2sp_send.modelDataV2SP.blendfulCurvature = blendful.curvature
+      mdv2sp_send.modelDataV2SP.blendfulTrust = float(blendful.trust)
+      mdv2sp_send.modelDataV2SP.modelCurvature = float(blendful.model_curvature)
+      mdv2sp_send.modelDataV2SP.blendfulGoingAround = bool(blendful.going_around)
+      mdv2sp_send.modelDataV2SP.blendfulLeftProb = blendful.l_prob
+      mdv2sp_send.modelDataV2SP.blendfulRightProb = blendful.r_prob
+      mdv2sp_send.modelDataV2SP.blendfulLaneWidth = float(blendful.lane_width.x)
       drivingdata_send.drivingModelData.meta.laneChangeState = DH.lane_change_state
       drivingdata_send.drivingModelData.meta.laneChangeDirection = DH.lane_change_direction
 
