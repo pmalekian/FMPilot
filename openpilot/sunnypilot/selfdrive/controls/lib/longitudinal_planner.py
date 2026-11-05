@@ -129,6 +129,10 @@ class LongitudinalPlannerSP:
     longitudinalPlanSP.vTarget = float(self.output_v_target)
     longitudinalPlanSP.aTarget = float(self.output_a_target)
     longitudinalPlanSP.events = self.events_sp.to_msg()
+    # FM Pilot: Accel Boost, logged so tools/fm and the on-screen boost bar can see it
+    if (boost := getattr(self, 'accel_boost', None)) is not None:
+      longitudinalPlanSP.fmAccelBoost = float(boost.applied)
+      longitudinalPlanSP.fmAccelBoostMode = int(boost.mode)
 
     # Dynamic Experimental Control
     dec = longitudinalPlanSP.dec

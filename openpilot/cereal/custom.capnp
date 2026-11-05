@@ -204,6 +204,8 @@ struct LongitudinalPlanSP @0xf35cc4560bbf6ec2 {
   aTarget @5 :Float32;
   events @6 :List(OnroadEventSP.Event);
   e2eAlerts @7 :E2eAlerts;
+  fmAccelBoost @8 :Float32;  # FM Pilot: what the selected Accel Boost added to the model's target (m/s^2)
+  fmAccelBoostMode @9 :UInt8;  # FM Pilot: FM_AccelBoostMode in use (0 Off, 1 Gas, 2 Predictive)
 
   struct DynamicExperimentalControl {
     state @0 :DynamicExperimentalControlState;

@@ -136,3 +136,29 @@ class TestExclusive:
     run(boost, READ_FRAMES)
     assert boost.mode == MODE_GAS
     assert boost.total_boost == 0.0  # the old Gas Boost total did not come back
+
+
+# FM Pilot: what the boost added, for the log and the on-screen bar
+
+@pytest.mark.parametrize("mode", [MODE_OFF, MODE_GAS, MODE_PREDICTIVE])
+def test_applied_is_what_was_added(mode):
+  boost = FmBoostMode(FakeParams(mode))
+  for frame in range(400):
+    gas = 20 <= frame < 120  # Gas Boost only builds while the driver presses the gas
+    out = boost.update(make_sm(gas_pressed=gas, gas=0.9), 0.5, 1.5, 1.5)
+    assert boost.applied == pytest.approx(out - 0.5, abs=1e-6)
+    assert boost.applied >= 0.0
+  if mode == MODE_OFF:
+    assert boost.applied == 0.0
+  else:
+    assert boost.applied > 0.0
+
+
+def test_boost_max_per_mode():
+  from openpilot.selfdrive.controls.lib.accel_boost import ACCEL_BOOST_MAX as GAS_MAX
+  from openpilot.selfdrive.controls.lib.fm_boost_mode import boost_max
+  assert boost_max(MODE_OFF, P.aggressive) == 0.0
+  assert boost_max(MODE_GAS, P.relaxed) == GAS_MAX
+  assert boost_max(MODE_PREDICTIVE, P.aggressive) == ACCEL_BOOST_MAX[0]
+  assert boost_max(MODE_PREDICTIVE, P.standard) == ACCEL_BOOST_MAX[1]
+  assert boost_max(MODE_PREDICTIVE, P.relaxed) == ACCEL_BOOST_MAX[2]
