@@ -62,18 +62,41 @@ State as of Nov 3, 2026 (evening). Read this with `FM_PILOT.md` (features, setti
     left-positive), so Boost scaled away-from-the-turn requests and Hold could hold the wrong way. Don't drive either
     feature on an older build.
 
+## Higher Torque: branch `fm-dev-torque` (Nov 5, built, not yet driven)
+
+Goal agreed Nov 4–5: raise the low-speed steering torque cap. FM Pilot is its own fork now: no AP syncs planned; other
+forks are only a source of ideas.
+
+- **Branch:** `fm-dev-torque`, cut from `fm-dev-max` `947b16c`. Two commits: `f21de38` (panda) and `b351c7e` (setting).
+  Frankie switches the comma to it in the branch selector and back to `fm-dev-max` the same way; the panda is reflashed
+  on boot each time, so its limit always matches the branch.
+- **Panda Allows Higher Torque** (`FM_PandaHighTorque`, off-road only, off): read at onroad start (card restarts each
+  onroad; pandad sends `safetyParamSP` bit 2). Panda envelope `[9,25,27] -> [481,295,275]` (AP's is 385). Ramp rates,
+  real-time limit and driver-torque rules unchanged.
+- **Higher Torque** (`FM_TorqueMode`, live, Off): car cap `[9,17,25,27] -> [481,332,295,275]`. Headroom raises only the
+  controller's max (1.25 under 20 mph); Full scales every request (AP's 481 test was this and felt jerky at 20–29 mph,
+  oversteered at 38–50 mph). Blends over 1 s. Panda setting off: every mode stays at 385.
+- **Why Headroom:** openpilot's torque is a fraction of the cap, so raising the cap alone (Full) makes every low-speed
+  correction 25% stronger. Headroom changes nothing until the controller would have maxed out.
+- **Evidence for headroom (Nov 4 logs):** in Loop A `00000032` (`--9`, `--12`, `--15`, `--17`), at the cap the EPAS kept
+  `ToiActive` on (96–100%), never set `ToiFlt`, `SteeringReduced` or `SteeringFault`, and the wheel crept (3–60 deg/s)
+  until Frankie added 1–2.5 Nm, then moved at 150–420 deg/s. Garage segment (`0000002c--28`): the wheel was moved by
+  hand; the command was ~0.5 of the cap until near full lock (-456°), where `ToiActive` dropped as it hit 0.95. Not
+  informative about the ceiling. The DBC has no "torque applied" signal; headroom can only be judged from the response.
+- **Test plan (one build for all of it):** turn the panda setting on in off-road mode, then Higher Torque Headroom.
+  Settings otherwise as Loop A on Nov 4 (TSFDOM, lane centering, Turn Assist and off-tracking off). 1) Empty lot, slow
+  turns. 2) Loop A both ways, compare per corner with `00000032` (time at cap, radius vs request, hand help). 3) Normal
+  driving 20–45 mph. 4) Full on the same corners, for comparison. 5) Turn Assist back on. Stop on any `ToiFlt` or
+  steering fault, unexpected jerk, or a wheel that's hard to override.
+- **Check in the first log:** pandad's "setting safety model ... param_sp" line shows bit 2 when the panda setting is on.
+
 ## Next update to the branch (agreed, not yet done)
 
 1. Turn Boost / Turn Hold speed limit: full strength to 20 mph, fading out by **25 mph** (now 15 → 20).
-2. **Sync AP `dev`.** New since our sync: R1T wheelbase from the VIN, AP's own off-tracking compensation, and its device
-   menu.
-3. **Use AP's off-tracking and remove ours.** It's the same rx-wb code with the same setting names, so keeping both
-   would apply it twice. Make sure Turn Boost / Hold run **before** AP's off-tracking line in controlsd, so off-tracking
-   sees the boosted request.
-4. Re-run the tests. If tinygrad or `compile_modeld.py` changed, rebuild a custom model and check it with
-   `fm_check_model.py --compare` before driving it.
+2. ~~Sync AP `dev`~~ and ~~use AP's off-tracking~~: dropped Nov 5. FM Pilot no longer syncs AP; borrow individual
+   pieces (e.g. AP's R1T wheelbase from the VIN) only if wanted.
 
-When AP takes in the big sunnypilot sync (branch `fix/pr10-personality`, not in dev yet):
+Pieces in AP's pending sunnypilot sync (branch `fix/pr10-personality`) worth borrowing on their own, if wanted. No sync planned:
 
 - **Gas Override Boost** arrives upstream as the same `accel_boost.py`; drop ours to avoid boosting twice.
 - **Predictive Boost** (sunnypilot `AccelBoostSP`, branch `booooost`, likely on by default with its own `AccelBoostSP`
@@ -97,7 +120,7 @@ When AP takes in the big sunnypilot sync (branch `fix/pr10-personality`, not in 
   - Official model downloads are fine.
 - **Steering torque:** AP's Rivian low-speed cap is 385 (stock 250), and the panda enforces the same cap. Every model
   hits it in tight turns. Older models (gwmv9, DTRv6) ask for tighter radii; TSFDOM eases from about 11 m to 30 m
-  mid-turn. Raising the cap was discussed and rejected.
+  mid-turn. Raising the cap is now the goal (Nov 5): see Higher Torque above.
 - **The ramp curve (Nov 3):** TSFDOM cut a right curve over the edge line. The controller tracked the request fine.
   Lines and road edge were too uncertain for lane centering or Lane Guard (Lane Guard trusts a line at 70%+ confidence
   and an edge at under 1 m std). Decided: leave the trust limits alone.
