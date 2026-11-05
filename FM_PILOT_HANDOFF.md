@@ -100,6 +100,26 @@ forks are only a source of ideas.
 - **Check in the first log:** `carControl.actuators.torque` passes 1.00 and `torqueOutputCan` passes 385 in a tight
   turn; `torqueState.version` shows which controller ran. Also pandad's "setting safety model ... param_sp" line shows bit 2 when the panda setting is on.
 
+## Radar lead settings: branch `fm-dev-torque` (Nov 5, built, both off, not yet driven)
+
+- **Ignore Stationary Radar Ghosts** (`FM_RadarStationaryGuard`, Cruise, off, `50d1997`): radard won't pair a radar
+  point under 1 m/s with a camera lead over 5 m/s (11 mph) unless the camera sees it braking harder than -1.5 m/s²;
+  that car is then followed from the camera. Fixes the guardrail phantom brakes on ramps/curves (`00000038--19` on-ramp
+  -1.8 to -3.5 m/s², `--13`, `00000039--47`). Low-speed radar path (under 4 m/s) untouched.
+- **Lead Detection Sensitivity** (`FM_LeadDetectionThreshold`, Cruise, 25–50%, default 50 = openpilot, `613c760`):
+  camera confidence needed to count a lead and pair it with radar. From FrogPilot (MIT, default 35% there). Use with
+  the guard: at 35% without it, phantom frames rose 148 → 163 in replay.
+- **Offline replay (real radard code on the 9 Nov 5 segments; stock replay matches the logged leads 96–100%):**
+  phantom pairings 148 → 5 frames with the guard (the 5 have the camera's lead at 9–12 mph, by design: one is the
+  red-light car at 107 m on `--48`, correctly kept). Every lead the guard changed was a stationary radar point swapped
+  for the camera's car; nothing else changed. Threshold 40%/35%: leads found 0.2–0.9 s earlier (one 104 m radar pickup
+  0.6 s earlier; at 35% the `--48` +10.7 s lead held 8 s longer without dropouts); 1–2 extra short camera-only leads
+  in `--1` (+21.7/+23.1 s, prob 0.40–0.44, car at 23–30 m doing 8–11 mph, probably real, unverified). No high-speed
+  approach to stopped traffic in these logs, so the threshold's real benefit is unmeasured.
+- **Test plan:** after the Higher Torque test. 1) Guard on, same on-ramp: no braking from a ~0 mph radar point beside a
+  moving car. 2) Then threshold 40%, then 35%, normal driving incl. approaches to stopped/slow traffic at 35–45 mph;
+  watch for brakes with no car ahead. Untested: a real hard stop behind a car (the braking exemption covers it).
+
 ## Next update to the branch (agreed, not yet done)
 
 1. Turn Boost / Turn Hold speed limit: full strength to 20 mph, fading out by **25 mph** (now 15 → 20).
