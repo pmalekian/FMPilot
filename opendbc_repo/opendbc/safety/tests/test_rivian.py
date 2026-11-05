@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 import unittest
+
+import numpy as np
 from types import SimpleNamespace
 
 from opendbc.car import structs
 from opendbc.car.rivian.carcontroller import CarController
 from opendbc.car.structs import CarParams
-from opendbc.sunnypilot.car.rivian.values import RivianSafetyFlagsSP
+from opendbc.sunnypilot.car.rivian.values import RivianFlagsSP, RivianSafetyFlagsSP
 from opendbc.safety.tests.libsafety import libsafety_py
 import opendbc.safety.tests.common as common
 from opendbc.safety.tests.common import CANPackerSafety
-from opendbc.car.rivian.values import RivianSafetyFlags
+from opendbc.car.rivian.values import CarControllerParams, RivianSafetyFlags
 from opendbc.car.rivian.riviancan import checksum as _checksum
 
 
@@ -90,7 +92,10 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.DriverTorqueSteeringSafe
   def _torque_loop_setup(self, angle=150.0, speed=11.4, timer_offset_frames=0):
     """the real CarController driving the panda model frame by frame (10 ms) at a high wheel angle, where it
     blips the TOI request about every 0.9 s"""
-    self.controller = CarController({"pt": "rivian_primary_actuator"}, structs.CarParams(), structs.CarParamsSP())
+    CP_SP = structs.CarParamsSP()
+    if self.HIGH_TORQUE:
+      CP_SP.flags |= RivianFlagsSP.HIGH_TORQUE_PANDA.value
+    self.controller = CarController({"pt": "rivian_primary_actuator"}, structs.CarParams(), CP_SP)
     out = structs.CarState()
     out.vEgoRaw = speed
     out.steeringAngleDeg = angle
@@ -123,7 +128,8 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.DriverTorqueSteeringSafe
     cc = structs.CarControl()
     cc.latActive = True
     cc.actuators.torque = demand
-    _, can_sends = self.controller.update(cc.as_reader(), structs.CarControlSP(), self.cs, 0)
+    actuators, can_sends = self.controller.update(cc.as_reader(), structs.CarControlSP(), self.cs, 0)
+    self.last_sent_torque = actuators.torqueOutputCan
     ok = True
     for addr, dat, bus in can_sends:
       if addr == 0x120:
@@ -196,6 +202,31 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.DriverTorqueSteeringSafe
               blocked.append((sign, offset, start, i))
               break
     self.assertEqual(blocked, [], f"panda refused the controller's torque at (sign, timer offset, demand start, frame): {blocked[:6]}")
+
+  def test_fm_demand_past_cap_is_never_refused(self):
+    """FM Pilot: openpilot may ask past 1.0 (Higher Torque). Whatever it asks, the controller must stay inside the
+    panda's limit at every speed: with the panda flag off it holds AP's curve, with it on FM Pilot's higher curve."""
+    lookup = CarControllerParams.STEER_MAX_LOOKUP_HIGH if self.HIGH_TORQUE else CarControllerParams.STEER_MAX_LOOKUP
+    for speed in (0.5, 4.0, 8.0, 9.0, 12.0, 17.0, 21.0, 25.0, 27.0, 33.0):
+      for sign in (1.0, -1.0):
+        self._torque_loop_setup(angle=30.0, speed=speed)
+        peak = 0
+        for i in range(300):
+          self.assertTrue(self._torque_loop_frame(sign * 1.6), f"refused at {speed} m/s, sign {sign}, frame {i}")
+          peak = max(peak, abs(self.last_sent_torque))
+        cap = round(float(np.interp(speed, *lookup)))
+        if not self.HIGH_TORQUE:
+          cap = round(float(np.interp(speed, *CarControllerParams.STEER_MAX_LOOKUP)))
+        self.assertLessEqual(peak, cap, f"{speed} m/s")
+        self.assertGreaterEqual(peak, cap - 3, f"{speed} m/s: never reached the cap")
+
+  def test_fm_unit_demand_unchanged(self):
+    """FM Pilot: a request of 1.0 or less sends the same torque with or without the panda flag (Off == AP)."""
+    for speed in (4.0, 9.0, 17.0, 30.0):
+      self._torque_loop_setup(angle=30.0, speed=speed)
+      for _ in range(200):
+        self._torque_loop_frame(1.0)
+      self.assertEqual(abs(self.last_sent_torque), round(float(np.interp(speed, *CarControllerParams.STEER_MAX_LOOKUP))))
 
   def test_torque_recovers_after_panda_refusal(self):
     """If the panda ever does refuse a frame it zeroes its torque memory. The controller, told the frame was

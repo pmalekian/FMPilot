@@ -9,6 +9,7 @@ from opendbc.car.rivian.torque_rt import TorqueRtLimiter
 from opendbc.car.rivian.values import CarControllerParams, RivianFlags
 
 from opendbc.sunnypilot.car.rivian.mads import MadsCarController
+from opendbc.sunnypilot.car.rivian.values import RivianFlagsSP
 
 GearShifter = structs.CarState.GearShifter
 
@@ -76,6 +77,8 @@ class CarController(CarControllerBase, MadsCarController):
     self.toi_inactive_frames = 0
     self.toi_dropout_warn = False  # releases have not brought it back: carstate reports a steering fault
     self.toi_dropout_warn_hold = 0
+    # FM Pilot: the panda allows the higher low-speed cap this drive (set once at onroad start)
+    self.high_torque = bool(CP_SP.flags & RivianFlagsSP.HIGH_TORQUE_PANDA)
 
   def _update_toi_dropout(self, CS) -> bool:
     """True once the EPAS has not been taking the torque we request for long enough to release the request."""
@@ -139,14 +142,21 @@ class CarController(CarControllerBase, MadsCarController):
       self.frames_since_refusal = min(self.frames_since_refusal + 1, TOI_CLEAR_QUIET_FRAMES)
 
     apply_torque = 0
+    # steer_max scales openpilot's request (1.0 = AP's curve). steer_cap is the most that may be sent: the same curve,
+    # or FM Pilot's higher low-speed curve when the panda allows it this drive. openpilot only asks past 1.0 with
+    # FM Pilot's Higher Torque setting on; otherwise the result is the same as with steer_cap = steer_max.
     steer_max = round(float(np.interp(CS.out.vEgoRaw, CarControllerParams.STEER_MAX_LOOKUP[0],
                                       CarControllerParams.STEER_MAX_LOOKUP[1])))
+    steer_cap = steer_max
+    if self.high_torque:
+      steer_cap = max(steer_max, round(float(np.interp(CS.out.vEgoRaw, CarControllerParams.STEER_MAX_LOOKUP_HIGH[0],
+                                                       CarControllerParams.STEER_MAX_LOOKUP_HIGH[1]))))
     if self.mads.lat_active:
       new_torque = int(round(CC.actuators.torque * steer_max))
       apply_torque = apply_driver_steer_torque_limits(new_torque, self.apply_torque_last,
-                                                      CS.out.steeringTorque, CarControllerParams, steer_max)
+                                                      CS.out.steeringTorque, CarControllerParams, steer_cap)
       if abs(CS.out.steeringAngleDeg) > HIGH_ANGLE_THRESHOLD_DEG:
-        cap = int(round(steer_max * HIGH_ANGLE_CAP_FRAC))
+        cap = int(round(steer_cap * HIGH_ANGLE_CAP_FRAC))
         apply_torque = max(-cap, min(cap, apply_torque))
       apply_torque = self.rt_limiter.limit(apply_torque)
     else:

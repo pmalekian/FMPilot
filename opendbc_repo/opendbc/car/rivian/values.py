@@ -134,6 +134,10 @@ class CarControllerParams:
   # oversteer at mid speed); this halves the mid-speed bump and reverts low speed
   # to original. Knee moved 17 -> 27 m/s so modest help extends through ~55 mph.
   STEER_MAX_LOOKUP = [9, 13, 25, 27], [385, 350, 295, 275]
+  # FM Pilot: the cap with "Panda Allows Higher Torque" on. 481 below 9 m/s (20 mph), back to the curve above by 17 m/s
+  # (38 mph; 332 ~ the curve above there), identical from 25 m/s. Never below STEER_MAX_LOOKUP. The panda's envelope
+  # [9,25,27] -> [481,295,275] sits >= this at every speed. 481 from AP 5270cbba (Uncle-Tony, MIT).
+  STEER_MAX_LOOKUP_HIGH = [9, 17, 25, 27], [481, 332, 295, 275]
   STEER_STEP = 1
   STEER_DELTA_UP = 3  # torque increase per refresh
   STEER_DELTA_DOWN = 5  # torque decrease per refresh

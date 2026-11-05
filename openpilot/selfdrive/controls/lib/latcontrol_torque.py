@@ -10,6 +10,7 @@ from openpilot.selfdrive.controls.lib.latcontrol import LatControl
 from openpilot.common.pid import PIDController
 
 from openpilot.sunnypilot.selfdrive.controls.lib.latcontrol_torque_ext import LatControlTorqueExt
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_torque_mode import FmTorqueMode
 
 # At higher speeds (25+mph) we can assume:
 # Lateral acceleration achieved by a specific car correlates to
@@ -49,6 +50,7 @@ class LatControlTorque(LatControl):
     self.jerk_filter = FirstOrderFilter(0.0, 1 / (2 * np.pi * LP_FILTER_CUTOFF_HZ), self.dt)
 
     self.extension = LatControlTorqueExt(self, CP, CP_SP, CI)
+    self.fm_torque = FmTorqueMode(CP, CP_SP)  # FM Pilot Higher Torque (Rivian); (1.0, 1.0) otherwise
 
   def update_torque_parameters(self, latAccelFactor, latAccelOffset, friction):
     self.torque_params.latAccelFactor = latAccelFactor
@@ -63,6 +65,12 @@ class LatControlTorque(LatControl):
   def update(self, active, CS, VM, params, steer_limited_by_safety, desired_curvature, calibrated_pose, curvature_limited, lat_delay):
     # Override torque params from extension
     if self.extension.update_override_torque_params(self.torque_params):
+      self.update_limits()
+
+    # FM Pilot Higher Torque: max request past 1.0 (Headroom) and request scale (Full); (1.0, 1.0) is AP's behavior
+    fm_max, fm_scale = self.fm_torque.update(CS.vEgo)
+    if fm_max != self.steer_max:
+      self.steer_max = fm_max
       self.update_limits()
 
     pid_log = log.ControlsState.LateralTorqueState.new_message()
@@ -117,6 +125,9 @@ class LatControlTorque(LatControl):
       pid_log.desiredLateralAccel = float(setpoint)
       pid_log.desiredLateralJerk = float(desired_lateral_jerk)
       pid_log.saturated = bool(self._check_saturation(self.steer_max - abs(output_torque) < 1e-3, CS, steer_limited_by_safety, curvature_limited))
+      if fm_scale != 1.0:
+        output_torque *= fm_scale
+        pid_log.output = float(-output_torque)
 
     # TODO left is positive in this convention
     return -output_torque, 0.0, pid_log
