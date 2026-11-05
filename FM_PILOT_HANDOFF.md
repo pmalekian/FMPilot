@@ -1,6 +1,6 @@
 # FM Pilot: handoff for new chats
 
-State as of Nov 3, 2026 (evening). Read this with `FM_PILOT.md` (features, settings, credits) and `tools/fm/README.md` (log tools).
+State as of Nov 5, 2026. Read this with `FM_PILOT.md` (features, settings, credits) and `tools/fm/README.md` (log tools).
 
 ## Setup
 
@@ -32,14 +32,15 @@ State as of Nov 3, 2026 (evening). Read this with `FM_PILOT.md` (features, setti
 ## What Frankie drives now
 
 - **Model:** TSFDOM. He prefers its longitudinal by far; its lateral is "good enough" with his help.
-- **Steering:** lane centering on (One-Line Mode on), Lane Guard off, off-tracking off.
+- **Steering:** lane centering on (One-Line Mode on), Lane Guard off, off-tracking off. **Camera Offset 0.05 m** since
+  Nov 4 (the pull-to-the-right test, not yet analyzed).
 - **Turns and road edge:** Road Edge Turn Desire on (max 40 mph), quiet road-edge block on.
 - **Longitudinal:** Experimental Mode. **Accel Boost** (`FM_AccelBoostMode`, Cruise page): Off / Gas / Predictive, default
   Gas. Predictive (sunnypilot's model-predicted boost, `c5f251a`) is built but **not yet driven**; on aggressive it adds
   up to +0.4 m/s². It needs the model's gas/brake-press predictions; check `modelV2.meta.disengagePredictions` in a
   TSFDOM rlog has `gasPressProbs`/`brakePressProbs` filled (if empty, Predictive does nothing).
 - **Custom model:** the OPM16D + Rebel Legion splice is built on the device but switched off. He gave it up for TSFDOM.
-- **Turn Assist** (all off by default, **none driven yet**): Turn Boost, Turn Hold (`1616b20b`), and from StarPilot's
+- **Turn Assist** (all off by default; driven Nov 3 and Nov 4, see the Loop A finding below): Turn Boost, Turn Hold (`1616b20b`), and from StarPilot's
   Model Turn Assist (Nov 3): **Turn Lead** (`111c97a`), Turn Hold options **Hold Path Source** (`2dbc4f8`) and **Hold
   Adds Your Steering** (`ba7b308`), and the shared **Turn Path Tightest Radius** slider (8–20 m, default 12 m; 8 m is
   StarPilot's fixed cap).
@@ -57,7 +58,10 @@ State as of Nov 3, 2026 (evening). Read this with `FM_PILOT.md` (features, setti
     0.25. Turn Lead turned the truck in when TSFDOM asked for nearly straight (60:50: model -8e-3, request -114e-3).
     Two problems, both fixed: steering into the turn before the truck turned released Turn Hold (`6124165`), and Hold
     Adds Your Steering capped your curve at the slider, so openpilot pushed out of 5–6.6 m loops (`ed7bd8b`: now up
-    to full lock). Not yet driven with the fixes.
+    to full lock). Driven with the fixes on Nov 4 (build `947b16c`), not yet analyzed: routes `0000002e`, `0000002f`,
+    `00000030` (morning; Lead + Hold + both options + Boost, min 2 mph, radius 8 m, off-tracking 0.25), `00000033`
+    (Lead + Hold, min 7 mph, radius 12 m), `00000034` (Lead + Hold, min 7 mph, radius 8 m; about 8 Loop A corners),
+    `00000035` (Boost + Hold, no Lead; about 1.5 Loop A laps). Logs are in `C:\fmlogs\2026-11-04` on Frankie's PC.
   - **Builds before `b9c5a55` (Nov 3) had left and right swapped** (curvature is right-positive; Turn Assist assumed
     left-positive), so Boost scaled away-from-the-turn requests and Hold could hold the wrong way. Don't drive either
     feature on an older build.
@@ -142,11 +146,34 @@ Pieces in AP's pending sunnypilot sync (branch `fix/pr10-personality`) worth bor
   were crowned (roll +2 to +2.8°) and the wheel sat about 1° left on straights. Likely TSFDOM's lane position plus
   crown; unproven. Learned torque params: latAccelOffset about -0.35 m/s² all drive (large; worth a look), factor 2.59
   → 2.73. Suggested test: Camera Offset +0.05 m (shifts the model's centre left).
+- **Loop A: manual vs stock TSFDOM (Nov 4, route `00000032--0aacde19f0`, minutes 0–19).** Test loop: the Hawk Hollow /
+  Winston / Gatewood / Gerber block by his house (see the routes PDF). All Turn Assist and off-tracking off, lane
+  centering on (in these turns the request equalled the model's exactly, so it made no difference). Manual `--0`–`--9`:
+  2 laps each way plus cul-de-sac and driveway. openpilot `--9`–`--12` and `--15`–`--18`: 2 laps each way plus cul-de-sac.
+  - **Frankie, rolling:** about 12–14 m radius at 14–15 mph mid-corner, about **3.2–3.4 m/s²**; turns in about 11 m
+    before the corner's middle; about 2.5 Nm on the wheel. Right from a stop: about 9 m radius.
+  - **TSFDOM's request is about right** when it drives: averaged over 8 lefts and 8 rights it matches his curve in
+    timing and size. (While he drives, the model asks for only about 75% of his curve, but it is following the truck.)
+  - **The torque cap is what fails.** In 8 of 16 openpilot turns (mostly the Winston corners) torque hit the cap (0.95)
+    2–3 s before the corner, and the truck stalled at about 1.5–1.9 m/s² (about 18 m radius at 10–13 mph, 23 m at
+    13–16 mph; measured mostly on lefts), 35–75% of the request, until he took over. In the other 8 (mostly Gerber) he
+    was already steering 6–14 m before the corner. After his help the truck went tighter than the request and
+    openpilot pushed against the turn (−0.45 to −0.8 of max) in 14 of 16.
+  - The controller otherwise tracks the request with about 0.2–0.25 s lag (9–36 mph): fine.
+  - **Meaning:** Boost / Lead / Hold can't make these corners at his speeds; the request is not the limit. Levers: lower
+    speed in blinker turns (a turn-speed limit, untested: data under 10 mph is thin), the torque cap (now being tested,
+    see Higher Torque), or accept his help without the fight (Hold Adds Your Steering). Next test: same laps,
+    corners at 8–10 mph, hands off until it goes wide, to measure what the cap allows there.
+  - Analysis scripts were one-off (not in the repo yet): yaw-rate curvature from `liveLocationKalman`, corners matched by
+    GPS, profiles aligned on the corner's middle (half the heading change).
 - **Blendful** (sunnypilot lane-centering blend, alpha): looked at Nov 3, left alone for now. Centers off one line at half
   strength on straights, ignores road edges.
 
 ## Ideas backlog
 
+- **Steering tuner from test-loop logs** (idea, Nov 4): drive Loop A manual vs openpilot, compare per corner offline
+  in `tools/fm`, fit FM settings by replaying `FmTurnAssist` on logged turns. First session (above) showed the torque cap
+  is the limit at his speeds, so fitting request-shaping settings comes after the speed question.
 - **Controller tuning** of the Rivian torque parameters (lat accel factor 2.8, max 2.5, friction 0.07) and the turn-in
   ramp, from Frankie's logs.
 - **Retrain TSFDOM's steering head** with OPM16D (or gwmv9) as the teacher, with TSFDOM's acceleration pinned.
