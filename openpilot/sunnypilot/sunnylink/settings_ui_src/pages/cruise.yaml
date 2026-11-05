@@ -43,85 +43,6 @@ sections:
       label: Relaxed
     enablement:
     - $ref: '#/macros/longitudinal'
-  - key: FM_AccelBoostMode
-    widget: multiple_button
-    title: Accel Boost
-    description: 'Adds a little acceleration on top of the model''s. Gas Boost: after you press the gas while the model
-      holds the car below what the lead and set speed allow, adds up to +0.2 m/s² for that engagement. Predictive Boost:
-      adds acceleration whenever the model predicts no reason to slow, sized by driving personality (up to +0.4 m/s²
-      aggressive, +0.25 standard, +0.1 relaxed); fades out in tight curves and when the model wants to stop. Only one
-      can be on.'
-    options:
-    - value: 0
-      label: 'Off'
-    - value: 1
-      label: Gas
-    - value: 2
-      label: Predictive
-    enablement:
-    - $ref: '#/macros/longitudinal'
-  - key: SPStopDistance
-    widget: option
-    title: Minimum Stop Distance
-    description: >-
-      Gap behind a stopped lead car, in tenths of a metre (45 = 4.5 m, 60 = 6.0 m).
-      Default is 60 (6.0 m). Only active when cruise set speed is 50 kph / 31 mph or below;
-      reverts to 6.0 m above that speed. Takes effect after changing from OffRoad to OnRoad.
-    min: 45
-    max: 60
-    step: 5
-    enablement:
-    - $ref: '#/macros/offroad'
-    - $ref: '#/macros/longitudinal'
-  - key: SPStopDistancePersonality
-    widget: toggle
-    title: Link Stop Distance to Personality
-    description: >-
-      When enabled, and while the reduced stop distance is active: Aggressive uses the
-      minimum stop distance; Standard uses the midpoint; Relaxed always uses 6.0 m.
-    enablement:
-    - $ref: '#/macros/offroad'
-    - $ref: '#/macros/longitudinal'
-    visibility:
-    - type: param_compare
-      key: SPStopDistance
-      op: '<'
-      value: 60
-  - key: SPFollowingTimeOffset
-    widget: option
-    title: Following Distance Offset
-    description: >-
-      Scales the time-gap to the lead car across all personality modes (-20% to +20%).
-      Negative values follow closer; positive values follow further. Default is 0 (no change).
-      Takes effect after changing from OffRoad to OnRoad.
-    min: -20
-    max: 20
-    step: 5
-    enablement:
-    - $ref: '#/macros/offroad'
-    - $ref: '#/macros/longitudinal'
-  - key: FM_RadarStationaryGuard
-    widget: toggle
-    title: Ignore Stationary Radar Ghosts
-    description: Never treat a standing-still radar point as the car ahead while the camera sees that car clearly moving
-      (over 11 mph) and not braking hard. Stops guardrails and barriers on ramps and curves from causing sudden braking;
-      the car ahead is then followed from the camera. A car the camera sees braking hard, and anything straight ahead
-      below about 9 mph, still comes from the radar.
-    enablement:
-    - $ref: '#/macros/longitudinal'
-  - key: FM_LeadDetectionThreshold
-    widget: option
-    title: Lead Detection Sensitivity
-    description: >-
-      How sure the camera has to be that a car is ahead (in percent) before openpilot follows it and pairs it with the
-      radar. Lower numbers pick up cars sooner and farther away, so slowdowns can start earlier and more gently, with
-      more chances of reacting to something that is not a car; use with Ignore Stationary Radar Ghosts. Default 50
-      (openpilot's own value). From FrogPilot.
-    min: 25
-    max: 50
-    step: 5
-    enablement:
-    - $ref: '#/macros/longitudinal'
   - key: IntelligentCruiseButtonManagement
     widget: toggle
     title: Intelligent Cruise Button Management (ICBM) (Alpha)
@@ -136,6 +57,81 @@ sections:
         type: capability
         field: has_longitudinal_control
         equals: true
+  sub_panels:
+  - id: driving_personality_settings
+    label: Driving Personality Settings
+    trigger_key: FM_AccelBoostMode
+    items:
+    - key: FM_AccelBoostMode
+      widget: multiple_button
+      title: Accel Boost
+      description: 'Adds a little acceleration on top of the model''s. Gas Boost: after you press the gas while the model
+        holds the car below what the lead and set speed allow, adds up to +0.2 m/s² for that engagement. Predictive Boost:
+        adds acceleration whenever the model predicts no reason to slow, sized by driving personality (up to +0.4 m/s²
+        aggressive, +0.25 standard, +0.1 relaxed); fades out in tight curves and when the model wants to stop. Only one
+        can be on.'
+      options:
+      - value: 0
+        label: 'Off'
+      - value: 1
+        label: Gas
+      - value: 2
+        label: Predictive
+      enablement:
+      - $ref: '#/macros/longitudinal'
+    - key: FM_AccelBoostIndicator
+      widget: toggle
+      title: Show Accel Boost On Screen
+      description: Draws a green bar in the side panel of the comma 4 while Accel Boost is on, in place of the confidence
+        ball. It fills as the boost adds acceleration, up to the most the selected boost can add (+0.2 m/s² for Gas, or
+        +0.4 / 0.25 / 0.1 m/s² for Predictive by personality), and stays empty while the car ahead or your set speed is
+        what limits the speed. From sunnypilot.
+      enablement:
+      - $ref: '#/macros/longitudinal'
+      - type: param_compare
+        key: FM_AccelBoostMode
+        op: '>'
+        value: 0
+    - key: SPStopDistance
+      widget: option
+      title: Minimum Stop Distance
+      description: >-
+        Gap behind a stopped lead car, in tenths of a metre (45 = 4.5 m, 60 = 6.0 m).
+        Default is 60 (6.0 m). Only active when cruise set speed is 50 kph / 31 mph or below;
+        reverts to 6.0 m above that speed. Takes effect after changing from OffRoad to OnRoad.
+      min: 45
+      max: 60
+      step: 5
+      enablement:
+      - $ref: '#/macros/offroad'
+      - $ref: '#/macros/longitudinal'
+    - key: SPStopDistancePersonality
+      widget: toggle
+      title: Link Stop Distance to Personality
+      description: >-
+        When enabled, and while the reduced stop distance is active: Aggressive uses the
+        minimum stop distance; Standard uses the midpoint; Relaxed always uses 6.0 m.
+      enablement:
+      - $ref: '#/macros/offroad'
+      - $ref: '#/macros/longitudinal'
+      visibility:
+      - type: param_compare
+        key: SPStopDistance
+        op: '<'
+        value: 60
+    - key: SPFollowingTimeOffset
+      widget: option
+      title: Following Distance Offset
+      description: >-
+        Scales the time-gap to the lead car across all personality modes (-20% to +20%).
+        Negative values follow closer; positive values follow further. Default is 0 (no change).
+        Takes effect after changing from OffRoad to OnRoad.
+      min: -20
+      max: 20
+      step: 5
+      enablement:
+      - $ref: '#/macros/offroad'
+      - $ref: '#/macros/longitudinal'
 - id: custom_acc_increments
   title: Custom ACC Speed Intervals
   description: ''
@@ -302,69 +298,96 @@ sections:
       field: has_icbm
       equals: true
   items:
-  - key: SmartCruiseControlVision
+  - key: FM_RadarStationaryGuard
     widget: toggle
-    title: Vision
-    description: Use vision path predictions to estimate the appropriate speed to drive through turns ahead.
-    visibility:
-    - type: any
-      conditions:
-      - type: capability
-        field: has_longitudinal_control
-        equals: true
-      - type: capability
-        field: has_icbm
-        equals: true
+    title: Ignore Stationary Radar Ghosts
+    description: Never treat a standing-still radar point as the car ahead while the camera sees that car clearly moving
+      (over 11 mph) and not braking hard. Stops guardrails and barriers on ramps and curves from causing sudden braking;
+      the car ahead is then followed from the camera. A car the camera sees braking hard, and anything straight ahead
+      below about 9 mph, still comes from the radar.
     enablement:
-    - type: any
-      conditions:
-      - type: capability
-        field: has_longitudinal_control
-        equals: true
-      - type: capability
-        field: has_icbm
-        equals: true
-  - key: SmartCruiseControlMap
-    widget: toggle
-    title: Map
-    description: Use map data to estimate the appropriate speed to drive through turns ahead.
-    visibility:
-    - type: any
-      conditions:
-      - type: capability
-        field: has_longitudinal_control
-        equals: true
-      - type: capability
-        field: has_icbm
-        equals: true
+    - $ref: '#/macros/longitudinal'
+  - key: FM_LeadDetectionThreshold
+    widget: option
+    title: Lead Detection Sensitivity
+    description: >-
+      How sure the camera has to be that a car is ahead (in percent) before openpilot follows it and pairs it with the
+      radar. Lower numbers pick up cars sooner and farther away, so slowdowns can start earlier and more gently, with
+      more chances of reacting to something that is not a car; use with Ignore Stationary Radar Ghosts. Default 50
+      (openpilot's own value). From FrogPilot.
+    min: 25
+    max: 50
+    step: 5
     enablement:
-    - type: any
-      conditions:
-      - type: capability
-        field: has_longitudinal_control
-        equals: true
-      - type: capability
-        field: has_icbm
-        equals: true
-  - key: CurveSpeedControl
-    widget: toggle
-    title: Curve
-    description: Slow down ahead of curves and power smoothly through them, keeping cornering within the steering's limits. Uses the vision path; no map data required.
-    visibility:
-    - type: any
-      conditions:
-      - type: capability
-        field: has_longitudinal_control
-        equals: true
-      - type: capability
-        field: has_icbm
-        equals: true
-    enablement:
-    - type: any
-      conditions:
-      - type: capability
-        field: has_longitudinal_control
-        equals: true
-      - type: capability
-        field: has_icbm
-        equals: true
+    - $ref: '#/macros/longitudinal'
+  sub_panels:
+  - id: curve_speed_settings
+    label: Curve Speed Settings
+    trigger_key: CurveSpeedControl
+    items:
+    - key: SmartCruiseControlVision
+      widget: toggle
+      title: Vision
+      description: Use vision path predictions to estimate the appropriate speed to drive through turns ahead.
+      visibility:
+      - type: any
+        conditions:
+        - type: capability
+          field: has_longitudinal_control
+          equals: true
+        - type: capability
+          field: has_icbm
+          equals: true
+      enablement:
+      - type: any
+        conditions:
+        - type: capability
+          field: has_longitudinal_control
+          equals: true
+        - type: capability
+          field: has_icbm
+          equals: true
+    - key: SmartCruiseControlMap
+      widget: toggle
+      title: Map
+      description: Use map data to estimate the appropriate speed to drive through turns ahead.
+      visibility:
+      - type: any
+        conditions:
+        - type: capability
+          field: has_longitudinal_control
+          equals: true
+        - type: capability
+          field: has_icbm
+          equals: true
+      enablement:
+      - type: any
+        conditions:
+        - type: capability
+          field: has_longitudinal_control
+          equals: true
+        - type: capability
+          field: has_icbm
+          equals: true
+    - key: CurveSpeedControl
+      widget: toggle
+      title: Curve
+      description: Slow down ahead of curves and power smoothly through them, keeping cornering within the steering's limits. Uses the vision path; no map data required.
+      visibility:
+      - type: any
+        conditions:
+        - type: capability
+          field: has_longitudinal_control
+          equals: true
+        - type: capability
+          field: has_icbm
+          equals: true
+      enablement:
+      - type: any
+        conditions:
+        - type: capability
+          field: has_longitudinal_control
+          equals: true
+        - type: capability
+          field: has_icbm
+          equals: true

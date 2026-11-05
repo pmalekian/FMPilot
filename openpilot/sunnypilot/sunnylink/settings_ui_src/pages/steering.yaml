@@ -87,30 +87,61 @@ sections:
       - $ref: '#/macros/rivian_enhanced_mads'
 - id: lane_centering
   title: Lane Centering
-  description: Keep the car in the middle of the painted lane
+  description: Keep the car in the middle of the lane. One of Lane Centering, Lane Guard or Blendful
   items:
-  - key: LaneCenteringEnabled
-    widget: toggle
+  - key: FM_LaneKeepMode
+    widget: option
     title: Lane Centering
-    enablement:
-    - type: param
-      key: LaneGuardEnabled
-      equals: false
-    description: Keep the car in the middle of the painted lane instead of wherever the driving model chooses to sit. Only
-      acts when both lane lines are clearly visible (unless One-Line Mode is on), and steps aside for lane changes and turn
-      signals.
+    description: 'Pick one way of keeping the car in its lane, or Off for the driving model alone. Lane Centering:
+      keeps the car in the middle of the painted lane instead of wherever the driving model chooses to sit; only acts
+      when both lane lines are clearly visible (unless One-Line Mode is on), and steps aside for lane changes and turn
+      signals. Lane Guard: a gentle correction only when the planned path brings the body too close to a lane line or
+      road edge; pauses while you steer or signal (from gerrylum''s rx-wb). Blendful (alpha): a gentle nudge toward the
+      lane center on top of the model''s own steering, stronger when the lane lines are clear; yields around obstacles,
+      off below 11 mph and during turns and lane changes. Needs a custom (non-Default) model (from sunnypilot).'
     details: |-
-      Corrections are deliberately small and are smoothed in over about half a second, so this should read as the car
-      sitting straighter rather than as active steering. Whenever the lane lines become unreliable, a lane change starts
-      or a turn signal comes on, the correction fades away rather than being dropped in one go.
+      Lane Centering's corrections are deliberately small and are smoothed in over about half a second, so this should
+      read as the car sitting straighter rather than as active steering. Whenever the lane lines become unreliable, a
+      lane change starts or a turn signal comes on, the correction fades away rather than being dropped in one go.
+      Only one of the three can be on at a time.
+    options:
+    - value: 0
+      label: 'Off'
+    - value: 1
+      label: Lane Centering
+    - value: 2
+      label: Lane Guard
+    - value: 3
+      label: Blendful
+  - key: RivianOfftrackCompensationEnabled
+    widget: toggle
+    title: Rear-Axle Off-Tracking Compensation
+    description: Widens tight turns so the rear wheels, which cut inside the front's path, are less likely to clip a curb. A
+      geometric estimate, not curb sensing. Makes turns wider, so leave it off if turns already run wide.
+    visibility:
+    - type: capability
+      field: brand
+      equals: rivian
+    sub_items:
+    - key: RivianOfftrackCompensationGain
+      widget: option
+      title: Compensation Gain
+      description: 0 = off, 1 = full geometric compensation.
+      min: 0.0
+      max: 1.0
+      step: 0.05
+      enablement:
+      - type: param
+        key: RivianOfftrackCompensationEnabled
+        equals: true
   sub_panels:
   - id: lane_centering_settings
     label: Lane Centering Settings
-    trigger_key: LaneCenteringEnabled
+    trigger_key: FM_LaneKeepMode
     trigger_condition:
       type: param
-      key: LaneCenteringEnabled
-      equals: true
+      key: FM_LaneKeepMode
+      equals: 1
     items:
     - key: LaneCenteringOffset
       widget: option
@@ -123,8 +154,8 @@ sections:
       unit: meters
       enablement:
       - type: param
-        key: LaneCenteringEnabled
-        equals: true
+        key: FM_LaneKeepMode
+        equals: 1
     # Permanent. What suits one car, model and road does not suit the next, and comparing values needs
     # them changeable between legs of a single drive rather than a rebuild per value.
     - key: LaneCenteringGain
@@ -138,8 +169,8 @@ sections:
       step: 0.1
       enablement:
       - type: param
-        key: LaneCenteringEnabled
-        equals: true
+        key: FM_LaneKeepMode
+        equals: 1
     # Permanent, same reason as the strength above.
     - key: LaneCenteringDeadband
       widget: option
@@ -154,8 +185,8 @@ sections:
       unit: meters
       enablement:
       - type: param
-        key: LaneCenteringEnabled
-        equals: true
+        key: FM_LaneKeepMode
+        equals: 1
     - key: LaneCenteringE2EAuthority
       widget: option
       title: Let the Model Sit Off Center
@@ -167,8 +198,8 @@ sections:
       step: 0.1
       enablement:
       - type: param
-        key: LaneCenteringEnabled
-        equals: true
+        key: FM_LaneKeepMode
+        equals: 1
     - key: LaneCenteringSingleLine
       widget: toggle
       title: One-Line Mode
@@ -182,8 +213,8 @@ sections:
         do not apply in this mode.
       enablement:
       - type: param
-        key: LaneCenteringEnabled
-        equals: true
+        key: FM_LaneKeepMode
+        equals: 1
     - key: LaneCenteringSingleLineEdgeDist
       widget: option
       title: One-Line Mode, Distance From an Edge Line
@@ -222,43 +253,8 @@ sections:
         line".
       enablement:
       - type: param
-        key: LaneCenteringEnabled
-        equals: true
-- id: lane_keeping
-  title: 'FM Pilot: Lane Guard and Off-Tracking'
-  description: Extra steering corrections from gerrylum's rx-wb
-  items:
-  - key: LaneGuardEnabled
-    widget: toggle
-    title: Lane Guard
-    description: A gentle steering correction on top of the driving model that keeps the body clear of lane lines and road
-      edges. It does nothing while the planned path stays clear, and pauses while you steer or signal. Can't be on together
-      with Lane Centering.
-    enablement:
-    - type: param
-      key: LaneCenteringEnabled
-      equals: false
-  - key: RivianOfftrackCompensationEnabled
-    widget: toggle
-    title: Rear-Axle Off-Tracking Compensation
-    description: Widens tight turns so the rear wheels, which cut inside the front's path, are less likely to clip a curb. A
-      geometric estimate, not curb sensing. Makes turns wider, so leave it off if turns already run wide.
-    visibility:
-    - type: capability
-      field: brand
-      equals: rivian
-    sub_items:
-    - key: RivianOfftrackCompensationGain
-      widget: option
-      title: Compensation Gain
-      description: 0 = off, 1 = full geometric compensation.
-      min: 0.0
-      max: 1.0
-      step: 0.05
-      enablement:
-      - type: param
-        key: RivianOfftrackCompensationEnabled
-        equals: true
+        key: FM_LaneKeepMode
+        equals: 1
 - id: blinker
   title: Blinker Control
   description: Lateral pause behavior during turn signals
@@ -487,7 +483,8 @@ sections:
   - key: RoadEdgeLaneChangeEnabled
     widget: toggle
     title: 'Block Lane Change: Road Edge Detection'
-    description: Blocks lane change when the model sees a road edge on the side you signal.
+    description: Blocks lane change when the model sees a road edge on the side you signal, with a small gray message and
+      no sound. Needed for Road Edge Turn Desire (Models > Model Behavior).
   - key: AutoLaneChangeBsmDelay
     widget: toggle
     title: 'Auto Lane Change: Delay with Blind Spot'
@@ -502,53 +499,56 @@ sections:
       op: '>'
       value: 0
 - id: lane_change_and_turns
-  title: 'FM Pilot: Road Edge and Turns'
-  description: Road-edge behavior and turn desires
+  title: 'FM Pilot: Turn Tweaks'
+  description: Stronger, earlier and steadier steering during slow blinker turns
   items:
-  - key: RoadEdgeLaneChangeEnabled
-    widget: toggle
-    title: 'Block Lane Change: Road Edge Detection'
-    description: AP's existing setting. Blocks the lane change if the model sees a road edge on your signaled side. Needed
-      for the two settings below.
-  - key: FM_QuietRoadEdgeBlock
-    widget: toggle
-    title: Quiet Road Edge Block
-    description: Show a small gray message with no sound when a lane change is blocked by a road edge, instead of the orange
-      alert and beep.
-    enablement:
-    - type: param
-      key: RoadEdgeLaneChangeEnabled
-      equals: true
-  - key: FM_RoadEdgeTurnDesire
-    widget: toggle
-    title: Road Edge Turn Desire
-    description: Signaling toward a detected road edge plans a turn instead of rejecting the lane change. With this on, every
-      turn (including AP's Lane Turn Desire under 20 mph) starts on the blinker alone, no nudge, and holds until the blinker
-      is cancelled. Off keeps stock behavior.
-    enablement:
-    - type: param
-      key: RoadEdgeLaneChangeEnabled
-      equals: true
-    sub_items:
-    - key: FM_RoadEdgeTurnMaxSpeed
-      widget: option
-      title: Road Edge Turn Max Speed
-      description: Highest speed at which signaling toward a road edge plans a turn.
-      min: 20
-      max: 45
-      step: 1
-      unit: mph
-      enablement:
-      - type: param
-        key: FM_RoadEdgeTurnDesire
-        equals: true
   - key: FM_TurnBoostEnabled
     widget: toggle
     title: Turn Boost
     description: During a blinker turn under 20 mph, ask for a tighter turn than the model does, so the steering reaches full
       torque sooner. Separate strength for left and right turns (1.00 means no boost). Fades in and out smoothly; normal
       driving is not affected.
-    sub_items:
+  - key: FM_TurnHoldEnabled
+    widget: toggle
+    title: Turn Hold
+    description: During a blinker turn under 20 mph, keep the model from letting go of the turn halfway. Holds the steering
+      request near the turn's strongest point, easing off gradually, until the truck has turned about 75 degrees, the blinker
+      is cancelled, or you steer. Works with Turn Lead, but using one at a time is recommended so each turn is easier to
+      judge.
+  - key: FM_TurnLeadEnabled
+    widget: toggle
+    title: Turn Lead
+    description: During a blinker turn from Turn Lead Min Speed up to about 16 mph, start turning on time when the model
+      turns in late. Reads the curve of the planned path just ahead and asks for it until the truck catches up, then hands
+      back to the model. Never asks for a tighter turn than Turn Path Tightest Radius. Works with Turn Hold, but using one at a time is
+      recommended so each turn is easier to judge. From StarPilot's Model Turn Assist.
+  - key: FM_TurnPathMinRadius
+    widget: option
+    title: Turn Path Tightest Radius
+    description: The tightest turn Turn Lead and Hold Path Source may ask for on their own, as a radius. Smaller is
+      stronger; 8 m is the strongest. Default 12 m. Your own steering (Hold Adds Your Steering) isn't limited by it.
+    min: 8
+    max: 20
+    step: 1
+    unit: m
+    enablement:
+    - type: any
+      conditions:
+      - type: param
+        key: FM_TurnLeadEnabled
+        equals: true
+      - type: param
+        key: FM_TurnHoldPathSource
+        equals: true
+  sub_panels:
+  - id: turn_boost_settings
+    label: Turn Boost Settings
+    trigger_key: FM_TurnBoostEnabled
+    trigger_condition:
+      type: param
+      key: FM_TurnBoostEnabled
+      equals: true
+    items:
     - key: FM_TurnBoostLeft
       widget: option
       title: Turn Boost Left
@@ -571,14 +571,14 @@ sections:
       - type: param
         key: FM_TurnBoostEnabled
         equals: true
-  - key: FM_TurnHoldEnabled
-    widget: toggle
-    title: Turn Hold
-    description: During a blinker turn under 20 mph, keep the model from letting go of the turn halfway. Holds the steering
-      request near the turn's strongest point, easing off gradually, until the truck has turned about 75 degrees, the blinker
-      is cancelled, or you steer. Works with Turn Lead, but using one at a time is recommended so each turn is easier to
-      judge.
-    sub_items:
+  - id: turn_hold_settings
+    label: Turn Hold Settings
+    trigger_key: FM_TurnHoldEnabled
+    trigger_condition:
+      type: param
+      key: FM_TurnHoldEnabled
+      equals: true
+    items:
     - key: FM_TurnHoldPathSource
       widget: toggle
       title: Hold Path Source
@@ -600,14 +600,14 @@ sections:
       - type: param
         key: FM_TurnHoldEnabled
         equals: true
-  - key: FM_TurnLeadEnabled
-    widget: toggle
-    title: Turn Lead
-    description: During a blinker turn from Turn Lead Min Speed up to about 16 mph, start turning on time when the model
-      turns in late. Reads the curve of the planned path just ahead and asks for it until the truck catches up, then hands
-      back to the model. Never asks for a tighter turn than Turn Path Tightest Radius. Works with Turn Hold, but using one at a time is
-      recommended so each turn is easier to judge. From StarPilot's Model Turn Assist.
-    sub_items:
+  - id: turn_lead_settings
+    label: Turn Lead Settings
+    trigger_key: FM_TurnLeadEnabled
+    trigger_condition:
+      type: param
+      key: FM_TurnLeadEnabled
+      equals: true
+    items:
     - key: FM_TurnLeadMinSpeed
       widget: option
       title: Turn Lead Min Speed
@@ -622,21 +622,3 @@ sections:
       - type: param
         key: FM_TurnLeadEnabled
         equals: true
-    - key: FM_TurnPathMinRadius
-      widget: option
-      title: Turn Path Tightest Radius
-      description: The tightest turn Turn Lead and Hold Path Source may ask for on their own, as a radius. Smaller is
-        stronger; 8 m is the strongest. Default 12 m. Your own steering (Hold Adds Your Steering) isn't limited by it.
-      min: 8
-      max: 20
-      step: 1
-      unit: m
-      enablement:
-      - type: any
-        conditions:
-        - type: param
-          key: FM_TurnLeadEnabled
-          equals: true
-        - type: param
-          key: FM_TurnHoldPathSource
-          equals: true

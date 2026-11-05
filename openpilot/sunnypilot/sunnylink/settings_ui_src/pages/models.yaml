@@ -42,6 +42,29 @@ sections:
       key: LaneTurnDesire
       equals: true
     - $ref: '#/macros/advanced_only'
+  - key: FM_RoadEdgeTurnDesire
+    widget: toggle
+    title: Road Edge Turn Desire
+    description: Signaling toward a detected road edge plans a turn instead of rejecting the lane change. With this on, every
+      turn (including AP's Lane Turn Desire under 20 mph) starts on the blinker alone, no nudge, and holds until the blinker
+      is cancelled. Off keeps stock behavior. Needs Block Lane Change by Road Edge Detection on, under Steering > Lane Change.
+    enablement:
+    - type: param
+      key: RoadEdgeLaneChangeEnabled
+      equals: true
+    sub_items:
+    - key: FM_RoadEdgeTurnMaxSpeed
+      widget: option
+      title: Road Edge Turn Max Speed
+      description: Highest speed at which signaling toward a road edge plans a turn.
+      min: 20
+      max: 45
+      step: 1
+      unit: mph
+      enablement:
+      - type: param
+        key: FM_RoadEdgeTurnDesire
+        equals: true
   - key: LagdToggle
     widget: toggle
     title: Live Learning Steer Delay
