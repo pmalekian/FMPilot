@@ -16,6 +16,7 @@ from openpilot.common.simple_kalman import KF1D
 from opendbc.car import structs
 from opendbc.car.hyundai.values import HyundaiFlags
 from opendbc.sunnypilot.car.hyundai.values import HyundaiFlagsSP
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_radar import FmRadarSettings, stationary_ghost
 
 
 # Default lead acceleration decay set to 50% at 1s
@@ -156,10 +157,13 @@ def get_RadarState_from_vision(lead_msg: capnp._DynamicStructReader, v_ego: floa
 
 def get_lead(v_ego: float, ready: bool, tracks: dict[int, Track], lead_msg: capnp._DynamicStructReader,
              model_v_ego: float, lead_prob: float, CP: structs.CarParams, CP_SP: structs.CarParamsSP,
-             low_speed_override: bool = True) -> dict[str, Any]:
+             low_speed_override: bool = True, stationary_guard: bool = False) -> dict[str, Any]:
   # Determine leads, this is where the essential logic happens
   if len(tracks) > 0 and ready and lead_prob > .5:
     track = match_vision_to_track(v_ego, lead_msg, tracks)
+    # FM Pilot Stationary Radar Ghost Guard: a standing-still radar point can't be a clearly moving camera lead
+    if track is not None and stationary_guard and stationary_ghost(track.vLead, lead_msg.v[0], lead_msg.a[0]):
+      track = None
   else:
     track = None
 
@@ -192,9 +196,10 @@ def get_custom_yrel(CP: structs.CarParams, CP_SP: structs.CarParamsSP, lead_dict
 
 
 class RadarD:
-  def __init__(self, CP: structs.CarParams, CP_SP: structs.CarParams, delay: float = 0.0):
+  def __init__(self, CP: structs.CarParams, CP_SP: structs.CarParams, delay: float = 0.0, params=None):
     self.CP = CP
     self.CP_SP = CP_SP
+    self.fm_radar = FmRadarSettings(params)  # FM Pilot radar lead settings; params=None keeps openpilot's behavior
 
     self.current_time = 0.0
     self.tracks: dict[int, Track] = {}
@@ -248,6 +253,8 @@ class RadarD:
     else:
       model_v_ego = self.v_ego
     leads_v3 = sm['modelV2'].leadsV3
+    self.fm_radar.update()
+    guard = self.fm_radar.guard
     if len(leads_v3) > 1:
       for i in range(2):
         # Asymmetric filter on lead prob to keep lead when uncertain
@@ -258,9 +265,9 @@ class RadarD:
           self.lead_prob_filters[i].update(lead_prob)
 
       self.radar_state.leadOne = get_lead(self.v_ego, self.ready, self.tracks, leads_v3[0], model_v_ego, self.lead_prob_filters[0].x,
-                                          self.CP, self.CP_SP, low_speed_override=True)
+                                          self.CP, self.CP_SP, low_speed_override=True, stationary_guard=guard)
       self.radar_state.leadTwo = get_lead(self.v_ego, self.ready, self.tracks, leads_v3[1], model_v_ego, self.lead_prob_filters[1].x,
-                                          self.CP, self.CP_SP, low_speed_override=False)
+                                          self.CP, self.CP_SP, low_speed_override=False, stationary_guard=guard)
 
   def publish(self, pm: messaging.PubMaster):
     assert self.radar_state is not None
@@ -288,7 +295,7 @@ def main() -> None:
   sm = messaging.SubMaster(['modelV2', 'carState', 'radarTracks'], poll='modelV2')
   pm = messaging.PubMaster(['radarState'])
 
-  RD = RadarD(CP, CP_SP, CP.radarDelay)
+  RD = RadarD(CP, CP_SP, CP.radarDelay, Params())
 
   while 1:
     sm.update()

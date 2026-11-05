@@ -1255,6 +1255,19 @@
               ]
             },
             {
+              "key": "FM_RadarStationaryGuard",
+              "widget": "toggle",
+              "title": "Ignore Stationary Radar Ghosts",
+              "description": "Never treat a standing-still radar point as the car ahead while the camera sees that car clearly moving (over 11 mph) and not braking hard. Stops guardrails and barriers on ramps and curves from causing sudden braking; the car ahead is then followed from the camera. A car the camera sees braking hard, and anything straight ahead below about 9 mph, still comes from the radar.",
+              "enablement": [
+                {
+                  "type": "capability",
+                  "field": "has_longitudinal_control",
+                  "equals": true
+                }
+              ]
+            },
+            {
               "key": "IntelligentCruiseButtonManagement",
               "widget": "toggle",
               "title": "Intelligent Cruise Button Management (ICBM) (Alpha)",

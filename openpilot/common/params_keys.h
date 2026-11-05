@@ -274,6 +274,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"FM_CustomModelPath", {PERSISTENT | BACKUP, STRING}},
     {"FM_PandaHighTorque", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"FM_QuietRoadEdgeBlock", {PERSISTENT | BACKUP, BOOL, "0"}},
+    {"FM_RadarStationaryGuard", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"FM_RoadEdgeTurnDesire", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"FM_RoadEdgeTurnMaxSpeed", {PERSISTENT | BACKUP, FLOAT, "45.0"}},
     {"FM_TorqueMode", {PERSISTENT | BACKUP, INT, "0"}},
