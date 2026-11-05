@@ -2,6 +2,12 @@
 """Every sharp turn (radius under 40 m, moving) in a drive: what the model asked for, what the truck did, how long
 torque sat at its limit, and how hard and which way the driver's hands pushed.
 
+Each turn also gets a timing line: when the model's planned path started curving, when its own steering request
+(modelV2.action, before Turn Assist or lane centering touch it) did, and when the truck did. "request lags path" is
+the late turn-in Turn Lead covers. The path's curve is read the way Turn Lead reads it: a circle from the truck through
+the path point 1.3 s ahead (4 to 14 m). A curve "starts" at its last rise above 30% of its own peak (so a driver-tightened
+turn doesn't make the request look late), searched from 4 s before the turn to 1 s after the truck's tightest point.
+
 usage: turns.py rlog.zst [rlog.zst ...] [--each]
   Segments of one drive are joined, so a turn across a segment boundary is one turn. Times read "--3 +12.4s":
   segment 3, 12.4 s in.
@@ -37,6 +43,34 @@ def hand_split(hand, sent, lat_active, turn_lp):
   }
 
 
+LEAD_S, LEAD_MIN_M, LEAD_MAX_M = 1.3, 4.0, 14.0  # Turn Lead's look-ahead (fm_turn_assist.py)
+ONSET_FRAC = 0.3   # a curve has started at this fraction of its own peak
+ONSET_LOOKBACK_S = 4.0
+
+
+def path_curvature(x, y, v):
+  """Curvature (right-positive, like modelV2's y) of the circle from the truck, tangent to its heading, through the
+  planned path point LEAD_S ahead (by distance, clipped to 4..14 m). nan without a usable path."""
+  x, y = np.asarray(x, float), np.asarray(y, float)
+  d = float(np.clip(LEAD_S * v, LEAD_MIN_M, LEAD_MAX_M))
+  if len(x) < 2 or x[-1] < d or np.any(np.diff(x) <= 0):
+    return float("nan")
+  py = float(np.interp(d, x, y))
+  return 2 * py / (d * d + py * py)
+
+
+def onset(t, sig, t_from, t_to):
+  """When sig (signed toward the turn) last rose above ONSET_FRAC of its own peak in [t_from, t_to], before that
+  peak. nan without a peak toward the turn, or if it was already above at t_from."""
+  m = (t >= t_from) & (t <= t_to) & ~np.isnan(sig)
+  tt, ss = t[m], sig[m]
+  if not len(ss) or ss.max() <= 0:
+    return float("nan")
+  i = int(np.argmax(ss))
+  below = np.flatnonzero(ss[:i + 1] < ONSET_FRAC * ss[i])
+  return float(tt[below[-1] + 1]) if len(below) else float("nan")
+
+
 def series(drive):
   cs, ctl, cc, md, co = [], [], [], [], []
   for e in drive.evs:
@@ -54,11 +88,14 @@ def series(drive):
     elif w == "carControl":
       cc.append((t, float(e.carControl.latActive)))
     elif w == "modelV2":
-      md.append((t, e.modelV2.action.desiredCurvature))
+      p = e.modelV2.position
+      md.append((t, e.modelV2.action.desiredCurvature, list(p.x), list(p.y)))
     else:
       co.append((t, e.carOutput.actuatorsOutput.torque))
   co = co or [(0.0, 0.0)]
-  return [np.array(x, float) for x in (cs, ctl, cc, md, co)]
+  paths = [(m[2], m[3]) for m in md]
+  md = [(m[0], m[1]) for m in md] or [(0.0, 0.0)]
+  return [np.array(x, float) for x in (cs, ctl, cc, md, co)] + [paths]
 
 
 def find_turns(t, curv, v):
@@ -78,7 +115,7 @@ def find_turns(t, curv, v):
 
 
 def main(drive):
-  cs, ctl, cc, md, co = series(drive)
+  cs, ctl, cc, md, co, paths = series(drive)
   if not len(cs) or not len(ctl):
     print(f"{drive.label()}: no carState / controlsState")
     return
@@ -86,6 +123,10 @@ def main(drive):
   t, curv = ctl[:, 0], ctl[:, 1]
   v = at(cs, t, 1)
   turns = find_turns(t, curv, v)
+  mt = md[:, 0]
+  kpath = np.array([path_curvature(x, y, np.interp(tm, cs[:, 0], cs[:, 1])) for tm, (x, y) in zip(mt, paths, strict=True)]) \
+    if paths else np.zeros(len(mt))
+  gaps = []
   print(f"{drive.label()}: model {model_name(drive.evs)}, {len(turns)} sharp turns")
   if turns:
     print(f"  {AMBIGUOUS_NOTE}")
@@ -102,6 +143,19 @@ def main(drive):
           f"driven r {1 / max(ak.max(), 1e-4):5.1f} m | torque at limit {np.mean(out >= 0.95) * 100:3.0f}% | hands "
           f"{np.abs(hand).mean():.2f} Nm avg; openpilot steering: with it {pct(h['with_op'])}, against it* {pct(h['against_op'])}; "
           f"you steering: into the turn {pct(h['driver_into'])}")
+    s = -turn_lp  # +1 right: curvatures are right-positive
+    pk = a + int(np.argmax(s * curv[a:b]))
+    t_from, t_to = t[a] - ONSET_LOOKBACK_S, t[pk] + 1.0
+    o_path, o_req, o_drv = onset(mt, s * kpath, t_from, t_to), onset(mt, s * md[:, 1], t_from, t_to), onset(t, s * curv, t_from, t_to)
+    f = lambda x: "  n/a" if np.isnan(x) else f"{x:+5.1f}"  # noqa: E731
+    rel = lambda x: f(x - o_path) if not np.isnan(o_path) else "  n/a"  # noqa: E731
+    print(f"      timing (s, 0 = path starts curving, {la.mean() * 100:.0f}% openpilot): request {rel(o_req)}, "
+          f"truck {rel(o_drv)}")
+    if la.mean() > 0.8 and not np.isnan(o_path) and not np.isnan(o_req):
+      gaps.append(o_req - o_path)
+  if gaps:
+    print(f"  request lags path: median {np.median(gaps):+.1f} s over {len(gaps)} openpilot-steered turns "
+          f"(range {min(gaps):+.1f} to {max(gaps):+.1f})")
 
 
 if __name__ == "__main__":

@@ -40,7 +40,7 @@ path has no route name (e.g. a bare `rlog.zst`) are taken as one drive.
 |---|---|
 | `timeline.py rlog.zst ... [--step 2] [--start s] [--end s]` | Steering over time: model / final / achieved curvature, torque requested and sent, lane lines, hands, blinker, turn desire, faults |
 | `events.py rlog.zst ...` | Version, model, FM-related settings, on-screen alerts, onroad events, fault and model-load log messages |
-| `turns.py rlog.zst ...` | Every sharp turn: tightest radius asked vs driven, time at the torque limit, hand force: with or against openpilot's torque while it steers, into the turn while you steer |
+| `turns.py rlog.zst ...` | Every sharp turn: tightest radius asked vs driven, time at the torque limit, hand force: with or against openpilot's torque while it steers, into the turn while you steer; and timing: when the planned path (read as Turn Lead reads it), the model's raw request and the truck each started curving, with the median request-behind-path lag |
 | `sway.py rlog.zst ...` | Straight-road sway: wheel, model, lane centering's share, dominant period |
 | `dm.py rlog.zst ...` | Driver monitoring: % distracted and why (pose / eyes / phone), alert levels |
 

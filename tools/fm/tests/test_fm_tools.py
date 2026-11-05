@@ -254,3 +254,25 @@ class TestTools:
     assert "TSFDOM" in run(events.main, d)
     assert "no straight engaged stretch" in run(sway.main, d, 20.0)  # 11 mph in the synthetic drive
     assert "no driver monitoring data" in run(dm.main, d)
+
+
+class TestTurnTiming:
+  def test_path_curvature_right_positive(self):
+    x = np.linspace(0, 30, 31)
+    r = 20.0  # a right turn of radius 20 m: y = r - sqrt(r^2 - x^2), right-positive
+    y = r - np.sqrt(np.clip(r * r - x * x, 0, None))
+    assert turns.path_curvature(x[:20], y[:20], 5.0) == pytest.approx(1 / r, rel=1e-2)
+    assert turns.path_curvature(x[:20], -y[:20], 5.0) == pytest.approx(-1 / r, rel=1e-2)
+
+  def test_path_curvature_needs_reach(self):
+    assert np.isnan(turns.path_curvature([0, 1, 2], [0, 0, 0], 5.0))  # 6.5 m ahead, path ends at 2 m
+
+  def test_onset_is_last_rise_to_30_percent_of_own_peak(self):
+    t = np.arange(0, 10, 0.1)
+    sig = np.where(t >= 3, 0.08, 0.0) + np.where((t > 0.5) & (t < 1), 0.05, 0.0)  # an early blip, then the turn
+    assert turns.onset(t, sig, 0.0, 9.0) == pytest.approx(3.0)
+    assert np.isnan(turns.onset(t, -sig, 0.0, 9.0))  # never toward the turn
+
+  def test_timing_line_printed(self, drive_dir):
+    (d,) = fmlog.load_drives([str(drive_dir)])
+    assert "timing (s, 0 = path starts curving" in run(turns.main, d)
