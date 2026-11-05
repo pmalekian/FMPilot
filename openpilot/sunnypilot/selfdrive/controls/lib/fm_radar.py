@@ -11,14 +11,26 @@ The guard stays out of the way when the camera sees the lead braking hard, so a 
 from the radar, and it never touches the low-speed path (radar points straight ahead below 4 m/s ego speed).
 Thresholds from the Nov 5 logs: phantom camera leads were 4.4 m/s and up (7.8 typical) with camera accel -0.56 to
 +0.32; real nearly stopped cars read up to 3.2 m/s on the camera (one 8.9 mph blip at 55 m), so 5 m/s leaves a margin.
+
+Lead Detection Sensitivity (FM_LeadDetectionThreshold, percent; 50 = openpilot's fixed 0.5). How sure the camera has to
+be that a car is ahead before it counts as a lead and can be paired with the radar. Lower values pick up leads sooner
+and farther away, so the lead-following planner gets radar distance and speed earlier; they also give more chances to
+follow something that isn't a car, so use it with the guard above. From FrogPilot's "Lead Detection Sensitivity"
+(LeadDetectionThreshold; FrogAi, FrogPilot branch, frogpilot/common/frogpilot_variables.py and
+selfdrive/controls/radard.py, MIT). FrogPilot allows 25-50% with a 35% default; FM Pilot keeps 50% as the default so
+nothing changes until it is lowered.
 """
 from openpilot.common.realtime import DT_MDL
 
 PARAM_GUARD = "FM_RadarStationaryGuard"
+PARAM_THRESHOLD = "FM_LeadDetectionThreshold"
 
 GHOST_TRACK_MAX_SPEED = 1.0   # m/s: the radar point is standing still
 GHOST_VISION_MIN_SPEED = 5.0  # m/s (11 mph): the camera's lead is clearly moving
 GHOST_VISION_BRAKING = -1.5   # m/s^2: camera lead braking harder than this keeps the radar point
+
+DEFAULT_THRESHOLD = 0.5
+THRESHOLD_LIMITS = (0.25, 0.5)  # FrogPilot's range
 
 PARAMS_PERIOD = 1.0  # s
 
@@ -30,12 +42,24 @@ def stationary_ghost(track_v_lead: float, vision_v: float, vision_a: float) -> b
           vision_a > GHOST_VISION_BRAKING)
 
 
+def threshold_from_percent(value) -> float:
+  """Setting in percent -> probability, clamped to 25-50%; anything unreadable is openpilot's 0.5."""
+  try:
+    pct = float(value)
+  except (TypeError, ValueError):
+    return DEFAULT_THRESHOLD
+  if pct != pct:  # NaN
+    return DEFAULT_THRESHOLD
+  return min(max(pct / 100.0, THRESHOLD_LIMITS[0]), THRESHOLD_LIMITS[1])
+
+
 class FmRadarSettings:
   """Reads the settings once per second. With params=None (tests, replay) everything stays at openpilot's behavior."""
 
   def __init__(self, params=None):
     self.params = params
     self.guard = False
+    self.threshold = DEFAULT_THRESHOLD
     self.frame = -1
     if self.params is not None:
       self.read()
@@ -45,6 +69,10 @@ class FmRadarSettings:
       self.guard = bool(self.params.get_bool(PARAM_GUARD))
     except Exception:
       self.guard = False
+    try:
+      self.threshold = threshold_from_percent(self.params.get(PARAM_THRESHOLD, return_default=True))
+    except Exception:
+      self.threshold = DEFAULT_THRESHOLD
 
   def update(self):
     self.frame += 1

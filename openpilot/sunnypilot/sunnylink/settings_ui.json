@@ -1268,6 +1268,22 @@
               ]
             },
             {
+              "key": "FM_LeadDetectionThreshold",
+              "widget": "option",
+              "title": "Lead Detection Sensitivity",
+              "description": "How sure the camera has to be that a car is ahead (in percent) before openpilot follows it and pairs it with the radar. Lower numbers pick up cars sooner and farther away, so slowdowns can start earlier and more gently, with more chances of reacting to something that is not a car; use with Ignore Stationary Radar Ghosts. Default 50 (openpilot's own value). From FrogPilot.",
+              "min": 25,
+              "max": 50,
+              "step": 5,
+              "enablement": [
+                {
+                  "type": "capability",
+                  "field": "has_longitudinal_control",
+                  "equals": true
+                }
+              ]
+            },
+            {
               "key": "IntelligentCruiseButtonManagement",
               "widget": "toggle",
               "title": "Intelligent Cruise Button Management (ICBM) (Alpha)",

@@ -157,9 +157,11 @@ def get_RadarState_from_vision(lead_msg: capnp._DynamicStructReader, v_ego: floa
 
 def get_lead(v_ego: float, ready: bool, tracks: dict[int, Track], lead_msg: capnp._DynamicStructReader,
              model_v_ego: float, lead_prob: float, CP: structs.CarParams, CP_SP: structs.CarParamsSP,
-             low_speed_override: bool = True, stationary_guard: bool = False) -> dict[str, Any]:
+             low_speed_override: bool = True, stationary_guard: bool = False,
+             lead_threshold: float = .5) -> dict[str, Any]:
   # Determine leads, this is where the essential logic happens
-  if len(tracks) > 0 and ready and lead_prob > .5:
+  # FM Pilot Lead Detection Sensitivity: lead_threshold replaces the fixed .5 (from FrogPilot, MIT); .5 by default
+  if len(tracks) > 0 and ready and lead_prob > lead_threshold:
     track = match_vision_to_track(v_ego, lead_msg, tracks)
     # FM Pilot Stationary Radar Ghost Guard: a standing-still radar point can't be a clearly moving camera lead
     if track is not None and stationary_guard and stationary_ghost(track.vLead, lead_msg.v[0], lead_msg.a[0]):
@@ -171,7 +173,7 @@ def get_lead(v_ego: float, ready: bool, tracks: dict[int, Track], lead_msg: capn
   if track is not None:
     lead_dict = track.get_RadarState(lead_prob)
     lead_dict = get_custom_yrel(CP, CP_SP, lead_dict, lead_msg)
-  elif (track is None) and ready and (lead_prob > .5):
+  elif (track is None) and ready and (lead_prob > lead_threshold):
     lead_dict = get_RadarState_from_vision(lead_msg, v_ego, model_v_ego, lead_prob)
 
   if low_speed_override:
@@ -254,7 +256,7 @@ class RadarD:
       model_v_ego = self.v_ego
     leads_v3 = sm['modelV2'].leadsV3
     self.fm_radar.update()
-    guard = self.fm_radar.guard
+    guard, threshold = self.fm_radar.guard, self.fm_radar.threshold
     if len(leads_v3) > 1:
       for i in range(2):
         # Asymmetric filter on lead prob to keep lead when uncertain
@@ -265,9 +267,11 @@ class RadarD:
           self.lead_prob_filters[i].update(lead_prob)
 
       self.radar_state.leadOne = get_lead(self.v_ego, self.ready, self.tracks, leads_v3[0], model_v_ego, self.lead_prob_filters[0].x,
-                                          self.CP, self.CP_SP, low_speed_override=True, stationary_guard=guard)
+                                          self.CP, self.CP_SP, low_speed_override=True, stationary_guard=guard,
+                                          lead_threshold=threshold)
       self.radar_state.leadTwo = get_lead(self.v_ego, self.ready, self.tracks, leads_v3[1], model_v_ego, self.lead_prob_filters[1].x,
-                                          self.CP, self.CP_SP, low_speed_override=False, stationary_guard=guard)
+                                          self.CP, self.CP_SP, low_speed_override=False, stationary_guard=guard,
+                                          lead_threshold=threshold)
 
   def publish(self, pm: messaging.PubMaster):
     assert self.radar_state is not None

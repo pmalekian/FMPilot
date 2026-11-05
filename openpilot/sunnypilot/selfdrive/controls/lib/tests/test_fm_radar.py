@@ -1,4 +1,4 @@
-"""FM Pilot radar lead settings in radard: Stationary Radar Ghost Guard."""
+"""FM Pilot radar lead settings in radard: Stationary Radar Ghost Guard and Lead Detection Sensitivity."""
 from types import SimpleNamespace
 
 import pytest
@@ -6,7 +6,8 @@ import pytest
 from openpilot.common.realtime import DT_MDL
 from openpilot.selfdrive.controls.radard import KalmanParams, Track, get_lead
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_radar import (GHOST_VISION_BRAKING, GHOST_VISION_MIN_SPEED, PARAM_GUARD,
-                                                                  FmRadarSettings, stationary_ghost)
+                                                                  PARAM_THRESHOLD, FmRadarSettings, stationary_ghost,
+                                                                  threshold_from_percent)
 
 CP = SimpleNamespace(brand='rivian', flags=0)
 CP_SP = SimpleNamespace(flags=0)
@@ -136,3 +137,58 @@ def test_settings_read_failure_is_off():
     def get_bool(self, key):
       raise RuntimeError
   assert FmRadarSettings(Broken()).guard is False
+
+
+# --- Lead Detection Sensitivity (from FrogPilot) ---
+
+def far_car(prob):
+  v_ego = 20.0
+  car = track(3, 75.0, 0.0, 12.0, v_ego)
+  return [car], lead_msg(x=76.5, y=0.0, v=12.0, prob=prob), v_ego
+
+
+def lead_at(tracks, msg, v_ego, threshold):
+  return get_lead(v_ego, True, {t.identifier: t for t in tracks}, msg, v_ego, msg.prob, CP, CP_SP,
+                  low_speed_override=True, lead_threshold=threshold)
+
+
+def test_default_threshold_is_openpilots():
+  tracks, msg, v_ego = far_car(prob=0.45)
+  assert not lead_at(tracks, msg, v_ego, 0.5)['present']
+  assert not get_lead(v_ego, True, {3: tracks[0]}, msg, v_ego, msg.prob, CP, CP_SP)['present']  # default argument
+
+
+@pytest.mark.parametrize("threshold,prob,present", [(0.5, 0.45, False), (0.4, 0.45, True), (0.35, 0.38, True),
+                                                    (0.35, 0.30, False), (0.25, 0.30, True)])
+def test_lower_threshold_picks_up_the_lead_sooner(threshold, prob, present):
+  tracks, msg, v_ego = far_car(prob)
+  out = lead_at(tracks, msg, v_ego, threshold)
+  assert out['present'] == present
+  if present:
+    assert out['radar'] and out['radarTrackId'] == 3  # paired with the radar, not just the camera
+
+
+def test_threshold_also_gates_the_camera_only_lead():
+  msg = lead_msg(x=60.0, y=0.0, v=10.0, prob=0.42)
+  assert not lead_at([], msg, 20.0, 0.5)['present']
+  out = lead_at([], msg, 20.0, 0.4)
+  assert out['present'] and not out['radar']
+
+
+@pytest.mark.parametrize("value,expected", [(50, 0.5), (40, 0.4), (35, 0.35), (25, 0.25), (10, 0.25), (80, 0.5),
+                                            (None, 0.5), ("x", 0.5), (float('nan'), 0.5)])
+def test_threshold_setting_is_clamped(value, expected):
+  assert threshold_from_percent(value) == pytest.approx(expected)
+
+
+def test_settings_read_threshold():
+  class P:
+    values = {PARAM_GUARD: False, PARAM_THRESHOLD: 35}
+
+    def get_bool(self, key):
+      return bool(self.values[key])
+
+    def get(self, key, return_default=False):
+      return self.values[key]
+  assert FmRadarSettings(P()).threshold == pytest.approx(0.35)
+  assert FmRadarSettings().threshold == pytest.approx(0.5)

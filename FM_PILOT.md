@@ -12,6 +12,7 @@ features below. Every FM Pilot commit starts with "FM Pilot".
 | Lane Guard: small correction only when the planned path brings the body too close to a line or edge; exclusive with lane centering | `LaneGuardEnabled` (Steering) | `selfdrive/controls/lib/lane_guard.py`, `sunnypilot/selfdrive/controls/lib/fm_lateral.py` | off |
 | Rear-axle off-tracking compensation: widens tight turns by the rear axle's cut-in | `RivianOfftrackCompensationEnabled`, `…Gain` (Steering) | `sunnypilot/selfdrive/controls/lib/rivian_offtrack.py`, `fm_lateral.py` | off |
 | Ignore Stationary Radar Ghosts: a standing-still radar point (under 1 m/s) is never paired with a camera lead that is clearly moving (over 5 m/s, 11 mph) and not braking hard (gentler than -1.5 m/s²); that car is then followed from the camera. Stops guardrail/barrier points on ramps and curves from braking the truck. The low-speed radar path (under 4 m/s) is untouched | `FM_RadarStationaryGuard` (Cruise) | `selfdrive/controls/radard.py`, `sunnypilot/selfdrive/controls/lib/fm_radar.py` | off |
+| Lead Detection Sensitivity: how sure the camera has to be (25–50%) that a car is ahead before it counts as a lead and is paired with the radar. Lower picks leads up sooner and farther away, so the lead-following planner gets radar distance and speed earlier; pair with Ignore Stationary Radar Ghosts | `FM_LeadDetectionThreshold` (Cruise) | `selfdrive/controls/radard.py`, `sunnypilot/selfdrive/controls/lib/fm_radar.py` | 50 (openpilot's value) |
 | Quiet road-edge block: small gray message, no sound | `FM_QuietRoadEdgeBlock` (Steering) | `selfdrived.py`, `sunnypilot/selfdrive/selfdrived/events.py`, `cereal/custom.capnp` | off |
 | Road Edge Turn Desire: signaling toward a road edge (20–45 mph) plans a turn; every turn starts on the blinker alone and holds until the blinker is cancelled | `FM_RoadEdgeTurnDesire`, `FM_RoadEdgeTurnMaxSpeed` (Steering) | `sunnypilot/selfdrive/controls/lib/fm_turn_desire.py`, `desire_helper.py` | off |
 | Turn Boost: tighter requests during low-speed blinker turns, per side | `FM_TurnBoostEnabled`, `FM_TurnBoostLeft`, `FM_TurnBoostRight` (Steering) | `sunnypilot/selfdrive/controls/lib/fm_turn_assist.py`, `fm_lateral.py` | off (1.10 / 1.20) |
@@ -40,6 +41,9 @@ Removed: dual model mode (two small models do not fit the comma 4's 50 ms model 
 - **Higher Torque**: the 481 low-speed limit and its panda envelope come from AdventurePilot `5270cbba` (Uncle-Tony,
   May 16, 2026, MIT), backed off upstream in `5c5a1c98`. FM Pilot keeps only the low-speed raise and adds the
   Headroom mode and the settings.
+- **Lead Detection Sensitivity**: FrogPilot's "Lead Detection Sensitivity" (`LeadDetectionThreshold`), FrogAi, FrogPilot
+  branch (Oct 31, 2026), `frogpilot/common/frogpilot_variables.py` and `selfdrive/controls/radard.py` (MIT). FM Pilot
+  keeps 50% as the default (FrogPilot: 35%) and adds it to sunnypilot's radard alongside the ghost guard.
 - Everything else here is FM Pilot's own, built on AdventurePilot, sunnypilot and openpilot (MIT).
 
 ## Upstreaming to AdventurePilot
