@@ -275,7 +275,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"FM_LaneKeepMode", {PERSISTENT | BACKUP, INT}},  // no default: params_migration seeds it from the older toggles
     {"FM_LeadDetectionThreshold", {PERSISTENT | BACKUP, INT, "50"}},
     {"FM_PandaHighTorque", {PERSISTENT | BACKUP, BOOL, "0"}},
-    {"FM_QuietRoadEdgeBlock", {PERSISTENT | BACKUP, BOOL, "0"}},
+    {"FM_QuietRoadEdgeBlock", {PERSISTENT | BACKUP, BOOL, "0"}},  // no longer read: the quiet block is always on; kept so old backups restore
     {"FM_RadarStationaryGuard", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"FM_RoadEdgeTurnDesire", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"FM_RoadEdgeTurnMaxSpeed", {PERSISTENT | BACKUP, FLOAT, "45.0"}},
