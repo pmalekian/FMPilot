@@ -89,6 +89,7 @@ def setup_interfaces(CI, CP: structs.CarParams, CP_SP: structs.CarParamsSP,
   _initialize_coop_steering(CP, CP_SP, params_dict)
   _initialize_tesla_mads_screen_button(CP, CP_SP, params_dict)
   _initialize_rivian_enhanced_mads(CP, CP_SP, params_dict)
+  _initialize_rivian_high_torque(CP, CP_SP, params_dict)
   _initialize_radar_tracks(CP, CP_SP, can_recv, can_send)
   _initialize_stop_and_go(CP, CP_SP, params_dict)
   _initialize_toyota(CP, CP_SP, params_dict)
@@ -139,6 +140,16 @@ def _initialize_rivian_enhanced_mads(CP: structs.CarParams, CP_SP: structs.CarPa
     if str(params_dict.get("RivianEnhancedMads", False)) in ("1", "True"):
       CP_SP.flags |= RivianFlagsSP.ENHANCED_MADS.value
       CP_SP.safetyParam |= RivianSafetyFlagsSP.ENHANCED_MADS
+
+
+def _initialize_rivian_high_torque(CP: structs.CarParams, CP_SP: structs.CarParamsSP,
+                                   params_dict: dict[str, str]) -> None:
+  # FM Pilot "Panda Allows Higher Torque": read once at onroad start so the panda and the car code use the same
+  # steering limit for the whole drive. Off, everything stays at AP's limits.
+  if CP.brand == 'rivian':
+    if str(params_dict.get("FM_PandaHighTorque", False)) in ("1", "True"):
+      CP_SP.flags |= RivianFlagsSP.HIGH_TORQUE_PANDA.value
+      CP_SP.safetyParam |= RivianSafetyFlagsSP.HIGH_TORQUE
 
 
 def _initialize_radar_tracks(CP: structs.CarParams, CP_SP: structs.CarParamsSP,

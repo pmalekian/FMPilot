@@ -10,7 +10,9 @@ from enum import IntFlag
 class RivianFlagsSP(IntFlag):
   LONGITUDINAL_HARNESS_UPGRADE = 1
   ENHANCED_MADS = 2
+  HIGH_TORQUE_PANDA = 4  # FM Pilot: panda allows the higher low-speed torque limit this drive
 
 
 class RivianSafetyFlagsSP:
   ENHANCED_MADS = 1
+  HIGH_TORQUE = 2  # FM Pilot

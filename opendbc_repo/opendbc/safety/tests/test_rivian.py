@@ -253,8 +253,14 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.DriverTorqueSteeringSafe
   # "Use enhanced Rivian MADS". Off, the panda has no MADS button, as in stock sunnypilot.
   ENHANCED_MADS = False
 
+  # FM Pilot "Panda Allows Higher Torque". Off, AP's limits.
+  HIGH_TORQUE = False
+
   def _set_safety_hooks(self, param):
-    self.safety.set_current_safety_param_sp(RivianSafetyFlagsSP.ENHANCED_MADS if self.ENHANCED_MADS else 0)
+    param_sp = RivianSafetyFlagsSP.ENHANCED_MADS if self.ENHANCED_MADS else 0
+    if self.HIGH_TORQUE:
+      param_sp |= RivianSafetyFlagsSP.HIGH_TORQUE
+    self.safety.set_current_safety_param_sp(param_sp)
     self.safety.set_safety_hooks(CarParams.SafetyModel.rivian, param)
 
   def test_mads_button_gated_on_cruise(self):
@@ -320,6 +326,54 @@ class TestRivianStockSafetyEnhancedMads(TestRivianStockSafety):
 
 class TestRivianLongitudinalSafetyEnhancedMads(TestRivianLongitudinalSafety):
   ENHANCED_MADS = True
+
+
+# FM Pilot: the higher low-speed envelope (AP 5270cbba, Uncle-Tony). Every inherited steering test runs against it.
+class TestRivianStockSafetyHighTorque(TestRivianStockSafety):
+  HIGH_TORQUE = True
+  MAX_TORQUE_LOOKUP = [9, 25, 27], [481, 295, 275]
+
+
+class TestRivianLongitudinalSafetyHighTorque(TestRivianLongitudinalSafety):
+  HIGH_TORQUE = True
+  MAX_TORQUE_LOOKUP = [9, 25, 27], [481, 295, 275]
+
+
+class TestRivianStockSafetyEnhancedMadsHighTorque(TestRivianStockSafety):
+  ENHANCED_MADS = True
+  HIGH_TORQUE = True
+  MAX_TORQUE_LOOKUP = [9, 25, 27], [481, 295, 275]
+
+
+class TestRivianHighTorqueGate(unittest.TestCase):
+  """Without the flag the panda must still refuse anything above AP's 385 at low speed; with it, 481 is the ceiling."""
+
+  def _safety(self, high):
+    packer = CANPackerSafety("rivian_primary_actuator")
+    safety = libsafety_py.libsafety
+    safety.set_current_safety_param_sp(RivianSafetyFlagsSP.HIGH_TORQUE if high else 0)
+    safety.set_safety_hooks(CarParams.SafetyModel.rivian, 0)
+    safety.init_tests()
+    safety.set_controls_allowed(True)
+    return packer, safety
+
+  def _allowed(self, safety, packer, torque):
+    # previous torque set just below the value so only the absolute limit is tested (standstill: low-speed envelope)
+    safety.set_desired_torque_last(torque - 1)
+    safety.set_rt_torque_last(torque - 1)
+    return safety.safety_tx_hook(packer.make_can_msg_safety("ACM_lkaHbaCmd", 0, {"ACM_lkaStrToqReq": torque, "ACM_lkaActToi": 1}))
+
+  def test_flag_off_keeps_385(self):
+    packer, safety = self._safety(False)
+    self.assertTrue(self._allowed(safety, packer, 385))
+    self.assertFalse(self._allowed(safety, packer, 387))
+    self.assertFalse(self._allowed(safety, packer, 481))
+
+  def test_flag_on_allows_481_not_more(self):
+    packer, safety = self._safety(True)
+    self.assertTrue(self._allowed(safety, packer, 481))
+    self.assertTrue(self._allowed(safety, packer, -481))
+    self.assertFalse(self._allowed(safety, packer, 483))
 
 
 class TestRivianIgnition(unittest.TestCase):

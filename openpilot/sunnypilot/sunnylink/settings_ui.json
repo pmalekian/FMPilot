@@ -595,6 +595,23 @@
                   "equals": false
                 }
               ]
+            },
+            {
+              "key": "FM_PandaHighTorque",
+              "widget": "toggle",
+              "needs_onroad_cycle": true,
+              "title": "Panda Allows Higher Torque",
+              "description": "Testing backup. Lets the panda allow up to 481 steering torque under about 20 mph (AP's limit is 385), tapering to the usual limits by about 38 mph; highway limits are unchanged. Only changes in off-road mode and applies from the next drive. While off, Higher Torque below stays at 385.",
+              "enablement": [
+                {
+                  "type": "offroad_only"
+                },
+                {
+                  "type": "capability",
+                  "field": "brand",
+                  "equals": "rivian"
+                }
+              ]
             }
           ],
           "sub_panels": [

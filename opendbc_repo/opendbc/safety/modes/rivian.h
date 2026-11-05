@@ -49,6 +49,9 @@ static uint32_t rivian_compute_checksum(const CANPacket_t *msg) {
 static uint8_t rivian_prev_user_adas_request = 0U;
 // "Use enhanced Rivian MADS" setting. Off, MADS here is stock: no stalk MADS toggle.
 static bool rivian_enhanced_mads = false;
+// FM Pilot "Panda Allows Higher Torque" setting, read once per drive. Off, the steering limits are AP's (385 at low
+// speed). On, the low-speed limit is 481 (AP's May 16, 2026 curve, Uncle-Tony, 5270cbba); highway limits unchanged.
+static bool rivian_high_torque = false;
 
 static bool rivian_get_quality_flag_valid(const CANPacket_t *msg) {
   bool valid = false;
@@ -155,6 +158,29 @@ static bool rivian_tx_hook(const CANPacket_t *msg) {
     .has_steer_req_tolerance = true,
   };
 
+  // FM Pilot: same limits with a higher low-speed envelope, used only with the "Panda Allows Higher Torque" setting.
+  // Envelope around the carcontroller's high lookup ([9,17,25,27]->[481,332,295,275]): sits >= it at every speed
+  // (481 at 9 m/s, 388 at 17, 295 at 25, 275 from 27). From AP 5270cbba (Uncle-Tony, MIT), which shipped this envelope.
+  // Ramp rates, real-time limit and driver-torque rules are unchanged.
+  const TorqueSteeringLimits RIVIAN_STEERING_LIMITS_HIGH = {
+    .max_torque = 481,
+    .dynamic_max_torque = true,
+    .max_torque_lookup = {
+      {9., 25., 27.},
+      {481, 295, 275},
+    },
+    .max_rate_up = 3,
+    .max_rate_down = 5,
+    .max_rt_delta = 125,
+    .driver_torque_multiplier = 2,
+    .driver_torque_allowance = 100,
+    .type = TorqueDriverLimited,
+    .min_valid_request_frames = 89,
+    .max_invalid_request_frames = 2,
+    .min_valid_request_rt_interval = 810000,
+    .has_steer_req_tolerance = true,
+  };
+
   const LongitudinalLimits RIVIAN_LONG_LIMITS = {
     .max_accel = 200,
     .min_accel = -350,
@@ -169,7 +195,8 @@ static bool rivian_tx_hook(const CANPacket_t *msg) {
       int desired_torque = ((msg->data[2] << 3U) | (msg->data[3] >> 5U)) - 1024U;
       bool steer_req = (msg->data[3] >> 4) & 1U;
 
-      if (steer_torque_cmd_checks(desired_torque, steer_req, RIVIAN_STEERING_LIMITS)) {
+      if (steer_torque_cmd_checks(desired_torque, steer_req,
+                                  rivian_high_torque ? RIVIAN_STEERING_LIMITS_HIGH : RIVIAN_STEERING_LIMITS)) {
         tx = false;
       }
     }
@@ -210,6 +237,8 @@ static safety_config rivian_init(uint16_t param) {
 
   const uint16_t RIVIAN_PARAM_SP_ENHANCED_MADS = 1;
   rivian_enhanced_mads = GET_FLAG(current_safety_param_sp, RIVIAN_PARAM_SP_ENHANCED_MADS);
+  const uint16_t RIVIAN_PARAM_SP_HIGH_TORQUE = 2;  // FM Pilot
+  rivian_high_torque = GET_FLAG(current_safety_param_sp, RIVIAN_PARAM_SP_HIGH_TORQUE);
   #ifdef ALLOW_DEBUG
     const int FLAG_RIVIAN_LONG_CONTROL = 1;
     rivian_longitudinal = GET_FLAG(param, FLAG_RIVIAN_LONG_CONTROL);
