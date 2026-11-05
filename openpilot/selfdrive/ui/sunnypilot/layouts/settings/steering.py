@@ -16,6 +16,7 @@ from openpilot.selfdrive.ui.sunnypilot.layouts.settings.steering_sub_layouts.lan
 from openpilot.selfdrive.ui.sunnypilot.layouts.settings.steering_sub_layouts.lane_change_settings import LaneChangeSettingsLayout
 from openpilot.selfdrive.ui.sunnypilot.layouts.settings.steering_sub_layouts.mads_settings import MadsSettingsLayout
 from openpilot.selfdrive.ui.sunnypilot.layouts.settings.steering_sub_layouts.torque_settings import TorqueSettingsLayout
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_lane_keep_mode import MODE_CENTERING, get_lane_keep_mode, set_lane_centering
 
 
 LANE_CENTERING_DESC = "{main} {note}".format(
@@ -63,8 +64,9 @@ class SteeringLayout(Widget):
       button_width=800,
       callback=lambda: self._set_current_panel(PanelType.MADS)
     )
+    # FM Pilot: lane centering is one choice of FM_LaneKeepMode (fm_lane_keep_mode.py), so the toggle sets the mode
     self._lane_centering_toggle = toggle_item_sp(
-      param="LaneCenteringEnabled",
+      callback=lambda state: set_lane_centering(ui_state.params, state),
       title=lambda: tr("Lane Centering"),
       description=LANE_CENTERING_DESC,
     )
@@ -152,6 +154,7 @@ class SteeringLayout(Widget):
 
     self._mads_toggle.action_item.set_enabled(ui_state.is_offroad())
     self._mads_settings_button.action_item.set_enabled(ui_state.is_offroad() and self._mads_toggle.action_item.get_state())
+    self._lane_centering_toggle.action_item.set_state(get_lane_keep_mode(ui_state.params) == MODE_CENTERING)
     self._lane_centering_settings_button.action_item.set_enabled(self._lane_centering_toggle.action_item.get_state())
     self._blinker_control_options.set_visible(self._blinker_control_toggle.action_item.get_state())
     self._blinker_reengage_delay.set_visible(self._blinker_control_toggle.action_item.get_state())

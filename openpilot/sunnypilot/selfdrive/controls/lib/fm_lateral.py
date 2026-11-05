@@ -3,18 +3,18 @@ FM Pilot: lateral additions applied to the requested curvature in controlsd, aft
 clip_curvature, so they work the same with torque and angle steering.
 
   - Lane Guard (from gerrylum's rx-wb, with its Rivian tune): a small correction only when the planned path brings the
-    body too close to a lane line or road edge. Exclusive with AP's lane centering: it never runs while lane centering
-    is on.
+    body too close to a lane line or road edge. One choice of FM_LaneKeepMode (fm_lane_keep_mode.py), so it never runs
+    together with lane centering or Blendful.
   - Rear-axle off-tracking compensation (from rx-wb): widens turns by gain x the rear axle's cut-in. Rivian only.
   - Turn Boost, Turn Lead and Turn Hold (fm_turn_assist.py): stronger, earlier, steadier requests during low-speed
     blinker turns. Applied first, so off-tracking (if on) still widens the result.
 """
 from openpilot.common.realtime import DT_CTRL
 from openpilot.selfdrive.controls.lib.lane_guard import STOCK, TUNES, LaneGuard
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_lane_keep_mode import MODE_GUARD, get_lane_keep_mode
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_assist import FmTurnAssist
 from openpilot.sunnypilot.selfdrive.controls.lib.rivian_offtrack import offtrack_curvature
 
-PARAM_LANE_GUARD = "LaneGuardEnabled"
 PARAM_OFFTRACK = "RivianOfftrackCompensationEnabled"
 PARAM_OFFTRACK_GAIN = "RivianOfftrackCompensationGain"
 PARAMS_PERIOD = 1.0  # s
@@ -37,7 +37,7 @@ class FmLateral:
     self.read_params()
 
   def read_params(self) -> None:
-    self.lane_guard_enabled = self.params.get_bool(PARAM_LANE_GUARD)
+    self.lane_guard_enabled = get_lane_keep_mode(self.params) == MODE_GUARD
     self.left_hand_traffic = self.params.get_bool("IsRhdDetected")
     gain = 0.0
     if self.CP.brand == 'rivian' and self.params.get_bool(PARAM_OFFTRACK):

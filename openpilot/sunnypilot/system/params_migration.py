@@ -121,6 +121,17 @@ def _migrate_model_bundle_slots(_params):
     cloudlog.exception(f"Error migrating model bundle slots: {e}")
 
 
+def _migrate_fm_lane_keep_mode(_params):
+  # FM Pilot: Lane Centering, Lane Guard and Blendful became one setting, FM_LaneKeepMode. Seed it once from the
+  # older toggles so the drive after the update keeps whichever was on (lane centering wins if both were).
+  try:
+    from openpilot.sunnypilot.selfdrive.controls.lib.fm_lane_keep_mode import PARAM_MODE, migrate_lane_keep_mode
+    if migrate_lane_keep_mode(_params):
+      cloudlog.info(f"params_migration: seeded {PARAM_MODE} with {_params.get(PARAM_MODE)} from the older lane keeping toggles")
+  except Exception as e:
+    cloudlog.exception(f"Error migrating FM_LaneKeepMode: {e}")
+
+
 def run_migration(_params):
   # migrate OnroadScreenOffBrightness
   if _params.get("OnroadScreenOffBrightnessMigrated") != ONROAD_BRIGHTNESS_MIGRATION_VERSION:
@@ -163,3 +174,6 @@ def run_migration(_params):
 
   # seed the chestnut model slot from the pre-split single slot
   _migrate_model_bundle_slots(_params)
+
+  # FM Pilot: seed the lane keeping mode from the older toggles
+  _migrate_fm_lane_keep_mode(_params)

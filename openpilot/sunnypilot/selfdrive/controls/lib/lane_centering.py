@@ -14,6 +14,7 @@ import numpy as np
 from openpilot.cereal import log
 from openpilot.common.realtime import DT_CTRL
 from openpilot.selfdrive.controls.lib.drive_helpers import smooth_value
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_lane_keep_mode import MODE_CENTERING, get_lane_keep_mode
 
 LaneChangeState = log.LaneChangeState
 
@@ -73,7 +74,7 @@ class LaneCenteringController:
     # Takes the caller's Params rather than making its own, so this module stays importable
     # off-device and the controller can be unit tested without the compiled params extension
     self.params = params
-    self.enabled = self.params.get_bool("LaneCenteringEnabled")
+    self.enabled = get_lane_keep_mode(self.params) == MODE_CENTERING
     self.offset = 0.0
     self.e2e_authority = 1.0
     self.gain = DEFAULT_GAIN
@@ -93,7 +94,7 @@ class LaneCenteringController:
     self.line_side = 0  # side of the car the One-Line Mode line is on, signed like the correction
 
   def get_params(self) -> None:
-    self.enabled = self.params.get_bool("LaneCenteringEnabled")
+    self.enabled = get_lane_keep_mode(self.params) == MODE_CENTERING
     offset = self.params.get("LaneCenteringOffset", return_default=True)
     self.offset = float(np.clip(offset, -MAX_OFFSET, MAX_OFFSET))
     authority = self.params.get("LaneCenteringE2EAuthority", return_default=True)
