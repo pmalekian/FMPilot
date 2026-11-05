@@ -66,7 +66,7 @@ State as of Nov 5, 2026. Read this with `FM_PILOT.md` (features, settings, credi
     left-positive), so Boost scaled away-from-the-turn requests and Hold could hold the wrong way. Don't drive either
     feature on an older build.
 
-## Higher Torque: branch `fm-dev-torque` (Nov 5, built, not yet driven)
+## Higher Torque: branch `fm-dev-torque` (Nov 5, fixed `14cac9b`, not yet driven with it working)
 
 Goal agreed Nov 4–5: raise the low-speed steering torque cap. FM Pilot is its own fork now: no AP syncs planned; other
 forks are only a source of ideas.
@@ -92,7 +92,13 @@ forks are only a source of ideas.
   turns. 2) Loop A both ways, compare per corner with `00000032` (time at cap, radius vs request, hand help). 3) Normal
   driving 20–45 mph. 4) Full on the same corners, for comparison. 5) Turn Assist back on. Stop on any `ToiFlt` or
   steering fault, unexpected jerk, or a wheel that's hard to override.
-- **Check in the first log:** pandad's "setting safety model ... param_sp" line shows bit 2 when the panda setting is on.
+- **Nov 5 fix (`14cac9b`):** the first Headroom/Full drives (`00000038`, `00000039`) ran at AP's 385: the hook was only
+  in sunnypilot's v1 torque controller, but `EnforceTorqueControl` on with `TorqueControlTune` 0 (and Enforce off) run
+  `latcontrol_torque_v0.py`. v0 now has it; controller tests cover both. Treat those drives as Off for torque.
+  `torqueState.saturated` is false below 10 m/s by design (`sat_check_min_speed`), so it can't show the cap at turn
+  speeds.
+- **Check in the first log:** `carControl.actuators.torque` passes 1.00 and `torqueOutputCan` passes 385 in a tight
+  turn; `torqueState.version` shows which controller ran. Also pandad's "setting safety model ... param_sp" line shows bit 2 when the panda setting is on.
 
 ## Next update to the branch (agreed, not yet done)
 
