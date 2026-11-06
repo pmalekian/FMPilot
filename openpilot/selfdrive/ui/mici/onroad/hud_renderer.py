@@ -11,6 +11,7 @@ from openpilot.system.ui.widgets import Widget
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.cereal import log
 from openpilot.sunnypilot.modeld_v2.fm_custom_label import label_text
+from openpilot.selfdrive.ui.sunnypilot.onroad.fm_torque_readout import make_readout
 
 EventName = log.OnroadEvent.EventName
 
@@ -97,6 +98,16 @@ class TurnIntent(Widget):
       self._turn_intent_rotation_filter.update(0)
 
 
+FM_READOUT_PERIOD = 0.1  # s, about 10 updates a second so the numbers are readable
+FM_READOUT_COLORS = {
+  'normal': rl.Color(255, 255, 255, 230),
+  'at_cap': rl.Color(255, 176, 0, 255),
+  'refused': rl.Color(255, 64, 64, 255),
+  'off': rl.Color(160, 160, 160, 200),
+}
+FM_CHECK_COLOR = rl.Color(70, 220, 90, 255)
+
+
 class HudRenderer(Widget):
   def __init__(self):
     super().__init__()
@@ -130,6 +141,10 @@ class HudRenderer(Widget):
     self._chestnut_icon: rl.Texture | None = None
     self._wheel_alpha_filter = FirstOrderFilter(0, 0.05, 1 / gui_app.target_fps)
     self._wheel_y_filter = FirstOrderFilter(0, 0.1, 1 / gui_app.target_fps)
+
+    self._fm_readout = None
+    self._fm_readout_time = 0.0
+    self._fm_label_shown = False
 
     self._set_speed_alpha_filter = FirstOrderFilter(0.0, 0.1, 1 / gui_app.target_fps)
     self._chestnut_alpha_filter = FirstOrderFilter(0.0, 0.1, 1 / gui_app.target_fps)
@@ -190,10 +205,13 @@ class HudRenderer(Widget):
 
     self._draw_fm_model_label(rect)
 
+    self._draw_fm_torque_readout(rect)
+
     self._draw_steering_wheel(rect)
 
   def _draw_fm_model_label(self, rect: rl.Rectangle) -> None:
     """FM Pilot: one small centered line while a custom (e.g. spliced) model is driving, with its run time. Hidden behind alerts."""
+    self._fm_label_shown = False
     if ui_state.sm['selfdriveState'].alertSize != 0:
       return
     text = label_text(getattr(ui_state, 'fm_custom_model', ''), ui_state.sm['modelV2'].modelExecutionTime)
@@ -207,6 +225,54 @@ class HudRenderer(Widget):
       size = measure_text_cached(self._font_semi_bold, text, font_size)
     pos = rl.Vector2(rect.x + rect.width / 2 - size.x / 2, rect.y + 16)
     rl.draw_text_ex(self._font_semi_bold, text, pos, font_size, 0, COLORS.WHITE_TRANSLUCENT)
+    self._fm_label_shown = True
+
+  def _draw_fm_torque_readout(self, rect: rl.Rectangle) -> None:
+    """FM Pilot: sent / limit now / Max Torque / EPAS check, one line at the top center (fm_torque_readout.py)."""
+    sm = ui_state.sm
+    if sm['selfdriveState'].alertSize != 0 or sm.recv_frame['carOutput'] < ui_state.started_frame:
+      return
+    now = rl.get_time()
+    if self._fm_readout is None or now - self._fm_readout_time >= FM_READOUT_PERIOD:
+      cs_sp = sm['carStateSP']
+      self._fm_readout = make_readout(sm['carOutput'].actuatorsOutput.torqueOutputCan, cs_sp.fmSteerCap,
+                                      cs_sp.fmMaxTorque, cs_sp.fmEpasToiActive, sm['carControl'].latActive)
+      self._fm_readout_time = now
+    r = self._fm_readout
+    if r is None:
+      return
+
+    font_size = FONT_SIZES.max_speed
+    color = FM_READOUT_COLORS[r.state]
+    text = f"{r.sent} / {r.cap} / {r.max_torque}"
+    size = measure_text_cached(self._font_semi_bold, text, font_size)
+    arrow_w, gap, mark_w = 16, 10, 24
+    total = arrow_w + gap + size.x + gap + mark_w
+    x = rect.x + rect.width / 2 - total / 2
+    y = rect.y + 16 + (size.y + 4 if self._fm_label_shown else 0)
+    cy = y + size.y / 2
+
+    # backing so it reads over a bright road
+    rl.draw_rectangle_rounded(rl.Rectangle(x - 12, y - 4, total + 24, size.y + 8), 0.4, 8, rl.Color(0, 0, 0, 110))
+
+    if r.direction != 0:
+      half = arrow_w / 2
+      ax = x + half
+      if r.direction < 0:  # left
+        rl.draw_triangle(rl.Vector2(ax - half, cy), rl.Vector2(ax + half, cy + half), rl.Vector2(ax + half, cy - half), color)
+      else:
+        rl.draw_triangle(rl.Vector2(ax + half, cy), rl.Vector2(ax - half, cy - half), rl.Vector2(ax - half, cy + half), color)
+
+    rl.draw_text_ex(self._font_semi_bold, text, rl.Vector2(x + arrow_w + gap, y), font_size, 0, color)
+
+    mx = x + arrow_w + gap + size.x + gap
+    if r.accepted is True:
+      rl.draw_line_ex(rl.Vector2(mx + 2, cy), rl.Vector2(mx + 9, cy + 8), 4, FM_CHECK_COLOR)
+      rl.draw_line_ex(rl.Vector2(mx + 9, cy + 8), rl.Vector2(mx + 22, cy - 9), 4, FM_CHECK_COLOR)
+    elif r.accepted is False:
+      red = FM_READOUT_COLORS['refused']
+      rl.draw_line_ex(rl.Vector2(mx + 3, cy - 9), rl.Vector2(mx + 21, cy + 9), 4, red)
+      rl.draw_line_ex(rl.Vector2(mx + 3, cy + 9), rl.Vector2(mx + 21, cy - 9), 4, red)
 
   def _draw_model_source(self, rect: rl.Rectangle) -> None:
     if ui_state.sm.recv_frame['selfdriveState'] < ui_state.started_frame:
