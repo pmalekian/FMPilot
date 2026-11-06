@@ -98,6 +98,8 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.DriverTorqueSteeringSafe
       CP_SP.safetyParam = self._high_torque_param_sp()
       if self.FAST_RAMP:
         CP_SP.flags |= RivianFlagsSP.FAST_RAMP.value
+      if self.FULL_CAP_HIGH_ANGLE:
+        CP_SP.flags |= RivianFlagsSP.FULL_CAP_HIGH_ANGLE.value
     self.controller = CarController({"pt": "rivian_primary_actuator"}, structs.CarParams(), CP_SP)
     out = structs.CarState()
     out.vEgoRaw = speed
@@ -295,6 +297,8 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.DriverTorqueSteeringSafe
   MAX_TORQUE_SETTING = None
   # FM Pilot "Faster Torque Ramp" (only counts with HIGH_TORQUE)
   FAST_RAMP = False
+  # FM Pilot "Full Torque Past 90°" (car code only)
+  FULL_CAP_HIGH_ANGLE = False
 
   def _high_torque_param_sp(self):
     param_sp = RivianSafetyFlagsSP.HIGH_TORQUE
@@ -458,6 +462,21 @@ class TestRivianStockSafetyFastRamp(TestRivianStockSafety):
     self.assertLess(fast, 300 / 3 - 15)  # clearly faster than 3 per frame
     self.assertGreaterEqual(fast, 300 / 5 - 1)  # never faster than 5 per frame
     self.assertGreaterEqual(frames_to(12.0, 250), 250 / 3 - 1)  # 27 mph: the normal ramp
+
+
+class TestRivianStockSafetyFullCapHighAngle(TestRivianStockSafetyFastRamp):
+  """FM Pilot "Full Torque Past 90°": past 90 degrees the car code goes to the full cap, still inside the panda"""
+  FULL_CAP_HIGH_ANGLE = True
+
+  def test_high_angle_reaches_the_full_cap(self):
+    for full, expected in ((False, round(480 * 0.95)), (True, 480)):
+      self.FULL_CAP_HIGH_ANGLE = full
+      self._torque_loop_setup(angle=150.0, speed=4.0)
+      peak = 0
+      for i in range(300):
+        self.assertTrue(self._torque_loop_frame(1.6), f"refused, full={full}, frame {i}")
+        peak = max(peak, abs(self.last_sent_torque))
+      self.assertEqual(peak, expected)
 
 
 class TestRivianFastRampNeedsHighTorque(TestRivianStockSafety):

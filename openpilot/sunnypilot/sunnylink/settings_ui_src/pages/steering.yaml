@@ -352,6 +352,17 @@ sections:
     - $ref: '#/macros/offroad'
     - {type: capability, field: brand, equals: rivian}
     - {type: param, key: FM_PandaHighTorque, equals: true}
+  - key: FM_TorqueFullCapHighAngle
+    widget: toggle
+    title: Full Torque Past 90°
+    description: 'Testing. Past 90° of steering wheel, AP holds torque to 95% of the limit (457 of 481). On, it can use
+      the full Max Torque there. The panda''s limit is the same either way. Needs Panda Allows Higher Torque. Only
+      changes in off-road mode and applies from the next drive.'
+    needs_onroad_cycle: true
+    enablement:
+    - $ref: '#/macros/offroad'
+    - {type: capability, field: brand, equals: rivian}
+    - {type: param, key: FM_PandaHighTorque, equals: true}
   - key: FM_TorqueMode
     widget: multiple_button
     title: Higher Torque

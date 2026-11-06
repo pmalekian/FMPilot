@@ -118,6 +118,7 @@ def initialize_params(params) -> list[dict[str, Any]]:
     "FM_PandaHighTorque",
     "FM_MaxTorque",
     "FM_TorqueFastRamp",
+    "FM_TorqueFullCapHighAngle",
   ])
 
   # subaru

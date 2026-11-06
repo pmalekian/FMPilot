@@ -157,6 +157,9 @@ def _initialize_rivian_high_torque(CP: structs.CarParams, CP_SP: structs.CarPara
       if str(params_dict.get("FM_TorqueFastRamp", False)) in ("1", "True"):
         CP_SP.flags |= RivianFlagsSP.FAST_RAMP.value
         CP_SP.safetyParam |= RivianSafetyFlagsSP.FAST_RAMP
+      # "Full Torque Past 90°": car code only, the panda's limits are the same either way
+      if str(params_dict.get("FM_TorqueFullCapHighAngle", False)) in ("1", "True"):
+        CP_SP.flags |= RivianFlagsSP.FULL_CAP_HIGH_ANGLE.value
 
 
 def _initialize_radar_tracks(CP: structs.CarParams, CP_SP: structs.CarParamsSP,

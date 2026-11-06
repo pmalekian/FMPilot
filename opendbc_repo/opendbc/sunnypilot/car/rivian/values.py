@@ -12,6 +12,7 @@ class RivianFlagsSP(IntFlag):
   ENHANCED_MADS = 2
   HIGH_TORQUE_PANDA = 4  # FM Pilot: panda allows the higher low-speed torque limit this drive
   FAST_RAMP = 8  # FM Pilot: panda allows torque to rise 5 per frame at low speed this drive
+  FULL_CAP_HIGH_ANGLE = 16  # FM Pilot: no 95% torque cap past 90 degrees of wheel this drive
 
 
 class RivianSafetyFlagsSP:
