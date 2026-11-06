@@ -592,7 +592,7 @@
               "widget": "toggle",
               "needs_onroad_cycle": true,
               "title": "Panda Allows Higher Torque",
-              "description": "Testing backup. Lets the panda allow up to 481 steering torque under about 20 mph (AP's limit is 385), tapering to the usual limits by about 38 mph; highway limits are unchanged. Only changes in off-road mode and applies from the next drive. While off, Higher Torque below stays at 385.",
+              "description": "Testing backup. Lets the panda allow up to Max Torque (below) under about 20 mph (AP's limit is 385), tapering to the usual limits by about 38 mph; highway limits are unchanged. Only changes in off-road mode and applies from the next drive. While off, Higher Torque below stays at 385.",
               "enablement": [
                 {
                   "type": "offroad_only"
@@ -605,10 +605,35 @@
               ]
             },
             {
+              "key": "FM_MaxTorque",
+              "widget": "option",
+              "needs_onroad_cycle": true,
+              "title": "Max Torque",
+              "description": "Testing. The low-speed steering torque limit the panda allows when Panda Allows Higher Torque is on: 405 to 580 in steps of 25 (AP's limit is 385; 480 is about the earlier fixed 481). The panda enforces exactly this number for the whole drive, under about 20 mph, tapering to the usual limits by about 38 mph. Only changes in off-road mode and applies from the next drive.",
+              "min": 405,
+              "max": 580,
+              "step": 25,
+              "enablement": [
+                {
+                  "type": "offroad_only"
+                },
+                {
+                  "type": "capability",
+                  "field": "brand",
+                  "equals": "rivian"
+                },
+                {
+                  "type": "param",
+                  "key": "FM_PandaHighTorque",
+                  "equals": true
+                }
+              ]
+            },
+            {
               "key": "FM_TorqueMode",
               "widget": "multiple_button",
               "title": "Higher Torque",
-              "description": "More steering torque under about 20 mph, up to 481 (AP's limit is 385), back to normal by about 38 mph. Needs Panda Allows Higher Torque on when the drive started; otherwise it stays at 385. Headroom: steering feels the same until it runs out of torque, then it can go further. Full: every request at low speed is about 25% stronger, like AP's earlier 481 test. Changes take effect while driving and blend in over a second.",
+              "description": "More steering torque under about 20 mph, up to Max Torque (AP's limit is 385), back to normal by about 38 mph. Needs Panda Allows Higher Torque on when the drive started; otherwise it stays at 385. Headroom: steering feels the same until it runs out of torque, then it can go further. Full: every request at low speed is about 25% stronger, like AP's earlier 481 test. Changes take effect while driving and blend in over a second.",
               "options": [
                 {
                   "value": 0,

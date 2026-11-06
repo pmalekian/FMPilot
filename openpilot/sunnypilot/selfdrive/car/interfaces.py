@@ -116,6 +116,7 @@ def initialize_params(params) -> list[dict[str, Any]]:
   keys.extend([
     "RivianEnhancedMads",
     "FM_PandaHighTorque",
+    "FM_MaxTorque",
   ])
 
   # subaru

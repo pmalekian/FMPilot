@@ -18,7 +18,8 @@ from opendbc.car.toyota.values import ToyotaSafetyFlags
 from opendbc.sunnypilot.car.hyundai.enable_radar_tracks import enable_radar_tracks as hyundai_enable_radar_tracks
 from opendbc.sunnypilot.car.hyundai.longitudinal.helpers import LongitudinalTuningType
 from opendbc.sunnypilot.car.hyundai.values import HyundaiFlagsSP
-from opendbc.sunnypilot.car.rivian.values import RivianFlagsSP, RivianSafetyFlagsSP
+from opendbc.sunnypilot.car.rivian.values import (MAX_TORQUE_DEFAULT, RivianFlagsSP, RivianSafetyFlagsSP,
+                                                 max_torque_level)
 from opendbc.sunnypilot.car.subaru.values_ext import SubaruFlagsSP, SubaruSafetyFlagsSP
 from opendbc.sunnypilot.car.tesla.values import MadsScreenButtonType, TeslaFlagsSP, TeslaSafetyFlagsSP
 from opendbc.sunnypilot.car.toyota.values import ToyotaFlagsSP
@@ -144,12 +145,14 @@ def _initialize_rivian_enhanced_mads(CP: structs.CarParams, CP_SP: structs.CarPa
 
 def _initialize_rivian_high_torque(CP: structs.CarParams, CP_SP: structs.CarParamsSP,
                                    params_dict: dict[str, str]) -> None:
-  # FM Pilot "Panda Allows Higher Torque": read once at onroad start so the panda and the car code use the same
-  # steering limit for the whole drive. Off, everything stays at AP's limits.
+  # FM Pilot "Panda Allows Higher Torque" and "Max Torque": read once at onroad start so the panda and the car code
+  # use the same steering limit for the whole drive. The panda enforces exactly the Max Torque level sent here.
+  # Off, everything stays at AP's limits.
   if CP.brand == 'rivian':
     if str(params_dict.get("FM_PandaHighTorque", False)) in ("1", "True"):
+      level = max_torque_level(params_dict.get("FM_MaxTorque", MAX_TORQUE_DEFAULT))
       CP_SP.flags |= RivianFlagsSP.HIGH_TORQUE_PANDA.value
-      CP_SP.safetyParam |= RivianSafetyFlagsSP.HIGH_TORQUE
+      CP_SP.safetyParam |= RivianSafetyFlagsSP.HIGH_TORQUE | (level << RivianSafetyFlagsSP.TORQUE_LEVEL_SHIFT)
 
 
 def _initialize_radar_tracks(CP: structs.CarParams, CP_SP: structs.CarParamsSP,

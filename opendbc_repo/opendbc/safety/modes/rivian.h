@@ -52,6 +52,9 @@ static bool rivian_enhanced_mads = false;
 // FM Pilot "Panda Allows Higher Torque" setting, read once per drive. Off, the steering limits are AP's (385 at low
 // speed). On, the low-speed limit is 481 (AP's May 16, 2026 curve, Uncle-Tony, 5270cbba); highway limits unchanged.
 static bool rivian_high_torque = false;
+// FM Pilot "Max Torque": the low-speed limit this drive when rivian_high_torque is on. Set once per drive from the
+// level in the safety param (405-580 in steps of 25; 481 when no level is sent, as before the setting existed).
+static int rivian_high_torque_cap = 481;
 
 static bool rivian_get_quality_flag_valid(const CANPacket_t *msg) {
   bool valid = false;
@@ -159,15 +162,16 @@ static bool rivian_tx_hook(const CANPacket_t *msg) {
   };
 
   // FM Pilot: same limits with a higher low-speed envelope, used only with the "Panda Allows Higher Torque" setting.
-  // Envelope around the carcontroller's high lookup ([9,17,25,27]->[481,332,295,275]): sits >= it at every speed
-  // (481 at 9 m/s, 388 at 17, 295 at 25, 275 from 27). From AP 5270cbba (Uncle-Tony, MIT), which shipped this envelope.
+  // Envelope around the carcontroller's high lookup ([9,17,25,27]->[cap,332,295,275]): sits >= it at every speed
+  // (cap at 9 m/s, (cap+295)/2 >= 350 at 17, 295 at 25, 275 from 27). The cap is the drive's "Max Torque" level
+  // (405-580); 481 and this envelope's shape are from AP 5270cbba (Uncle-Tony, MIT).
   // Ramp rates, real-time limit and driver-torque rules are unchanged.
   const TorqueSteeringLimits RIVIAN_STEERING_LIMITS_HIGH = {
-    .max_torque = 481,
+    .max_torque = rivian_high_torque_cap,
     .dynamic_max_torque = true,
     .max_torque_lookup = {
       {9., 25., 27.},
-      {481, 295, 275},
+      {(float)rivian_high_torque_cap, 295, 275},
     },
     .max_rate_up = 3,
     .max_rate_down = 5,
@@ -239,6 +243,9 @@ static safety_config rivian_init(uint16_t param) {
   rivian_enhanced_mads = GET_FLAG(current_safety_param_sp, RIVIAN_PARAM_SP_ENHANCED_MADS);
   const uint16_t RIVIAN_PARAM_SP_HIGH_TORQUE = 2;  // FM Pilot
   rivian_high_torque = GET_FLAG(current_safety_param_sp, RIVIAN_PARAM_SP_HIGH_TORQUE);
+  // FM Pilot "Max Torque": level 1-8 in bits 2-5 means 380 + 25 * level (405-580). Anything else keeps 481.
+  const uint16_t rivian_torque_level = (current_safety_param_sp >> 2U) & 0xFU;
+  rivian_high_torque_cap = ((rivian_torque_level >= 1U) && (rivian_torque_level <= 8U)) ? (380 + (25 * (int)rivian_torque_level)) : 481;
   #ifdef ALLOW_DEBUG
     const int FLAG_RIVIAN_LONG_CONTROL = 1;
     rivian_longitudinal = GET_FLAG(param, FLAG_RIVIAN_LONG_CONTROL);

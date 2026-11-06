@@ -138,6 +138,12 @@ class CarControllerParams:
   # (38 mph; 332 ~ the curve above there), identical from 25 m/s. Never below STEER_MAX_LOOKUP. The panda's envelope
   # [9,25,27] -> [481,295,275] sits >= this at every speed. 481 from AP 5270cbba (Uncle-Tony, MIT).
   STEER_MAX_LOOKUP_HIGH = [9, 17, 25, 27], [481, 332, 295, 275]
+
+  @staticmethod
+  def steer_max_lookup_high(cap: int):
+    """FM Pilot "Max Torque": the high curve with its low-speed point at cap (405-580), same shape otherwise. The
+    panda's envelope [9,25,27] -> [cap,295,275] sits >= it at every speed (at 17 m/s it is (cap+295)/2 >= 332)."""
+    return [9, 17, 25, 27], [cap, 332, 295, 275]
   STEER_STEP = 1
   STEER_DELTA_UP = 3  # torque increase per refresh
   STEER_DELTA_DOWN = 5  # torque decrease per refresh

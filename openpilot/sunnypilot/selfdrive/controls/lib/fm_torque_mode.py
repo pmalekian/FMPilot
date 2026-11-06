@@ -1,8 +1,8 @@
 """
 FM Pilot: Higher Torque, a Rivian setting that lets the torque controller use more than AP's steering torque cap at low
 speed. Works only on drives that started with "Panda Allows Higher Torque" on (RivianFlagsSP.HIGH_TORQUE_PANDA); the
-panda and the car code then allow the higher curve (CarControllerParams.STEER_MAX_LOOKUP_HIGH: 481 under 20 mph, back to
-AP's curve by 38 mph). Otherwise every mode behaves as Off.
+panda and the car code then allow the higher curve (CarControllerParams.steer_max_lookup_high: the drive's "Max Torque",
+405-580, under 20 mph, back to AP's curve by 38 mph). Otherwise every mode behaves as Off.
 
 openpilot's torque request is a fraction of AP's curve (1.0 = 385 at low speed). ratio(v) = high curve / AP's curve.
 
@@ -24,17 +24,23 @@ BLEND_S = 1.0       # s, from one mode to another
 PARAMS_PERIOD = 1.0  # s
 
 
-def _lookups():
+def _lookups(cap: int):
   from opendbc.car.rivian.values import CarControllerParams
-  return CarControllerParams.STEER_MAX_LOOKUP, CarControllerParams.STEER_MAX_LOOKUP_HIGH
+  return CarControllerParams.STEER_MAX_LOOKUP, CarControllerParams.steer_max_lookup_high(cap)
 
 
-def high_torque_ratio(v_ego: float) -> float:
+def high_torque_ratio(v_ego: float, cap: int = 481) -> float:
   """Higher cap / AP's cap at this speed, rounded as the car code rounds them; never below 1."""
-  base, high = _lookups()
+  base, high = _lookups(cap)
   b = round(float(np.interp(v_ego, *base)))
   h = max(b, round(float(np.interp(v_ego, *high))))
   return h / b
+
+
+def drive_torque_cap(CP_SP) -> int:
+  """The low-speed limit the panda enforces this drive (its "Max Torque" level)."""
+  from opendbc.sunnypilot.car.rivian.values import high_torque_cap
+  return high_torque_cap(int(CP_SP.safetyParam))
 
 
 def high_torque_available(CP, CP_SP) -> bool:
@@ -47,6 +53,7 @@ def high_torque_available(CP, CP_SP) -> bool:
 class FmTorqueMode:
   def __init__(self, CP, CP_SP, params=None):
     self.available = high_torque_available(CP, CP_SP)
+    self.cap = drive_torque_cap(CP_SP) if self.available else 385
     self.params = params
     self.mode = OFF
     self.w_headroom = 0.0  # 0..1, blended toward the selected mode
@@ -79,5 +86,5 @@ class FmTorqueMode:
     self.w_headroom = float(np.clip(target_h, self.w_headroom - step, self.w_headroom + step))
     self.w_full = float(np.clip(target_f, self.w_full - step, self.w_full + step))
 
-    extra = high_torque_ratio(v_ego) - 1.0
+    extra = high_torque_ratio(v_ego, self.cap) - 1.0
     return 1.0 + extra * self.w_headroom, 1.0 + extra * self.w_full

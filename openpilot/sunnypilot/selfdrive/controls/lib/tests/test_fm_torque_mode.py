@@ -6,7 +6,7 @@ import pytest
 from openpilot.common.realtime import DT_CTRL
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_torque_mode import (BLEND_S, FULL, HEADROOM, OFF, PARAM_MODE, FmTorqueMode,
                                                                         high_torque_ratio)
-from opendbc.sunnypilot.car.rivian.values import RivianFlagsSP
+from opendbc.sunnypilot.car.rivian.values import RivianFlagsSP, RivianSafetyFlagsSP, max_torque_level
 
 BLEND_STEPS = int(BLEND_S / DT_CTRL) + 2
 
@@ -19,9 +19,14 @@ class FakeParams:
     return self.values.get(key)
 
 
-def make(mode=OFF, brand='rivian', panda=True):
+def make(mode=OFF, brand='rivian', panda=True, max_torque=None):
   CP = SimpleNamespace(brand=brand)
-  CP_SP = SimpleNamespace(flags=RivianFlagsSP.HIGH_TORQUE_PANDA.value if panda else 0)
+  safety_param = 0
+  if panda:
+    safety_param = RivianSafetyFlagsSP.HIGH_TORQUE
+    if max_torque is not None:
+      safety_param |= max_torque_level(max_torque) << RivianSafetyFlagsSP.TORQUE_LEVEL_SHIFT
+  CP_SP = SimpleNamespace(flags=RivianFlagsSP.HIGH_TORQUE_PANDA.value if panda else 0, safetyParam=safety_param)
   params = FakeParams(mode)
   return FmTorqueMode(CP, CP_SP, params), params
 
@@ -127,6 +132,7 @@ def _rivian(panda=True):
   CP_SP = CarInterface.get_non_essential_params_sp(CP, CAR.RIVIAN_R1)
   if panda:
     CP_SP.flags |= RivianFlagsSP.HIGH_TORQUE_PANDA.value
+    CP_SP.safetyParam |= RivianSafetyFlagsSP.HIGH_TORQUE  # as _initialize_rivian_high_torque sets them together
   return CP.as_reader(), convert_to_capnp(CP_SP).as_reader(), CarInterface(CP, CP_SP), VehicleModel(CP)
 
 
@@ -189,3 +195,19 @@ def test_every_selectable_torque_controller_has_the_hook(enforce, tune):
   chosen = ControlsExt.initialize_lateral_control(host, _controllers()["v1"](CP, CP_SP, CI, DT_CTRL), CI, DT_CTRL)
   assert isinstance(getattr(chosen, "fm_torque", None), FmTorqueMode), type(chosen).__module__
   assert chosen.fm_torque.available
+
+
+@pytest.mark.parametrize("max_torque", [405, 480, 505, 580])
+def test_max_torque_sets_the_headroom(max_torque):
+  """FM Pilot Max Torque: Headroom's max request at low speed is the drive's cap over AP's 385."""
+  fm, _ = make(HEADROOM, max_torque=max_torque)
+  assert fm.cap == max_torque
+  max_req, scale = run(fm, v=4.0, steps=BLEND_STEPS)
+  assert max_req == pytest.approx(max_torque / 385)
+  assert scale == 1.0
+  assert high_torque_ratio(30.0, max_torque) == 1.0
+
+
+def test_no_level_keeps_481():
+  fm, _ = make(HEADROOM)
+  assert fm.cap == 481

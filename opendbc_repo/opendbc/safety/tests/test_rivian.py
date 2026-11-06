@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from opendbc.car import structs
 from opendbc.car.rivian.carcontroller import CarController
 from opendbc.car.structs import CarParams
-from opendbc.sunnypilot.car.rivian.values import RivianFlagsSP, RivianSafetyFlagsSP
+from opendbc.sunnypilot.car.rivian.values import RivianFlagsSP, RivianSafetyFlagsSP, max_torque_level
 from opendbc.safety.tests.libsafety import libsafety_py
 import opendbc.safety.tests.common as common
 from opendbc.safety.tests.common import CANPackerSafety
@@ -95,6 +95,7 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.DriverTorqueSteeringSafe
     CP_SP = structs.CarParamsSP()
     if self.HIGH_TORQUE:
       CP_SP.flags |= RivianFlagsSP.HIGH_TORQUE_PANDA.value
+      CP_SP.safetyParam = self._high_torque_param_sp()
     self.controller = CarController({"pt": "rivian_primary_actuator"}, structs.CarParams(), CP_SP)
     out = structs.CarState()
     out.vEgoRaw = speed
@@ -161,7 +162,6 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.DriverTorqueSteeringSafe
     self.assertEqual(blocked, [], f"panda refused around a ToiFlt release at (sign, timer offset, latch start, frame): {blocked[:6]}")
     self.assertEqual(no_release, [], f"latch was never released: {no_release[:6]}")
 
-
   def test_toi_dropout_release_is_never_refused(self):
     """The same release, sent because the EPAS stopped taking torque with no ToiFlt (route
     2bba20cd6136cc27/000000ea--8e6d69adcc: ignored for 231 s), must pass the panda wherever it lands, and so must the resume."""
@@ -184,6 +184,7 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.DriverTorqueSteeringSafe
             no_release.append((sign, offset, start))
     self.assertEqual(blocked, [], f"panda refused around a dropout release at (sign, timer offset, dropout start, frame): {blocked[:6]}")
     self.assertEqual(no_release, [], f"dropout was never released: {no_release[:6]}")
+
   def test_torque_ramp_through_blip_is_never_blocked(self):
     """A full-rate torque ramp that straddles the TOI blip must never be refused. The panda's real-time check
     only refreshes its reference every 250 ms and a blip frame restarts that timer without refreshing the
@@ -206,7 +207,9 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.DriverTorqueSteeringSafe
   def test_fm_demand_past_cap_is_never_refused(self):
     """FM Pilot: openpilot may ask past 1.0 (Higher Torque). Whatever it asks, the controller must stay inside the
     panda's limit at every speed: with the panda flag off it holds AP's curve, with it on FM Pilot's higher curve."""
-    lookup = CarControllerParams.STEER_MAX_LOOKUP_HIGH if self.HIGH_TORQUE else CarControllerParams.STEER_MAX_LOOKUP
+    lookup = CarControllerParams.STEER_MAX_LOOKUP
+    if self.HIGH_TORQUE:
+      lookup = CarControllerParams.steer_max_lookup_high(self.MAX_TORQUE_LOOKUP[1][0])
     for speed in (0.5, 4.0, 8.0, 9.0, 12.0, 17.0, 21.0, 25.0, 27.0, 33.0):
       for sign in (1.0, -1.0):
         self._torque_loop_setup(angle=30.0, speed=speed)
@@ -286,11 +289,19 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.DriverTorqueSteeringSafe
 
   # FM Pilot "Panda Allows Higher Torque". Off, AP's limits.
   HIGH_TORQUE = False
+  # FM Pilot "Max Torque" level sent with it (None: no level, the earlier fixed 481)
+  MAX_TORQUE_SETTING = None
+
+  def _high_torque_param_sp(self):
+    param_sp = RivianSafetyFlagsSP.HIGH_TORQUE
+    if self.MAX_TORQUE_SETTING is not None:
+      param_sp |= max_torque_level(self.MAX_TORQUE_SETTING) << RivianSafetyFlagsSP.TORQUE_LEVEL_SHIFT
+    return param_sp
 
   def _set_safety_hooks(self, param):
     param_sp = RivianSafetyFlagsSP.ENHANCED_MADS if self.ENHANCED_MADS else 0
     if self.HIGH_TORQUE:
-      param_sp |= RivianSafetyFlagsSP.HIGH_TORQUE
+      param_sp |= self._high_torque_param_sp()
     self.safety.set_current_safety_param_sp(param_sp)
     self.safety.set_safety_hooks(CarParams.SafetyModel.rivian, param)
 
@@ -376,13 +387,35 @@ class TestRivianStockSafetyEnhancedMadsHighTorque(TestRivianStockSafety):
   MAX_TORQUE_LOOKUP = [9, 25, 27], [481, 295, 275]
 
 
+# FM Pilot "Max Torque": the lowest and highest slider levels, and the default
+class TestRivianStockSafetyMaxTorque405(TestRivianStockSafety):
+  HIGH_TORQUE = True
+  MAX_TORQUE_SETTING = 405
+  MAX_TORQUE_LOOKUP = [9, 25, 27], [405, 295, 275]
+
+
+class TestRivianStockSafetyMaxTorque480(TestRivianStockSafety):
+  HIGH_TORQUE = True
+  MAX_TORQUE_SETTING = 480
+  MAX_TORQUE_LOOKUP = [9, 25, 27], [480, 295, 275]
+
+
+class TestRivianStockSafetyMaxTorque580(TestRivianStockSafety):
+  HIGH_TORQUE = True
+  MAX_TORQUE_SETTING = 580
+  MAX_TORQUE_LOOKUP = [9, 25, 27], [580, 295, 275]
+
+
 class TestRivianHighTorqueGate(unittest.TestCase):
   """Without the flag the panda must still refuse anything above AP's 385 at low speed; with it, 481 is the ceiling."""
 
-  def _safety(self, high):
+  def _safety(self, high, level=0):
     packer = CANPackerSafety("rivian_primary_actuator")
     safety = libsafety_py.libsafety
-    safety.set_current_safety_param_sp(RivianSafetyFlagsSP.HIGH_TORQUE if high else 0)
+    param_sp = level << RivianSafetyFlagsSP.TORQUE_LEVEL_SHIFT
+    if high:
+      param_sp |= RivianSafetyFlagsSP.HIGH_TORQUE
+    safety.set_current_safety_param_sp(param_sp)
     safety.set_safety_hooks(CarParams.SafetyModel.rivian, 0)
     safety.init_tests()
     safety.set_controls_allowed(True)
@@ -405,6 +438,24 @@ class TestRivianHighTorqueGate(unittest.TestCase):
     self.assertTrue(self._allowed(safety, packer, 481))
     self.assertTrue(self._allowed(safety, packer, -481))
     self.assertFalse(self._allowed(safety, packer, 483))
+
+  def test_each_max_torque_level_is_its_own_ceiling(self):
+    for value in range(405, 581, 25):
+      packer, safety = self._safety(True, max_torque_level(value))
+      self.assertTrue(self._allowed(safety, packer, value), value)
+      self.assertTrue(self._allowed(safety, packer, -value), value)
+      self.assertFalse(self._allowed(safety, packer, value + 2), value)
+
+  def test_level_without_the_flag_keeps_385(self):
+    packer, safety = self._safety(False, max_torque_level(580))
+    self.assertTrue(self._allowed(safety, packer, 385))
+    self.assertFalse(self._allowed(safety, packer, 387))
+
+  def test_unknown_level_falls_back_to_481(self):
+    for level in (9, 15):
+      packer, safety = self._safety(True, level)
+      self.assertTrue(self._allowed(safety, packer, 481))
+      self.assertFalse(self._allowed(safety, packer, 483))
 
 
 class TestRivianIgnition(unittest.TestCase):

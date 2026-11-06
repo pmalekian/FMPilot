@@ -9,7 +9,7 @@ from opendbc.car.rivian.torque_rt import TorqueRtLimiter
 from opendbc.car.rivian.values import CarControllerParams, RivianFlags
 
 from opendbc.sunnypilot.car.rivian.mads import MadsCarController
-from opendbc.sunnypilot.car.rivian.values import RivianFlagsSP
+from opendbc.sunnypilot.car.rivian.values import RivianFlagsSP, high_torque_cap
 
 GearShifter = structs.CarState.GearShifter
 
@@ -79,6 +79,8 @@ class CarController(CarControllerBase, MadsCarController):
     self.toi_dropout_warn_hold = 0
     # FM Pilot: the panda allows the higher low-speed cap this drive (set once at onroad start)
     self.high_torque = bool(CP_SP.flags & RivianFlagsSP.HIGH_TORQUE_PANDA)
+    # FM Pilot "Max Torque": the low-speed limit the panda enforces this drive, decoded from the same safety param
+    self.high_torque_lookup = CarControllerParams.steer_max_lookup_high(high_torque_cap(CP_SP.safetyParam))
 
   def _update_toi_dropout(self, CS) -> bool:
     """True once the EPAS has not been taking the torque we request for long enough to release the request."""
@@ -149,8 +151,7 @@ class CarController(CarControllerBase, MadsCarController):
                                       CarControllerParams.STEER_MAX_LOOKUP[1])))
     steer_cap = steer_max
     if self.high_torque:
-      steer_cap = max(steer_max, round(float(np.interp(CS.out.vEgoRaw, CarControllerParams.STEER_MAX_LOOKUP_HIGH[0],
-                                                       CarControllerParams.STEER_MAX_LOOKUP_HIGH[1]))))
+      steer_cap = max(steer_max, round(float(np.interp(CS.out.vEgoRaw, *self.high_torque_lookup))))
     if self.mads.lat_active:
       new_torque = int(round(CC.actuators.torque * steer_max))
       apply_torque = apply_driver_steer_torque_limits(new_torque, self.apply_torque_last,
