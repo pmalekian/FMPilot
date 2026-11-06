@@ -57,6 +57,7 @@ PARAM_HOLD = "FM_TurnHoldEnabled"
 PARAM_LEAD = "FM_TurnLeadEnabled"
 PARAM_LEAD_MIN_SPEED = "FM_TurnLeadMinSpeed"  # mph
 PARAM_HOLD_PATH = "FM_TurnHoldPathSource"
+PARAM_TURN_NUDGE = "FM_TurnNudgeEnabled"
 PARAM_HOLD_DRIVER = "FM_TurnHoldDriverAdds"
 PARAM_MIN_RADIUS = "FM_TurnPathMinRadius"
 
@@ -91,6 +92,14 @@ HOLD_PATH_SCALE = 0.85
 HOLD_PATH_ONSET_HEADING = 10.0  # deg
 HOLD_PATH_ONSET = (1.5, 5.0)  # m: full weight if the path starts turning within 1.5 m, none past 5 m
 HOLD_PATH_REACH = (7.0, 12.0)  # m: none if the path reaches less than 7 m ahead, full from 12 m
+
+NUDGE_MIN_SPEED = 2.0 * CV.MPH_TO_MS
+NUDGE_MAX_SPEED = 8.0 * CV.MPH_TO_MS
+NUDGE_MIN_TORQUE = 0.8  # Nm into the signaled turn
+NUDGE_CONFIRM_TIME = 0.15
+NUDGE_DURATION = 0.6
+NUDGE_FADE_TIME = 0.15
+NUDGE_MAX_CURVATURE = 0.01  # 1/m added to the normal request
 
 HOLD_DRIVER_MIN_CURVATURE = 0.003  # 1/m: the truck must already be turning the turn's way (StarPilot's CONFIRM_MIN)
 HOLD_DRIVER_MAX_CURVATURE = 0.25  # 1/m (4 m): beyond the R1S's full lock (about 6.6 m), only guards a bad reading
@@ -191,6 +200,7 @@ class FmTurnAssist:
     self.lead_min_speed = float(np.clip(mph, *LEAD_MIN_SPEED_LIMITS)) * CV.MPH_TO_MS
     self.hold_path = self.params.get_bool(PARAM_HOLD_PATH)
     self.hold_driver = self.params.get_bool(PARAM_HOLD_DRIVER)
+    self.nudge_enabled = self.params.get_bool(PARAM_TURN_NUDGE)
     try:
       radius = float(self.params.get(PARAM_MIN_RADIUS, return_default=True) or MIN_RADIUS_DEFAULT)
     except (TypeError, ValueError):
@@ -209,6 +219,8 @@ class FmTurnAssist:
     self.hold_exit_curvature = 0.0
     self.hold_exit_amount = 0.0
     self.turn_ended = False
+    self.nudge_time = 0.0
+    self.nudge_remaining = 0.0
 
   @property
   def enabled(self) -> bool:
@@ -245,6 +257,32 @@ class FmTurnAssist:
     onset_w = float(np.interp(onset, HOLD_PATH_ONSET, [1.0, 0.0])) if math.isfinite(onset) else 0.0
     reach_w = float(np.interp(reach, HOLD_PATH_REACH, [0.0, 1.0]))
     return min(path, self.max_curvature) * onset_w * reach_w
+
+  def turn_nudge(self, out, sign, v_ego, a_ego, model_v2, steering_pressed, steering_torque, lat_active, lane_changing):
+    stopping = a_ego < LEAD_DECEL_GATE and v_ego ** 2 / (-2.0 * a_ego) < HOLD_PATH_LOOKAHEAD[0]
+    hand_torque = sign * steering_torque
+    if (not self.nudge_enabled or not self.hold_enabled or not lat_active or lane_changing or stopping
+        or not NUDGE_MIN_SPEED <= v_ego < NUDGE_MAX_SPEED or (steering_pressed and hand_torque > 0.0)):
+      self.nudge_time = self.nudge_remaining = 0.0
+      return out
+
+    room = self.hold_path_curvature(model_v2, sign) - max(0.0, sign * out)
+    if room <= LEAD_MODEL_OPPOSE:
+      self.nudge_time = self.nudge_remaining = 0.0
+      return out
+
+    if steering_pressed and hand_torque <= -NUDGE_MIN_TORQUE:
+      if self.nudge_time < NUDGE_CONFIRM_TIME:
+        self.nudge_time += DT_CTRL
+        if self.nudge_time >= NUDGE_CONFIRM_TIME:
+          self.nudge_remaining = NUDGE_DURATION
+    else:
+      self.nudge_time = 0.0
+
+    speed_weight = (NUDGE_MAX_SPEED - v_ego) / (NUDGE_MAX_SPEED - NUDGE_MIN_SPEED)
+    fade = min(self.nudge_remaining / NUDGE_FADE_TIME, 1.0)
+    self.nudge_remaining = max(0.0, self.nudge_remaining - DT_CTRL)
+    return out + sign * min(room, NUDGE_MAX_CURVATURE) * speed_weight * fade
 
   def update(self, desired_curvature: float, turn_direction, v_ego: float, actual_curvature: float,
              steering_pressed: bool, lat_active: bool, model_v2=None, a_ego: float = 0.0,
@@ -323,4 +361,5 @@ class FmTurnAssist:
     if lat_active and sign * (out - before_hold) > 0.0:
       self.hold_exit_curvature = sign * out
       self.hold_exit_amount = 1.0
-    return out
+    # The timing nudge never feeds the hold peak or its signal-cancel fade.
+    return self.turn_nudge(out, sign, v_ego, a_ego, model_v2, steering_pressed, steering_torque, lat_active, lane_changing)

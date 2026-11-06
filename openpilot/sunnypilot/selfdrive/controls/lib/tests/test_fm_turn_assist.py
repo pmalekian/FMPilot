@@ -404,6 +404,28 @@ class TestTurnLead:
     assert run(a, 0.0, RIGHT, model=path(None), actual=0.0) == pytest.approx(asked * 0.9, rel=0.02)
 
 
+class TestTurnNudge:
+  @pytest.mark.parametrize("direction, sign", [(LEFT, -1), (RIGHT, 1)])
+  def test_deliberate_nudge_adds_bounded_curvature_and_yields(self, direction, sign):
+    from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_assist import PARAM_TURN_NUDGE
+    a = FmTurnAssist(FakeParams(**{PARAM_HOLD: True, PARAM_HOLD_DRIVER: True, PARAM_TURN_NUDGE: True}))
+    model = path(12, start=0.0, side=sign)
+    opts = dict(mph=4, actual=0.0, model=model)
+    assert run(a, 0.0, direction, steps=FADE_STEPS, **opts) == 0.0
+    assert run(a, 0.0, direction, pressed=True, torque=-sign, **opts) == 0.0
+    assert run(a, 0.0, direction, steps=15, pressed=True, torque=-sign, **opts) == pytest.approx(sign * 0.01 * 4 / 6)
+    assert a.peak == 0.0
+    assert sign * run(a, 0.0, direction, **opts) > 0.0
+    assert run(a, 0.0, direction, pressed=True, torque=sign, **opts) == 0.0
+    assert run(a, 0.0, direction, **opts) == 0.0
+
+  def test_nudge_does_not_turn_in_when_stopping(self):
+    from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_assist import PARAM_TURN_NUDGE
+    a = FmTurnAssist(FakeParams(**{PARAM_HOLD: True, PARAM_HOLD_DRIVER: True, PARAM_TURN_NUDGE: True}))
+    assert run(a, 0.0, RIGHT, mph=4, actual=0.0, steps=FADE_STEPS, pressed=True, torque=-1.0,
+               model=path(12, start=0.0), a_ego=-1.0) == 0.0
+
+
 class TestFmLateralWiring:
   def test_turn_direction_from_modeld(self):
     from openpilot.sunnypilot.selfdrive.controls.lib.fm_lateral import FmLateral

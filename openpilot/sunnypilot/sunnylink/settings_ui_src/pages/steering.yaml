@@ -627,6 +627,15 @@ sections:
       - type: param
         key: FM_TurnHoldEnabled
         equals: true
+    - key: FM_TurnNudgeEnabled
+      widget: toggle
+      title: Turn Nudge
+      description: Adds a brief steering assist when you nudge the wheel into a signaled turn at 2 to 8 mph and the nearby
+        planned path already bends that way. Steering against the turn cancels the extra assist.
+      enablement:
+      - type: param
+        key: FM_TurnHoldEnabled
+        equals: true
     - key: FM_TurnHoldDriverAdds
       widget: toggle
       title: Hold Adds Your Steering
