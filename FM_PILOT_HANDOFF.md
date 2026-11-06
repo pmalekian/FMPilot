@@ -89,6 +89,8 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
   - `143ece8` **Faster Torque Ramp** (`FM_TorqueFastRamp`): car code 5/frame below 25 mph; panda allows 5 below 12.5 m/s
     when safety param bit 6 is set. 250 ms limit (125) unchanged.
   - `3d7f292` **Full Torque Past 90°** (`FM_TorqueFullCapHighAngle`): car code only.
+- **Torque readout** (`b514a01`, always on): top-center `sent / limit now / Max Torque ✓` on the comma 4. In logs:
+  `carStateSP.fmEpasToiActive`, `fmSteerCap`, `fmMaxTorque` next to `torqueOutputCan`. Not yet seen on the device.
 - **Test plan:** 480 + ramp + full cap, Turn Lead off, normal Loop A turns up to 25 mph. If the wheel still stalls at
   the cap, go off-road, step Max Torque 505 → 530 → 555 → 580, one at a time. Before driving each new step: parked
   check, wheel toward lock, lateral on. Send rlogs per step.
