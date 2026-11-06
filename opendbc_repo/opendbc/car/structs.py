@@ -177,3 +177,7 @@ class CarControlSP:
 @auto_dataclass
 class CarStateSP:
   speedLimit: float = auto_field()
+  # FM Pilot torque readout (see custom.capnp)
+  fmEpasToiActive: bool = auto_field()
+  fmSteerCap: int = auto_field()
+  fmMaxTorque: int = auto_field()

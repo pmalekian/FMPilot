@@ -484,6 +484,10 @@ struct BackupManagerSP @0xf98d843bfd7004a3 {
 
 struct CarStateSP @0xb86e6369214c01c8 {
   speedLimit @0 :Float32;
+  # FM Pilot torque readout (Rivian; 0/false elsewhere). Steering torque in CAN units, from the car controller's last frame
+  fmEpasToiActive @1 :Bool;   # EPAS_SystemStatus.H_CAN_EPSS_ToiActive: the EPAS is taking our torque overlay
+  fmSteerCap @2 :Int16;       # most torque that may be sent right now: speed curve, incl. the 95% cap past 90 degrees
+  fmMaxTorque @3 :Int16;      # low-speed limit in force this drive: the Max Torque level, or 385 without the higher panda limit
 }
 
 struct LiveMapDataSP @0xf416ec09499d9d19 {

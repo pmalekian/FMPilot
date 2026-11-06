@@ -33,6 +33,9 @@ class CarState(CarStateBase, CarStateExt):
     self.toi_active = False
     # set by the controller: the EPAS has been ignoring our torque and releasing the request did not bring it back
     self.toi_dropout_warn = False
+    # FM Pilot torque readout: set by the car controller each frame, published in carStateSP the next
+    self.fm_steer_cap = 0
+    self.fm_max_torque = 0
     # not 0 while the ACM is not ready to take ACC (e.g. the first ~60 s after the truck wakes), see carcontroller
     self.acm_fault_supervisor_state = 0
 
@@ -68,6 +71,9 @@ class CarState(CarStateBase, CarStateExt):
     self.toi_fault = cp.vl["EPAS_SystemStatus"]["H_CAN_EPSS_ToiFlt"] != 0
     self.toi_fault_frames = self.toi_fault_frames + 1 if self.toi_fault else 0
     self.toi_active = cp.vl["EPAS_SystemStatus"]["H_CAN_EPSS_ToiActive"] != 0
+    ret_sp.fmEpasToiActive = self.toi_active
+    ret_sp.fmSteerCap = self.fm_steer_cap
+    ret_sp.fmMaxTorque = self.fm_max_torque
     ret.steerFaultTemporary = self.toi_fault_frames > TOI_FAULT_FRAMES or self.toi_dropout_warn or hands_on_level != 1
 
     # Cruise state

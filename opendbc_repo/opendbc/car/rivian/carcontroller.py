@@ -157,6 +157,10 @@ class CarController(CarControllerBase, MadsCarController):
     steer_cap = steer_max
     if self.high_torque:
       steer_cap = max(steer_max, round(float(np.interp(CS.out.vEgoRaw, *self.high_torque_lookup))))
+    # FM Pilot torque readout: the limit in force now and the low-speed limit this drive
+    high_angle_cap = abs(CS.out.steeringAngleDeg) > HIGH_ANGLE_THRESHOLD_DEG and not self.full_cap_high_angle
+    CS.fm_steer_cap = int(round(steer_cap * HIGH_ANGLE_CAP_FRAC)) if high_angle_cap else steer_cap
+    CS.fm_max_torque = self.high_torque_lookup[1][0] if self.high_torque else CarControllerParams.STEER_MAX
     if self.mads.lat_active:
       new_torque = int(round(CC.actuators.torque * steer_max))
       limits = CarControllerParams
