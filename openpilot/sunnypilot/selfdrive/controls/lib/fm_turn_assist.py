@@ -3,7 +3,7 @@ FM Pilot: Turn Boost and Turn Hold, for blinker turns at low speed.
 
 Both act only while a turn desire is active (the blinker turn that modeld's DesireHelper publishes as
 modelDataV2SP.laneTurnDirection, from AP's Lane Turn Desire or FM Pilot's Road Edge Turn Desire), only while openpilot is
-steering, and only at low speed: full below 15 mph, fading out by 20 mph. They fade in and out over half a second, and they
+steering, and only at low speed: full below 15 mph, fading out by 20 mph. They fade with speed over half a second. An active hold also fades when the turn desire ends. They
 only change the requested curvature, so every steering limit after them still applies.
 
   - Turn Boost scales the model's curvature request in the turn's direction by a gain per side (Turn Boost Left / Right,
@@ -206,6 +206,9 @@ class FmTurnAssist:
     self.heading = 0.0
     self.turn_time = 0.0
     self.hold_released = False
+    self.hold_exit_curvature = 0.0
+    self.hold_exit_amount = 0.0
+    self.turn_ended = False
 
   @property
   def enabled(self) -> bool:
@@ -247,13 +250,28 @@ class FmTurnAssist:
              steering_pressed: bool, lat_active: bool, model_v2=None, a_ego: float = 0.0,
              lane_changing: bool = False, steering_torque: float = 0.0) -> float:
     sign = turn_sign(turn_direction) if self.enabled else 0
-    if sign != self.sign:
+    step = DT_CTRL / FADE_TIME
+    if sign == 0 and self.hold_exit_amount > 0.0:
+      self.turn_ended = True
+      # Only carry the last applied hold into the exit. Do not update its peak or run Lead/Boost.
+      self.amount = max(self.amount - step, 0.0)
+      self.hold_exit_amount = max(self.hold_exit_amount - step, 0.0)
+      driver_opposes = steering_pressed and not (self.hold_driver and self.sign * steering_torque < 0.0)
+      if (self.hold_enabled and lat_active and not driver_opposes and not lane_changing
+          and v_ego < MAX_SPEED and self.hold_exit_amount > 0.0):
+        toward = self.sign * desired_curvature
+        correction = max(self.hold_exit_curvature - toward, 0.0)
+        return desired_curvature + self.sign * correction * self.hold_exit_amount
+      self._reset_turn(0)
+      return desired_curvature
+
+    if sign != self.sign or self.turn_ended:
       self._reset_turn(sign)
 
     speed_scale = float(np.interp(v_ego, [FULL_SPEED, MAX_SPEED], [1.0, 0.0]))
     target = speed_scale if (sign != 0 and lat_active) else 0.0
-    step = DT_CTRL / FADE_TIME
     self.amount = float(np.clip(target, self.amount - step, self.amount + step))
+    self.hold_exit_amount = 0.0
     if self.amount <= 0.0 or sign == 0:
       return desired_curvature
 
@@ -271,6 +289,7 @@ class FmTurnAssist:
         out = sign * (toward + (lead - toward) * self.amount)
         toward = sign * out
 
+    before_hold = out
     if self.hold_enabled and not self.hold_released:
       if v_ego >= HOLD_MOVING_SPEED:
         self.turn_time += DT_CTRL  # time stopped (waiting to turn) doesn't count toward the 8 s
@@ -301,4 +320,7 @@ class FmTurnAssist:
         if toward < floor:
           out = sign * (toward + (floor - toward) * self.amount)
 
+    if lat_active and sign * (out - before_hold) > 0.0:
+      self.hold_exit_curvature = sign * out
+      self.hold_exit_amount = 1.0
     return out

@@ -126,6 +126,38 @@ class TestTurnHold:
     out = run(a, 0.03, RIGHT, actual=0.001)  # model eases to a 33 m radius mid-turn
     assert out == pytest.approx(0.09 * 0.9, rel=0.01)
 
+  @pytest.mark.parametrize("direction, sign", [(RIGHT, 1), (LEFT, -1)])
+  def test_signal_cancellation_fades_active_hold(self, direction, sign):
+    a = self.hold()
+    run(a, sign * 0.09, direction, steps=FADE_STEPS, actual=0.001)
+    held = run(a, sign * 0.03, direction, actual=0.001)
+    first = run(a, sign * 0.03, NONE)
+    middle = run(a, sign * 0.03, NONE, steps=FADE_STEPS // 2)
+    assert sign * held > sign * first > sign * middle > 0.03
+    assert run(a, sign * 0.03, NONE, steps=FADE_STEPS) == sign * 0.03
+
+  @pytest.mark.parametrize("exit_options", [{"pressed": True}, {"lat": False}, {"lane_changing": True}, {"mph": 21}])
+  def test_cancellation_fade_yields_to_exit_conditions(self, exit_options):
+    a = self.hold()
+    run(a, 0.09, RIGHT, steps=FADE_STEPS, actual=0.001)
+    run(a, 0.03, RIGHT)
+    assert run(a, 0.03, NONE) > 0.03
+    assert run(a, 0.03, NONE, **exit_options) == 0.03
+    assert run(a, 0.03, NONE) == 0.03
+
+  def test_cancelled_hold_does_not_carry_into_new_turn(self):
+    a = self.hold()
+    run(a, 0.09, RIGHT, steps=FADE_STEPS, actual=0.001)
+    run(a, 0.03, RIGHT)
+    assert run(a, 0.03, NONE) > 0.03
+    assert run(a, 0.03, RIGHT) == 0.03
+
+  def test_cancellation_does_not_revive_released_hold(self):
+    a = self.hold()
+    run(a, 0.09, RIGHT, steps=FADE_STEPS, actual=0.001)
+    run(a, 0.03, RIGHT, pressed=True)
+    assert run(a, 0.03, NONE) == 0.03
+
   def test_floor_decays(self):
     a = self.hold()
     run(a, 0.09, RIGHT, steps=FADE_STEPS, actual=0.001)
