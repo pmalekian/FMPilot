@@ -11,6 +11,7 @@ class RivianFlagsSP(IntFlag):
   LONGITUDINAL_HARNESS_UPGRADE = 1
   ENHANCED_MADS = 2
   HIGH_TORQUE_PANDA = 4  # FM Pilot: panda allows the higher low-speed torque limit this drive
+  FAST_RAMP = 8  # FM Pilot: panda allows torque to rise 5 per frame at low speed this drive
 
 
 class RivianSafetyFlagsSP:
@@ -19,6 +20,7 @@ class RivianSafetyFlagsSP:
   # FM Pilot "Max Torque": the low-speed limit chosen for this drive, as a level in bits 2-5 (see max_torque_level)
   TORQUE_LEVEL_SHIFT = 2
   TORQUE_LEVEL_MASK = 0xF
+  FAST_RAMP = 64  # FM Pilot "Faster Torque Ramp", only with HIGH_TORQUE
 
 
 # FM Pilot "Max Torque" slider: 405 to 580 in steps of 25. Level n (1-8) is 380 + 25 n; the panda decodes the same

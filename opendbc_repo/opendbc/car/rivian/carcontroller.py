@@ -81,6 +81,9 @@ class CarController(CarControllerBase, MadsCarController):
     self.high_torque = bool(CP_SP.flags & RivianFlagsSP.HIGH_TORQUE_PANDA)
     # FM Pilot "Max Torque": the low-speed limit the panda enforces this drive, decoded from the same safety param
     self.high_torque_lookup = CarControllerParams.steer_max_lookup_high(high_torque_cap(CP_SP.safetyParam))
+    # FM Pilot "Faster Torque Ramp": 5 per frame instead of 3 below 25 mph, only with the higher limit on
+    self.fast_ramp = self.high_torque and bool(CP_SP.flags & RivianFlagsSP.FAST_RAMP)
+    self.fast_ramp_params = type("FastRampParams", (CarControllerParams,), {"STEER_DELTA_UP": CarControllerParams.STEER_DELTA_UP_FAST})
 
   def _update_toi_dropout(self, CS) -> bool:
     """True once the EPAS has not been taking the torque we request for long enough to release the request."""
@@ -154,8 +157,11 @@ class CarController(CarControllerBase, MadsCarController):
       steer_cap = max(steer_max, round(float(np.interp(CS.out.vEgoRaw, *self.high_torque_lookup))))
     if self.mads.lat_active:
       new_torque = int(round(CC.actuators.torque * steer_max))
+      limits = CarControllerParams
+      if self.fast_ramp and CS.out.vEgoRaw < CarControllerParams.FAST_RAMP_MAX_SPEED:
+        limits = self.fast_ramp_params
       apply_torque = apply_driver_steer_torque_limits(new_torque, self.apply_torque_last,
-                                                      CS.out.steeringTorque, CarControllerParams, steer_cap)
+                                                      CS.out.steeringTorque, limits, steer_cap)
       if abs(CS.out.steeringAngleDeg) > HIGH_ANGLE_THRESHOLD_DEG:
         cap = int(round(steer_cap * HIGH_ANGLE_CAP_FRAC))
         apply_torque = max(-cap, min(cap, apply_torque))

@@ -117,6 +117,7 @@ def initialize_params(params) -> list[dict[str, Any]]:
     "RivianEnhancedMads",
     "FM_PandaHighTorque",
     "FM_MaxTorque",
+    "FM_TorqueFastRamp",
   ])
 
   # subaru

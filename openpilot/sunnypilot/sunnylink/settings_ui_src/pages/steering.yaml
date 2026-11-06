@@ -340,6 +340,18 @@ sections:
     - $ref: '#/macros/offroad'
     - {type: capability, field: brand, equals: rivian}
     - {type: param, key: FM_PandaHighTorque, equals: true}
+  - key: FM_TorqueFastRamp
+    widget: toggle
+    title: Faster Torque Ramp
+    description: 'Testing. Lets steering torque build 5 per step instead of 3 under 25 mph, so full torque arrives in
+      about 1 s instead of about 1.6 s. The panda checks it too (up to about 28 mph); the quarter-second limit and
+      everything above 25 mph are unchanged. Needs Panda Allows Higher Torque. Only changes in off-road mode and
+      applies from the next drive.'
+    needs_onroad_cycle: true
+    enablement:
+    - $ref: '#/macros/offroad'
+    - {type: capability, field: brand, equals: rivian}
+    - {type: param, key: FM_PandaHighTorque, equals: true}
   - key: FM_TorqueMode
     widget: multiple_button
     title: Higher Torque

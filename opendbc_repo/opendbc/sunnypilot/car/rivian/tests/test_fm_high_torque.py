@@ -65,3 +65,17 @@ def test_levels_fit_their_bits():
 
 def test_no_level_is_the_earlier_481():
   assert high_torque_cap(RivianSafetyFlagsSP.HIGH_TORQUE) == 481
+
+
+def test_fast_ramp_only_with_the_higher_limit():
+  CP = structs.CarParams(brand='rivian')
+  for high, fast, expected in ((True, True, True), (True, False, False), (False, True, False)):
+    CP_SP = structs.CarParamsSP()
+    _initialize_rivian_high_torque(CP, CP_SP, {"FM_PandaHighTorque": high, "FM_TorqueFastRamp": fast})
+    assert bool(CP_SP.flags & RivianFlagsSP.FAST_RAMP) == expected
+    assert bool(CP_SP.safetyParam & RivianSafetyFlagsSP.FAST_RAMP) == expected
+
+
+def test_fast_ramp_bit_is_clear_of_the_level_bits():
+  level_bits = RivianSafetyFlagsSP.TORQUE_LEVEL_MASK << RivianSafetyFlagsSP.TORQUE_LEVEL_SHIFT
+  assert not RivianSafetyFlagsSP.FAST_RAMP & (level_bits | RivianSafetyFlagsSP.ENHANCED_MADS | RivianSafetyFlagsSP.HIGH_TORQUE)

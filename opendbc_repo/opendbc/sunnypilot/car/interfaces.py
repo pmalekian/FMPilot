@@ -153,6 +153,10 @@ def _initialize_rivian_high_torque(CP: structs.CarParams, CP_SP: structs.CarPara
       level = max_torque_level(params_dict.get("FM_MaxTorque", MAX_TORQUE_DEFAULT))
       CP_SP.flags |= RivianFlagsSP.HIGH_TORQUE_PANDA.value
       CP_SP.safetyParam |= RivianSafetyFlagsSP.HIGH_TORQUE | (level << RivianSafetyFlagsSP.TORQUE_LEVEL_SHIFT)
+      # "Faster Torque Ramp": only with the higher limit on
+      if str(params_dict.get("FM_TorqueFastRamp", False)) in ("1", "True"):
+        CP_SP.flags |= RivianFlagsSP.FAST_RAMP.value
+        CP_SP.safetyParam |= RivianSafetyFlagsSP.FAST_RAMP
 
 
 def _initialize_radar_tracks(CP: structs.CarParams, CP_SP: structs.CarParamsSP,

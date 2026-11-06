@@ -281,6 +281,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"FM_RadarStationaryGuard", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"FM_RoadEdgeTurnDesire", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"FM_RoadEdgeTurnMaxSpeed", {PERSISTENT | BACKUP, FLOAT, "45.0"}},
+    {"FM_TorqueFastRamp", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"FM_TorqueMode", {PERSISTENT | BACKUP, INT, "0"}},
     {"FM_TurnBoostEnabled", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"FM_TurnBoostLeft", {PERSISTENT | BACKUP, FLOAT, "1.1"}},

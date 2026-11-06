@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum, IntFlag
 
 from opendbc.car import Bus, CarSpecs, DbcDict, PlatformConfig, Platforms, structs, uds
+from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.docs_definitions import CarHarness, CarDocs, CarParts
 from opendbc.car.fw_query_definitions import FwQueryConfig, Request, StdQueries, p16
 from opendbc.car.vin import Vin
@@ -147,6 +148,10 @@ class CarControllerParams:
   STEER_STEP = 1
   STEER_DELTA_UP = 3  # torque increase per refresh
   STEER_DELTA_DOWN = 5  # torque decrease per refresh
+  # FM Pilot "Faster Torque Ramp": torque increase per refresh below FAST_RAMP_MAX_SPEED when on (panda allows it
+  # below 12.5 m/s)
+  STEER_DELTA_UP_FAST = 5
+  FAST_RAMP_MAX_SPEED = 25 * CV.MPH_TO_MS
   STEER_DRIVER_ALLOWANCE = 100  # allowed driver torque before start limiting
   STEER_DRIVER_MULTIPLIER = 2  # weight driver torque
   STEER_DRIVER_FACTOR = 100
