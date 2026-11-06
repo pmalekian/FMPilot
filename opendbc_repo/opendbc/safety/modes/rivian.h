@@ -225,7 +225,7 @@ static bool rivian_tx_hook(const CANPacket_t *msg) {
       int desired_torque = ((msg->data[2] << 3U) | (msg->data[3] >> 5U)) - 1024U;
       bool steer_req = (msg->data[3] >> 4) & 1U;
 
-      bool violation;
+      bool violation = false;
       if (!rivian_high_torque) {
         violation = steer_torque_cmd_checks(desired_torque, steer_req, RIVIAN_STEERING_LIMITS);
       } else if (fast_ramp) {
