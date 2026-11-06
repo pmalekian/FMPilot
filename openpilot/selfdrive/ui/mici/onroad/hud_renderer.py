@@ -11,7 +11,7 @@ from openpilot.system.ui.widgets import Widget
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.cereal import log
 from openpilot.sunnypilot.modeld_v2.fm_custom_label import label_text
-from openpilot.selfdrive.ui.sunnypilot.onroad.fm_torque_readout import make_readout
+from openpilot.selfdrive.ui.sunnypilot.onroad.fm_torque_readout import TURN_NOTICE_TYPES, make_readout
 
 EventName = log.OnroadEvent.EventName
 
@@ -98,6 +98,7 @@ class TurnIntent(Widget):
       self._turn_intent_rotation_filter.update(0)
 
 
+FM_TURN_NOTICE_OFFSET = 90  # leave room for the turn notice headline
 FM_READOUT_PERIOD = 0.1  # s, about 10 updates a second so the numbers are readable
 FM_READOUT_COLORS = {
   'normal': rl.Color(255, 255, 255, 230),
@@ -230,7 +231,10 @@ class HudRenderer(Widget):
   def _draw_fm_torque_readout(self, rect: rl.Rectangle) -> None:
     """FM Pilot: sent / limit now / Max Torque / EPAS check, one line at the top center (fm_torque_readout.py)."""
     sm = ui_state.sm
-    if sm['selfdriveState'].alertSize != 0 or sm.recv_frame['carOutput'] < ui_state.started_frame:
+    ss = sm['selfdriveState']
+    turn_notice = (ss.alertSize == log.SelfdriveState.AlertSize.small and ss.alertStatus == log.SelfdriveState.AlertStatus.normal
+                   and ss.alertType in TURN_NOTICE_TYPES)
+    if (ss.alertSize != 0 and not turn_notice) or sm.recv_frame['carOutput'] < ui_state.started_frame:
       return
     now = rl.get_time()
     if self._fm_readout is None or now - self._fm_readout_time >= FM_READOUT_PERIOD:
@@ -250,6 +254,8 @@ class HudRenderer(Widget):
     total = arrow_w + gap + size.x + gap + mark_w
     x = rect.x + rect.width / 2 - total / 2
     y = rect.y + 16 + (size.y + 4 if self._fm_label_shown else 0)
+    if turn_notice:
+      y += FM_TURN_NOTICE_OFFSET
     cy = y + size.y / 2
 
     # backing so it reads over a bright road
