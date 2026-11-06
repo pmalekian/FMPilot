@@ -1,6 +1,6 @@
 # FM Pilot: handoff for new chats (short)
 
-State as of Nov 5, 2026 (late evening). This is the current state only. Background findings, past drive analyses and
+State as of Nov 5, 2026 (night). This is the current state only. Background findings, past drive analyses and
 the ideas backlog are in `claude/FM_PILOT_FINDINGS.md`: read it only when a task needs that history. Features, settings
 and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 
@@ -75,20 +75,28 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
   action curvature floor), #2034 (smoother final stop), openpilot #39059 (torqued long-accel filter), #39225 (e2e
   curve speed). Predictive Boost math in sunnypilot master (#2089) matches ours.
 
-### 1. Higher Torque: fixed, not yet driven working (`14cac9b`)
+### 1. Higher Torque: working; Max Torque slider, faster ramp and full cap past 90° built, not yet driven
 
-- Cause: the hook was only in sunnypilot's v1 torque controller; his settings run **v0**, so `actuators.torque`
-  stopped at 1.00 and `torqueOutputCan` at 385. v0 now has the same hook; controller tests cover v0 and v1 and every
-  controller `initialize_lateral_control` can pick. All Nov 5 "Headroom/Full" drives = Off for torque.
-- Settings: **Panda Allows Higher Torque** (`FM_PandaHighTorque`, off-road only) and **Higher Torque**
-  (`FM_TorqueMode`: 0 Off / 1 Headroom / 2 Full). Panda envelope `[9,25,27] -> [481,295,275]`; car cap
-  `[9,17,25,27] -> [481,332,295,275]`.
-- **First log check:** `actuators.torque` passes 1.00 and `torqueOutputCan` passes 385 in a tight turn.
-- **Evidence it will help (Nov 5, at 385):** in normal turns the EPAS took 385 97–100% of the time, no faults. Cleanest:
-  `00000038--19` +16.8–18.9 s, 17 mph right, 2.1 s at cap with ~0.5 Nm hands, wheel creeping ~16°/s, 88% of the asked
-  lat accel. `--1` +11–12 s, 12 mph left: at the cap the wheel unwound 244° → 185° with hands 0.36 Nm.
-- **Next:** a Headroom drive with slow no-blinker curves (Loop A, `--19` ramp); then decide Headroom vs Full. Don't
-  reset the torque learner unless he settles on Full.
+- **Nov 5 evening drive `0000003a` (`0941590e`, Headroom, panda on) confirms it works:** `torqueOutputCan` reached 457
+  (`--81`–`--83`), no faults. Only short stretches above 385 (max 1.8 s, `--82` +16 s right turn from a stop).
+- **What still limits slow turns:** (1) the ramp: 3 per frame, ~1.5 s to full, while the request sat at 1.25;
+  (2) AP's 95% cap past 90° (`HIGH_ANGLE_CAP_FRAC`), hence 457 not 481. The 90° TOI blip workaround is not the cause
+  (torque came straight back after the one blip seen; wheel stalled ~160–196° while 340–457 was being sent).
+- **Built Nov 5 night (all off by default, off-road only, next drive, all need Panda Allows Higher Torque):**
+  - `c514b3e` **Max Torque** (`FM_MaxTorque`, 405–580 step 25, default 480): level sent to the panda in safety param
+    bits 2–5 (n → 380 + 25 n); the panda enforces exactly it. No level = 481. Temporary: once a number is settled,
+    back to fixed standard / high modes.
+  - `143ece8` **Faster Torque Ramp** (`FM_TorqueFastRamp`): car code 5/frame below 25 mph; panda allows 5 below 12.5 m/s
+    when safety param bit 6 is set. 250 ms limit (125) unchanged.
+  - `3d7f292` **Full Torque Past 90°** (`FM_TorqueFullCapHighAngle`): car code only.
+- **Test plan:** 480 + ramp + full cap, Turn Lead off, normal Loop A turns up to 25 mph. If the wheel still stalls at
+  the cap, go off-road, step Max Torque 505 → 530 → 555 → 580, one at a time. Before driving each new step: parked
+  check, wheel toward lock, lateral on. Send rlogs per step.
+- **Turn Lead** cut the curb on `0000003a--83` +4 s and +22 s rights: it asked ~12 m about 1–2 s before the model got
+  there (look-ahead 1.3 s plus slow ramp). Keep it off; possible fix: shorter look-ahead (~0.7–0.8 s).
+- **Turn Hold** likely released in `--82` +18 s on +1.5 Nm wheel reaction (guess; hold state isn't logged). Blinker
+  self-cancel mid-turn (`--83` +46 s) ended the turn desire and openpilot pushed out of the turn for ~3 s.
+- Don't reset the torque learner unless he settles on Full.
 
 ### 2. Radar lead settings: built, both off, not yet driven (`50d1997`, `613c760`)
 
@@ -147,8 +155,7 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 
 ## Next steps
 
-1. Update the comma to `fm-dev-set` between tests (Lane Centering selected). Drive Higher Torque (Headroom), check the
-   first log (item 0 and item 1 checks).
+1. Torque test day on `fm-dev-set` (item 1 test plan). Then decide the Max Torque number and drop the slider.
 2. Radar settings test (above).
 3. Smoother stops: his answers to item 5, then decide whether to build the taper (off by default).
 4. Older: analyze Nov 4 routes `0000002e`, `0000002f`, `00000030`, `00000033`, `00000034`, `00000035` (Turn Assist with
