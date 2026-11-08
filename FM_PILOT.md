@@ -25,11 +25,10 @@ features below. Every FM Pilot commit starts with "FM Pilot".
 | Full Torque Past 90° (testing): with Panda Allows Higher Torque on, skips AP's 95% torque cap past 90° of steering wheel (`HIGH_ANGLE_CAP_FRAC`), so tight turns can use the full Max Torque. Car code only; the panda's limit is the same. Off-road only, applies next drive | `FM_TorqueFullCapHighAngle` (Steering, Torque Control) | `opendbc/car/rivian/carcontroller.py`, `opendbc/sunnypilot/car/interfaces.py` | off |
 | Accel Boost bar: green bar in the comma 4 side panel (in place of the confidence ball) while Gas or Predictive boost is on; fills to that mode's maximum only while the boosted model target sets the speed | `FM_AccelBoostIndicator` (Cruise > Driving Personality Settings) | `selfdrive/ui/sunnypilot/mici/onroad/accel_boost_indicator.py`, `fm_boost_mode.py` | off |
 | Torque readout: one line at the top center of the comma 4 road view, `sent / limit now / Max Torque ✓`. Sent is the raw `torqueOutputCan` (arrow = direction); limit now is the speed curve incl. the 95% past-90° cap; Max Torque is the panda limit this drive (385 without Panda Allows Higher Torque); ✓/✗ is the EPAS `ToiActive` bit (taking the overlay, not how much it applied). Amber at 95% of the limit, red ✗ when refused, grey while steering is off. Logged in `carStateSP` (`fmEpasToiActive`, `fmSteerCap`, `fmMaxTorque`) | always on (Rivian) | `selfdrive/ui/sunnypilot/onroad/fm_torque_readout.py`, `selfdrive/ui/mici/onroad/hud_renderer.py`, `opendbc/car/rivian/carcontroller.py`, `carstate.py`, `cereal/custom.capnp` | on |
-| Custom (spliced) model: load a model compiled on the device in place of its base model; on-screen "Splice Model / Custom Model \| ms" label | `FM_CustomModelEnabled` (Models); `FM_CustomModelPath` / `FM_CustomModelBaseRef` set by the build script | `sunnypilot/modeld_v2/modeld.py`, `fm_build_custom_model.sh`, `fm_custom_label.py`, HUD renderers | on once built |
-| On-device compile fix for the comma GPU (QCOM, IMAGE=1) miscompile of the point-policy residual add (NaN lane lines, meta and pose) | `FM_CONTIGUOUS_OUTPUTS` (build script sets `linear_2`) | `sunnypilot/modeld_v2/fm_compile_fixes.py`, `compile_modeld.py` | used by the build script |
-| Model check tools | n/a | `fm_check_model.py` (NaN check, `--compare`), `fm_debug_nan.py`, `fm_debug_variants.py` | n/a |
 
-Removed: dual model mode (two small models do not fit the comma 4's 50 ms model step).
+Removed: dual model mode (two small models do not fit the comma 4's 50 ms model step); the custom (splice) model, its
+build script, the on-device compile fix (`FM_CONTIGUOUS_OUTPUTS`) and the model check tools (Nov 8, 2026, before the move
+to sunnypilot's v25 model list; in git history before that date).
 
 ## Credits
 
@@ -62,4 +61,4 @@ Removed: dual model mode (two small models do not fit the comma 4's 50 ms model 
 FM Pilot's history is personal: one early commit (`9a3d302db`) adds four features at once, and dual model mode was added
 and later removed. To offer a feature upstream, start a fresh branch from AP's `dev` and carry over just that feature's
 files and settings (listed in the table), with its tests, as one commit. Good candidates: Road Edge Turn Desire,
-Turn Boost / Turn Hold, Quiet road-edge block, and the compile fix.
+Turn Boost / Turn Hold, and the Quiet road-edge block.

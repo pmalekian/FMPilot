@@ -269,10 +269,6 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     // FM Pilot: lateral and lane change additions
     {"FM_AccelBoostIndicator", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"FM_AccelBoostMode", {PERSISTENT | BACKUP, INT, "1"}},
-    {"FM_CustomModelActive", {CLEAR_ON_MANAGER_START, STRING}},
-    {"FM_CustomModelBaseRef", {PERSISTENT | BACKUP, STRING}},
-    {"FM_CustomModelEnabled", {PERSISTENT | BACKUP, BOOL, "1"}},
-    {"FM_CustomModelPath", {PERSISTENT | BACKUP, STRING}},
     {"FM_LaneKeepMode", {PERSISTENT | BACKUP, INT}},  // no default: params_migration seeds it from the older toggles
     {"FM_LeadDetectionThreshold", {PERSISTENT | BACKUP, INT, "50"}},
     {"FM_MaxTorque", {PERSISTENT | BACKUP, INT, "480"}},

@@ -56,7 +56,7 @@ def _bundle(raw):
 
 
 def _pkl_name(path):
-  """/data/.../fm_opm16d_rlm_splice_tinygrad.pkl -> fm_opm16d_rlm_splice (as modeld's fm_custom_label names it)."""
+  """/data/.../fm_opm16d_rlm_splice_tinygrad.pkl -> fm_opm16d_rlm_splice (as the old custom-model label named it)."""
   name = os.path.basename(str(path).strip())
   for suffix in (".pkl", "_tinygrad"):
     if name.endswith(suffix):
@@ -68,8 +68,9 @@ def model_info(evs):
   """(name, confirmed) of the driving model this drive ran.
 
   Every segment carries initData, a copy of the params taken when the drive started (the same in every segment), so
-  the model is worked out from those the way modeld picks it: the selected bundle, replaced by the FM custom file when
-  FM_CustomModelEnabled is on and FM_CustomModelBaseRef is the selected bundle. modeld's own "loading combined pkl"
+  the model is worked out from those the way modeld picks it: the selected bundle, or, in drives on builds that still had
+  the custom (splice) model (removed Nov 8, 2026), the FM custom file when FM_CustomModelEnabled was on and
+  FM_CustomModelBaseRef was the selected bundle. modeld's own "loading combined pkl"
   line is only in the first segment (--0); when it's there it confirms (or overrides) the answer."""
   p = raw_params(evs)
   bundle = _bundle(p.get("ModelManager_ActiveBundle", b""))

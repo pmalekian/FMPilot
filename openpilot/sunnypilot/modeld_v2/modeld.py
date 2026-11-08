@@ -18,7 +18,6 @@ from setproctitle import setproctitle
 import openpilot.cereal.messaging as messaging
 from openpilot.common.hardware import COMMA_HARDWARE
 from openpilot.selfdrive.modeld.helpers import chestnut_present
-from openpilot.sunnypilot.modeld_v2 import fm_custom_label
 from openpilot.cereal import log
 from opendbc.car.structs import car
 from openpilot.cereal.services import SERVICE_LIST
@@ -75,26 +74,6 @@ def _find_driving_pkl(bundle):
   return None
 
 
-def _fm_custom_model_pkl(bundle):
-  """FM Pilot: a locally compiled small model (e.g. a spliced model) in place of the selected model's file.
-
-  FM_CustomModelPath names the compiled .pkl. It only applies while the selected model is the one named in
-  FM_CustomModelBaseRef, because the selected model's settings (generation, 20 Hz timing, smoothing) are used for the
-  custom file, so it must be built on that model. Selecting any other model ignores the custom file."""
-  params = Params()
-  path, base_ref = params.get("FM_CustomModelPath"), params.get("FM_CustomModelBaseRef")
-  if not path or bundle is None or not base_ref or bundle.ref != base_ref:
-    return None
-  if not params.get_bool("FM_CustomModelEnabled"):
-    cloudlog.warning("fm custom model: switched off, using the selected model")
-    return None
-  if not _pkl_exists(path):
-    cloudlog.warning(f"fm custom model: {path} not found, using the selected model")
-    return None
-  cloudlog.warning(f"fm custom model: loading {path} with the settings of {bundle.displayName}")
-  return path
-
-
 class FrameMeta:
   frame_id: int = 0
   timestamp_sof: int = 0
@@ -127,13 +106,6 @@ class ModelState(ModelStateBase):
     self.chestnut = chestnut
 
     pkl_path = _find_driving_pkl(model_bundle)
-    if not chestnut:
-      custom = _fm_custom_model_pkl(model_bundle)
-      if custom is not None:
-        pkl_path = custom
-        Params().put(fm_custom_label.PARAM_ACTIVE, fm_custom_label.custom_model_name(custom))
-      else:
-        Params().remove(fm_custom_label.PARAM_ACTIVE)
     assert pkl_path is not None, f"No driving pkl found for {'chestnut' if chestnut else 'small model'} — all models must be compiled with compile_modeld.py"
     self._init_combined(pkl_path, cam_w, cam_h, model_bundle)
 

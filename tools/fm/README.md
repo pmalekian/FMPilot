@@ -66,14 +66,3 @@ That reaction always points against openpilot's torque. So `turns.py` splits the
 wheel's reaction, and this sensor can't tell those apart. While you steer alone, *into the turn* is your own effort.
 
 Tests: `python -m pytest tests` (small synthetic logs; no device or real logs needed).
-
-## Model tools
-
-| Script | What it does |
-|---|---|
-| `splice_model.py rlm.onnx opm16d_on_policy.onnx out.onnx` | Builds the OPM16D-steering + Rebel Legion-speed splice (shared vision and plan, both action networks) |
-| `verify_splice.py splice.onnx rlm.onnx opm16d_dir` | Checks the splice on CPU against both originals |
-
-On the comma, `openpilot/sunnypilot/modeld_v2/fm_build_custom_model.sh` compiles a custom ONNX (with the IMAGE=1
-miscompile workaround) and `fm_check_model.py` checks it for NaN and, with `--compare`, against its base model. See
-`FM_PILOT.md` at the repo root.

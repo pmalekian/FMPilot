@@ -10,7 +10,6 @@ from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.system.ui.widgets import Widget
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.cereal import log
-from openpilot.sunnypilot.modeld_v2.fm_custom_label import label_text
 from openpilot.selfdrive.ui.sunnypilot.onroad.fm_torque_readout import TURN_NOTICE_TYPES, make_readout
 
 EventName = log.OnroadEvent.EventName
@@ -145,7 +144,6 @@ class HudRenderer(Widget):
 
     self._fm_readout = None
     self._fm_readout_time = 0.0
-    self._fm_label_shown = False
 
     self._set_speed_alpha_filter = FirstOrderFilter(0.0, 0.1, 1 / gui_app.target_fps)
     self._chestnut_alpha_filter = FirstOrderFilter(0.0, 0.1, 1 / gui_app.target_fps)
@@ -204,29 +202,9 @@ class HudRenderer(Widget):
 
     self._draw_model_source(rect)
 
-    self._draw_fm_model_label(rect)
-
     self._draw_fm_torque_readout(rect)
 
     self._draw_steering_wheel(rect)
-
-  def _draw_fm_model_label(self, rect: rl.Rectangle) -> None:
-    """FM Pilot: one small centered line while a custom (e.g. spliced) model is driving, with its run time. Hidden behind alerts."""
-    self._fm_label_shown = False
-    if ui_state.sm['selfdriveState'].alertSize != 0:
-      return
-    text = label_text(getattr(ui_state, 'fm_custom_model', ''), ui_state.sm['modelV2'].modelExecutionTime)
-    if not text:
-      return
-    # shrink to fit the screen width (the comma 4 screen is narrow)
-    font_size = FONT_SIZES.max_speed
-    size = measure_text_cached(self._font_semi_bold, text, font_size)
-    while size.x > rect.width - 40 and font_size > 22:
-      font_size -= 2
-      size = measure_text_cached(self._font_semi_bold, text, font_size)
-    pos = rl.Vector2(rect.x + rect.width / 2 - size.x / 2, rect.y + 16)
-    rl.draw_text_ex(self._font_semi_bold, text, pos, font_size, 0, COLORS.WHITE_TRANSLUCENT)
-    self._fm_label_shown = True
 
   def _draw_fm_torque_readout(self, rect: rl.Rectangle) -> None:
     """FM Pilot: sent / limit now / Max Torque / EPAS check, one line at the top center (fm_torque_readout.py)."""
@@ -253,7 +231,7 @@ class HudRenderer(Widget):
     arrow_w, gap, mark_w = 16, 10, 24
     total = arrow_w + gap + size.x + gap + mark_w
     x = rect.x + rect.width / 2 - total / 2
-    y = rect.y + 16 + (size.y + 4 if self._fm_label_shown else 0)
+    y = rect.y + 16
     if turn_notice:
       y += FM_TURN_NOTICE_OFFSET
     cy = y + size.y / 2

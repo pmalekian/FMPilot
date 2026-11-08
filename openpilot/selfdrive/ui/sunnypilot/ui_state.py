@@ -49,7 +49,6 @@ class UIStateSP:
     self.active_bundle = None
     self.model_runner_tinygrad: bool = False
     self.blindspot: bool = False
-    self.fm_custom_model: str = ""
     self.chevron_metrics = None
     self.custom_interactive_timeout: int = 0
     self.developer_ui = None
@@ -179,7 +178,6 @@ class UIStateSP:
     self.blendful_enabled = lane_keep_mode == MODE_BLENDFUL
     self.fm_accel_boost_indicator = self.params.get_bool("FM_AccelBoostIndicator")
     self.fm_accel_boost_mode = parse_boost_mode(self.params.get("FM_AccelBoostMode", return_default=True))
-    self.fm_custom_model = self.params.get("FM_CustomModelActive") or ""
     self.onroad_brightness = int(float(self.params.get("OnroadScreenOffBrightness", return_default=True)))
     self.onroad_brightness_timer_param = self.params.get("OnroadScreenOffTimer", return_default=True)
     self.rainbow_path = self.params.get_bool("RainbowMode")
