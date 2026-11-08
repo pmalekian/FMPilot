@@ -1,13 +1,13 @@
 # FM Pilot: handoff for new chats (short)
 
-State as of Nov 5, 2026 (night). This is the current state only. Background findings, past drive analyses and
+State as of Nov 8, 2026. This is the current state only. Background findings, past drive analyses and
 the ideas backlog are in `claude/FM_PILOT_FINDINGS.md`: read it only when a task needs that history. Features, settings
 and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 
 ## Setup
 
 - **Truck:** 2022 Rivian R1S Launch Edition (Gen 1), comma 4, torque harness.
-- **Repo:** `pmalekian/fmpilot`. Active branch **`fm-dev-set`** (head of the branch; code as of `5ead1c3`), cut from `fm-dev-torque` `bece23e`
+- **Repo:** `pmalekian/fmpilot`. Active branch **`fm-dev-set`** (v25 model list and tinygrad 92b742f since Nov 8), cut from `fm-dev-torque` `bece23e`
   (Higher Torque + radar settings) and adding the settings reorganization, Blendful and the boost bar; `fm-dev-torque`
   stays at `bece23e` as the fallback. `fm-dev-max` (`d189ccc`) is the everyday branch, installer `pmalekian/fm-dev-max`. Own fork of AdventurePilot `dev` (last synced `980dd5c`, Oct 31).
   **No more AP syncs**; borrow single pieces only if wanted.
@@ -48,9 +48,34 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 - Turn Assist on Nov 5: Turn Hold + Hold Path Source + Hold Adds Your Steering on; Lead and Boost off; radius 8 m.
 - Nov 5 drives were on `fm-dev-torque` `03b6805` (before the fix), panda setting on: `00000038` Headroom, `00000039`
   (morning commute) Full. **Both actually ran at 385** (see below).
-- Custom splice model (OPM16D + Rebel Legion): built, switched off.
+- Custom splice model: **removed** Nov 8 (with the on-device compile fix and model check tools), for the v25 move.
 
 ## Active work
+
+### 00. v25 model list + tinygrad 92b742f on `fm-dev-set` (Nov 8): built, not yet on the device
+
+- Why: new sunnypilot models (e.g. **Cheddar**, openpilot PR #39255) are only in sunnypilot's model list v25+, which
+  needs selector version 21, whole-file downloads and the plain GPU memory model format on tinygrad 92b742f.
+- Ported from sunnypilot master-dev, one commit each: #2050, #2053, #2062, #2051, #2071, #2052, #2072, #2093.
+  `selfdrive/modeld` (SConscript, helpers, stock modeld, dmonitoringmodeld loading) moved to sunnypilot's, because the
+  new tinygrad dropped `--device-input` and changed Buffer/UOp APIs. **DM model file unchanged** (FM's Aug model; sunnypilot
+  has openpilot's newer Sep "Super Leicht", not taken). FM's own: Blendful hook kept in modeld_v2; load_oob rejoins
+  chunked files (FM prebuilds still chunk >95 MB). Not taken: #2091 (parked), #2092 (CI), .github changes.
+- Also new from upstream: modeld_v2 and stock modeld seed the previous curvature from `controlsState` while lateral is
+  off (openpilot #39091), chestnut retry; `modeld_warmup` runs offroad.
+- Off-device tests: modeld_v2 121 pass, models 28 pass (onnx hash test fails only because LFS isn't pulled); no new
+  failures vs `60ddd2a` across sunnypilot/modeld/ui/controls tests.
+- **First boot:** build takes longer (DM and stock model recompile). The saved v23 selection (selector 20) no longer
+  parses, so modeld most likely runs the default model until TSFDOM (same ref) is selected again and re-downloads
+  (from the code, not yet seen on the device); leave it offroad for the warmup. **Check before driving:** DM works (face seen, no DM faults), model label/picker
+  shows the selected model, no modeld errors. Then try Cheddar as its own drive.
+
+### 0a. ChatGPT commits Nov 6 (not yet driven or analyzed)
+
+- `b925e3a` Turn Hold fades over 0.5 s when the blinker is cancelled mid-hold; `398cd6b` **Turn Nudge**
+  (`FM_TurnNudgeEnabled`, off, needs Turn Hold): 2–8 mph, 0.8 Nm into the turn for 0.15 s adds up to 0.01 1/m for 0.6 s
+  if the path bends that way; `dd313ff` torque readout stays visible (moved down) during the Turning Left/Right notice.
+  Reviewed Nov 8: tests pass (78), Sunnylink JSON matches its YAML; docs added to FM_PILOT.md; garbled docstring fixed.
 
 ### 0. `fm-dev-set`: built, not yet driven (Nov 5 evening)
 
@@ -157,6 +182,7 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 
 ## Next steps
 
+0. Update the comma to `fm-dev-set` (v25), do the first-boot checks in item 00, re-select TSFDOM, then try Cheddar.
 1. Torque test day on `fm-dev-set` (item 1 test plan). Then decide the Max Torque number and drop the slider.
 2. Radar settings test (above).
 3. Smoother stops: his answers to item 5, then decide whether to build the taper (off by default).
@@ -169,7 +195,7 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 - At Loop A speeds the torque cap, not the model's request, is what fails.
 - His settings run sunnypilot's v0 torque controller; any controller hook must go in both v0 and v1.
 - Two small models don't fit the comma 4's 50 ms step; dual mode removed.
-- On-device compile (QCOM, IMAGE=1) needs `FM_CONTIGUOUS_OUTPUTS=linear_2` or outputs go NaN.
+- Models: sunnypilot list v25 (selector 21), tinygrad 92b742f; selfdrive/modeld follows sunnypilot master-dev.
 - The VDM decides regen vs friction; openpilot only sends a target accel (truck delivers ~0.23 m/s² more decel than sent).
 - Lane Centering, Lane Guard and Blendful are one setting, `FM_LaneKeepMode`; read it via `get_lane_keep_mode`.
 - Never loosen driver monitoring.
