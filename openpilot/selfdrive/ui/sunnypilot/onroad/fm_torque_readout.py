@@ -1,12 +1,12 @@
 """
 FM Pilot torque readout: one line at the top center of the comma 4 road view.
 
-  â–¶ 457 / 481 / 530 âœ“
+  ▶ 457 / 481 / 530 ✓
   sent / limit at this speed / Max Torque in force this drive / EPAS taking it
 
 - sent: carOutput.actuatorsOutput.torqueOutputCan, raw CAN units, not capped for display. The arrow is its direction
   (torque is positive to the left).
-- limit now: carStateSP.fmSteerCap (speed curve, incl. AP's 95% cap past 90 degrees unless Full Torque Past 90Â° is on).
+- limit now: carStateSP.fmSteerCap (speed curve, incl. AP's 95% cap past 90 degrees unless Full Torque Past 90° is on).
 - Max Torque: carStateSP.fmMaxTorque, the low-speed limit the panda enforces this drive (385 without Panda Allows
   Higher Torque). A slider change shows from the next drive, as it applies.
 - check: carStateSP.fmEpasToiActive (EPAS_SystemStatus ToiActive). It says the EPAS is taking the overlay, not how much
