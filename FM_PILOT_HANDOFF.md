@@ -49,6 +49,10 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 - Nov 5 drives were on `fm-dev-torque` `03b6805` (before the fix), panda setting on: `00000038` Headroom, `00000039`
   (morning commute) Full. **Both actually ran at 385** (see below).
 - Custom splice model (OPM16D + Rebel Legion): built, switched off.
+- **Cheddar** (openpilot PR #39255, open): sunnypilot only lists it in model list v25+ (newer tinygrad and file
+  format than FM's v23), so it isn't in FM's model picker. Path instead (`f033ff8`): `fm_fetch_openpilot_onnx.py cheddar`
+  on the comma, then `fm_build_custom_model.sh` on TSFDOM's ref, then `fm_check_model.py --compare` against TSFDOM.
+  Not yet run. Catalog smoothing differs: Cheddar lat 0.0 s, TSFDOM 0.1 s (the custom file uses the base's).
 
 ## Active work
 
