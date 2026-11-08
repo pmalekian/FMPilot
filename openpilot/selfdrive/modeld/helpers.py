@@ -12,7 +12,24 @@ def modeld_pkl_path(chestnut: bool):
   prefix = 'big_' if chestnut else ''
   return MODELS_DIR / f'{prefix}driving_tinygrad.pkl'
 
+def join_chunks(path) -> None:
+  """FM Pilot: FM's release builds split model files over 95 MB into chunks (tools/release, file_chunker.py), since FM
+  can't upload to sunnypilot's LFS. tinygrad's loader needs one file, so put a chunked file back together once."""
+  from openpilot.common.file_chunker import get_chunk_name, get_manifest_path
+  path, manifest = Path(path), Path(get_manifest_path(path))
+  if path.exists() or not manifest.is_file():
+    return
+  num_chunks = int(manifest.read_text().strip())
+  tmp = path.with_name(path.name + ".joining")
+  with open(tmp, "wb") as out:
+    for i in range(num_chunks):
+      with open(get_chunk_name(str(path), i, num_chunks), "rb") as f:
+        while block := f.read(1 << 24):
+          out.write(block)
+  tmp.replace(path)
+
 def load_oob(path, chestnut=False):
+  join_chunks(path)
   from tinygrad import Context
   device = 'USB+AMD:LLVM' if chestnut else 'QCOM' if AGNOS else 'METAL' if sys.platform == 'darwin' else 'CPU:LLVM'
   with Context(DEV=device):
