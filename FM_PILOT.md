@@ -28,6 +28,7 @@ features below. Every FM Pilot commit starts with "FM Pilot".
 | Custom (spliced) model: load a model compiled on the device in place of its base model; on-screen "Splice Model / Custom Model \| ms" label | `FM_CustomModelEnabled` (Models); `FM_CustomModelPath` / `FM_CustomModelBaseRef` set by the build script | `sunnypilot/modeld_v2/modeld.py`, `fm_build_custom_model.sh`, `fm_custom_label.py`, HUD renderers | on once built |
 | On-device compile fix for the comma GPU (QCOM, IMAGE=1) miscompile of the point-policy residual add (NaN lane lines, meta and pose) | `FM_CONTIGUOUS_OUTPUTS` (build script sets `linear_2`) | `sunnypilot/modeld_v2/fm_compile_fixes.py`, `compile_modeld.py` | used by the build script |
 | Model check tools | n/a | `fm_check_model.py` (NaN check, `--compare`), `fm_debug_nan.py`, `fm_debug_variants.py` | n/a |
+| openpilot model download: fetches a driving model's `.onnx` from openpilot's model storage onto the comma (size and sha256 checked) so the build script can compile it as a custom model. Known: `cheddar` (the checkpoint sunnypilot lists as Cheddar), `cheddar-20480` (the PR's later one) | n/a | `sunnypilot/modeld_v2/fm_fetch_openpilot_onnx.py` | n/a |
 
 Removed: dual model mode (two small models do not fit the comma 4's 50 ms model step).
 
@@ -55,6 +56,8 @@ Removed: dual model mode (two small models do not fit the comma 4's 50 ms model 
 - **Lead Detection Sensitivity**: FrogPilot's "Lead Detection Sensitivity" (`LeadDetectionThreshold`), FrogAi, FrogPilot
   branch (Oct 31, 2026), `frogpilot/common/frogpilot_variables.py` and `selfdrive/controls/radard.py` (MIT). FM Pilot
   keeps 50% as the default (FrogPilot: 35%) and adds it to sunnypilot's radard alongside the ghost guard.
+- **Cheddar model**: openpilot PR #39255 (YassineYousfi, Nov 5, 2026; open when added), commits `875a6b7` and `10e305d`
+  (MIT). FM Pilot only downloads and compiles it; sunnypilot lists `875a6b7` as "Cheddar Model (November 05, 2026)".
 - Everything else here is FM Pilot's own, built on AdventurePilot, sunnypilot and openpilot (MIT).
 
 ## Upstreaming to AdventurePilot
