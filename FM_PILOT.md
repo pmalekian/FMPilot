@@ -1,7 +1,8 @@
 # FM Pilot
 
 Frankie Malekian's personal fork of [AdventurePilot](https://github.com/AdventurePilotDev/AdventurePilot) (`dev`), for a
-2022 Rivian R1S (Gen 1) with a comma 4. Branch: `fm-dev-max`. Everything AdventurePilot does is kept; FM Pilot adds the
+2022 Rivian R1S (Gen 1) with a comma 4. Branches: `fm-dev-set` (current development) and `fm-dev-jet` (`fm-dev-set`
+plus Jetlink); `fm-dev-max` is the older everyday branch. Everything AdventurePilot does is kept; FM Pilot adds the
 features below. Every FM Pilot commit starts with "FM Pilot".
 
 ## Features
