@@ -53,6 +53,18 @@ from openpilot.sunnypilot.models.helpers import get_active_bundle
 from openpilot.sunnypilot.selfdrive.controls.lib.relc import RoadEdgeLaneChangeController
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_lane_keep_mode import MODE_BLENDFUL, get_lane_keep_mode
 
+# FM Pilot: sunnypilot #2091 (James Vecellio-Grant, Nov 4 2026, MIT), as a setting. Action-head models output a lateral
+# accel, turned into curvature by dividing by speed squared with the speed floored here; 2.5 m/s (5.6 mph) instead of
+# 1.0 asks for less curvature below 5.6 mph (64% at 2 m/s, 16% at 1 m/s) and calms crawl-speed jumps.
+ACTION_SPEED_FLOOR = 1.0
+ACTION_SPEED_FLOOR_LOW_SPEED_FIX = 2.5
+PARAM_LOW_SPEED_FLOOR = "FM_LowSpeedCurvatureFloor"
+
+
+def fm_action_speed_floor(params) -> float:
+  return ACTION_SPEED_FLOOR_LOW_SPEED_FIX if params.get_bool(PARAM_LOW_SPEED_FLOOR) else ACTION_SPEED_FLOOR
+
+
 PROCESS_NAME = "openpilot.selfdrive.modeld.modeld_tinygrad"
 BIG_MODEL_TIMEOUT = 60
 
@@ -105,6 +117,7 @@ class ModelState(ModelStateBase):
     self.LONG_SMOOTH_SECONDS = float(overrides.get('long', ".0"))
     self.MIN_LAT_CONTROL_SPEED = 0.3
     self.PLANPLUS_CONTROL: float = 1.0
+    self.action_speed_floor = ACTION_SPEED_FLOOR
     self.chestnut = chestnut
 
     pkl_path = _find_driving_pkl(model_bundle)
@@ -243,7 +256,8 @@ class ModelState(ModelStateBase):
       desired_curvature = get_curvature_from_output(model_output, curvature_plan, v_ego, lat_action_t, self.mlsim)
     else:
       desired_accel = model_output['action'][0, 1]
-      desired_curvature = model_output['action'][0, 0] / (max(1.0, v_ego))**2
+      speed_floor = getattr(self, 'action_speed_floor', ACTION_SPEED_FLOOR)
+      desired_curvature = model_output['action'][0, 0] / (max(speed_floor, v_ego))**2
     # FM Pilot: Blendful (sunnypilot #2073) adds its lane-center nudge here; it returns exactly 0.0 unless selected
     if blendful is not None:
       desired_curvature += blendful(desired_curvature)
@@ -375,6 +389,7 @@ def main(demo=False):
   RELC = RoadEdgeLaneChangeController()
   blendful = Blendful()
   blendful_enabled = get_lane_keep_mode(params) == MODE_BLENDFUL  # FM Pilot: FM_LaneKeepMode picks Blendful
+  action_speed_floor = fm_action_speed_floor(params)  # FM Pilot: FM_LowSpeedCurvatureFloor (sunnypilot #2091)
 
   while True:
     # Keep receiving frames until we are at least 1 frame ahead of previous extra frame
@@ -419,6 +434,7 @@ def main(demo=False):
       model.PLANPLUS_CONTROL = params.get("PlanplusControl", return_default=True)
       camera_offset_helper.set_offset(params.get("CameraOffset", return_default=True))
       blendful_enabled = get_lane_keep_mode(params) == MODE_BLENDFUL
+      action_speed_floor = fm_action_speed_floor(params)
     lat_delay = model.lat_delay + model.LAT_SMOOTH_SECONDS
     if sm.updated["extrinsicsCalibration"] and sm.seen['narrowRoadCameraState'] and sm.seen['deviceState']:
       device_from_calib_euler = np.array(sm["extrinsicsCalibration"].rpyCalib, dtype=np.float32)
@@ -494,6 +510,7 @@ def main(demo=False):
         prev_action.desiredCurvature = sm['controlsState'].curvature
       # Blendful only acts with no desire and no lane change (turns, lane changes stay the model's own)
       blendful_active = desire == log.Desire.none and DH.lane_change_state == log.LaneChangeState.off
+      model.action_speed_floor = action_speed_floor
       action = model.get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego,
                                            partial(blendful.update, model_output, v_ego, blendful_active, enabled=blendful_enabled))
       prev_action = action

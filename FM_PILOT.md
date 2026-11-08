@@ -25,6 +25,7 @@ features below. Every FM Pilot commit starts with "FM Pilot".
 | Full Torque Past 90° (testing): with Panda Allows Higher Torque on, skips AP's 95% torque cap past 90° of steering wheel (`HIGH_ANGLE_CAP_FRAC`), so tight turns can use the full Max Torque. Car code only; the panda's limit is the same. Off-road only, applies next drive | `FM_TorqueFullCapHighAngle` (Steering, Torque Control) | `opendbc/car/rivian/carcontroller.py`, `opendbc/sunnypilot/car/interfaces.py` | off |
 | Accel Boost bar: green bar in the comma 4 side panel (in place of the confidence ball) while Gas or Predictive boost is on; fills to that mode's maximum only while the boosted model target sets the speed | `FM_AccelBoostIndicator` (Cruise > Driving Personality Settings) | `selfdrive/ui/sunnypilot/mici/onroad/accel_boost_indicator.py`, `fm_boost_mode.py` | off |
 | Torque readout: one line at the top center of the comma 4 road view, `sent / limit now / Max Torque ✓`. Sent is the raw `torqueOutputCan` (arrow = direction); limit now is the speed curve incl. the 95% past-90° cap; Max Torque is the panda limit this drive (385 without Panda Allows Higher Torque); ✓/✗ is the EPAS `ToiActive` bit (taking the overlay, not how much it applied). Amber at 95% of the limit, red ✗ when refused, grey while steering is off. Logged in `carStateSP` (`fmEpasToiActive`, `fmSteerCap`, `fmMaxTorque`) | always on (Rivian) | `selfdrive/ui/sunnypilot/onroad/fm_torque_readout.py`, `selfdrive/ui/mici/onroad/hud_renderer.py`, `opendbc/car/rivian/carcontroller.py`, `carstate.py`, `cereal/custom.capnp` | on |
+| Calmer Crawl-Speed Steering: below 5.6 mph, the model's lateral accel is turned into curvature with speed floored at 2.5 m/s instead of 1.0, so it asks for less (64% at 4.5 mph, 16% at 2.2 mph); calms crawl-speed jumps, may soften turns from a stop. All driving, not only blinker turns | `FM_LowSpeedCurvatureFloor` (Steering > FM Pilot: Turn Tweaks) | `sunnypilot/modeld_v2/modeld.py` | off |
 | Driving models from sunnypilot's v25 model list (selector version 21; includes Cheddar), downloaded as whole files and loaded as plain GPU memory artifacts; tinygrad 92b742f. Driver monitoring and openpilot's stock model compile and load the same way as sunnypilot master-dev (DM model file unchanged). Prebuilt builds rejoin chunked model files before loading | Models (model picker) | `sunnypilot/models/`, `sunnypilot/modeld_v2/`, `selfdrive/modeld/`, `tinygrad_repo` | n/a |
 
 Removed: dual model mode (two small models do not fit the comma 4's 50 ms model step); the custom (splice) model, its
@@ -57,7 +58,8 @@ to sunnypilot's v25 model list; in git history before that date).
   keeps 50% as the default (FrogPilot: 35%) and adds it to sunnypilot's radard alongside the ghost guard.
 - **v25 model list support**: sunnypilot #2050, #2053, #2062, #2051, #2071, #2052, #2072, #2093 (James Vecellio-Grant / Discountchubbs
   and Amy Jeanes, Oct 17 – Nov 5, 2026; MIT), each ported as its own commit;
-  `selfdrive/modeld` from sunnypilot master-dev. sunnypilot #2091 (low-speed action curvature floor) not taken (parked).
+  `selfdrive/modeld` from sunnypilot master-dev. sunnypilot #2091 (low-speed action curvature floor, James Vecellio-Grant, Nov 4, 2026) added as the
+  Calmer Crawl-Speed Steering setting, off by default.
 - Everything else here is FM Pilot's own, built on AdventurePilot, sunnypilot and openpilot (MIT).
 
 ## Upstreaming to AdventurePilot

@@ -578,6 +578,13 @@ sections:
       - type: param
         key: FM_TurnHoldPathSource
         equals: true
+  - key: FM_LowSpeedCurvatureFloor
+    widget: toggle
+    title: Calmer Crawl-Speed Steering
+    description: 'Below 5.6 mph, ask for less steering than the model''s raw output (about 64% at 4.5 mph, 36% at 3.4 mph,
+      16% at 2.2 mph), as sunnypilot and openpilot now do. Calms twitchy steering near a stop, but turns pulled out from
+      a stop may start softer. Applies to all driving, not only blinker turns. Off: FM Pilot''s previous behavior. From
+      sunnypilot #2091.'
   sub_panels:
   - id: turn_boost_settings
     label: Turn Boost Settings
