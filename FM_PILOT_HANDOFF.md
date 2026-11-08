@@ -75,6 +75,19 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
   (from the code, not yet seen on the device); leave it offroad for the warmup. **Check before driving:** DM works (face seen, no DM faults), model label/picker
   shows the selected model, no modeld errors. Then try Cheddar as its own drive.
 
+### 0b. Jetlink on `fm-dev-jet` (Nov 8): built, off, not yet on the device
+
+- Branch `fm-dev-jet` = `fm-dev-set` + Jetlink (zoompilot/jetlink v0.9.0, API 4). Sources: AP PR #12 (params, events,
+  selfdrived, hardwared, process, UI) and zoompilot develop (adapter, modeld hooks for the v25 modeld_v2). Setting
+  Models > Jetlink (Off / USB / iOS, offroad), `JetlinkLink` 0 by default. Events `jetlinkReady/LinkLost/Chime` @28-30.
+- Big model = comma's large models from Jetlink's index, picked in the Jetlink app (FM doesn't use the model-list hooks).
+  It runs stock modeld's action path + Blendful (`fm_jetlink_action.py`); Calmer Crawl-Speed Steering doesn't apply to it.
+- Frankie's host: MacBook M1 Pro (tested platform; ~20 s prepare, up to 10 s load). Needs a USB 3 data cable, the comma
+  powered from the harness (Jetlink cuts USB-C draw at boot when on), the Mac on its own power and awake. S25 Ultra
+  Android app is experimental.
+- Off-device: adapter conformance, both modeld seams, joining-model contract, fallback: pass. Not run on a device.
+- Order: drive v25 on `fm-dev-set` first; then `fm-dev-jet` with Jetlink off (same as fm-dev-set); then on, parked first.
+
 ### 0a. ChatGPT commits Nov 6 (not yet driven or analyzed)
 
 - `b925e3a` Turn Hold fades over 0.5 s when the blinker is cancelled mid-hold; `398cd6b` **Turn Nudge**

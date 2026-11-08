@@ -27,6 +27,7 @@ features below. Every FM Pilot commit starts with "FM Pilot".
 | Torque readout: one line at the top center of the comma 4 road view, `sent / limit now / Max Torque ✓`. Sent is the raw `torqueOutputCan` (arrow = direction); limit now is the speed curve incl. the 95% past-90° cap; Max Torque is the panda limit this drive (385 without Panda Allows Higher Torque); ✓/✗ is the EPAS `ToiActive` bit (taking the overlay, not how much it applied). Amber at 95% of the limit, red ✗ when refused, grey while steering is off. Logged in `carStateSP` (`fmEpasToiActive`, `fmSteerCap`, `fmMaxTorque`) | always on (Rivian) | `selfdrive/ui/sunnypilot/onroad/fm_torque_readout.py`, `selfdrive/ui/mici/onroad/hud_renderer.py`, `opendbc/car/rivian/carcontroller.py`, `carstate.py`, `cereal/custom.capnp` | on |
 | Calmer Crawl-Speed Steering: below 5.6 mph, the model's lateral accel is turned into curvature with speed floored at 2.5 m/s instead of 1.0, so it asks for less (64% at 4.5 mph, 16% at 2.2 mph); calms crawl-speed jumps, may soften turns from a stop. All driving, not only blinker turns | `FM_LowSpeedCurvatureFloor` (Steering > FM Pilot: Turn Tweaks) | `sunnypilot/modeld_v2/modeld.py` | off |
 | Driving models from sunnypilot's v25 model list (selector version 21; includes Cheddar), downloaded as whole files and loaded as plain GPU memory artifacts; tinygrad 92b742f. Driver monitoring and openpilot's stock model compile and load the same way as sunnypilot master-dev (DM model file unchanged). Prebuilt builds rejoin chunked model files before loading | Models (model picker) | `sunnypilot/models/`, `sunnypilot/modeld_v2/`, `selfdrive/modeld/`, `tinygrad_repo` | n/a |
+| Jetlink (branch `fm-dev-jet`): comma's big driving model runs on a Mac, Jetson, Linux PC or phone on the comma's USB-C port (USB 3 cable; comma powered from the harness, computer on its own power). The small model starts the drive; when the big model is ready, disengage fully and re-engage to use it; if the link drops, the small model drives on. The big model goes through stock modeld's action path plus Blendful (Calmer Crawl-Speed Steering doesn't apply to it); controls-side features (Turn Assist, lane centering, torque) apply as usual | `JetlinkLink` (Models > Jetlink: Off / USB / iOS, offroad) | `sunnypilot/jetlink_adapter/`, `jetlink_repo` (v0.9.0), both modelds, `selfdrived.py`, `hardwared.py`, `process.py`, `modeld_v2/fm_jetlink_action.py`, Models screens | off |
 
 Removed: dual model mode (two small models do not fit the comma 4's 50 ms model step); the custom (splice) model, its
 build script, the on-device compile fix (`FM_CONTIGUOUS_OUTPUTS`) and the model check tools (Nov 8, 2026, before the move
@@ -60,6 +61,9 @@ to sunnypilot's v25 model list; in git history before that date).
   and Amy Jeanes, Oct 17 – Nov 5, 2026; MIT), each ported as its own commit;
   `selfdrive/modeld` from sunnypilot master-dev. sunnypilot #2091 (low-speed action curvature floor, James Vecellio-Grant, Nov 4, 2026) added as the
   Calmer Crawl-Speed Steering setting, off by default.
+- **Jetlink**: zoompilot/jetlink v0.9.0 (Zeph Leggett, MIT), integrated from AdventurePilot PR #12 (Nimijneb, Nov 3–8,
+  2026, MIT) and zoompilot develop `92e1ecb` (Nov 6, 2026, MIT; API 4 adapter, modeld hooks, seam test, Blendful
+  action wrapper).
 - Everything else here is FM Pilot's own, built on AdventurePilot, sunnypilot and openpilot (MIT).
 
 ## Upstreaming to AdventurePilot
