@@ -60,6 +60,12 @@ The angle and hand-torque signs come straight from the EPAS, so the code can onl
 work at all if the angle were flipped. To confirm in a log: with openpilot off, turn the wheel left by hand and both
 should read positive.
 
+"Model asked" in `turns.py`, `timeline.py` and `sway.py` comes from `fmlog.model_requests`: `modelV2.action.desiredCurvature`
+while openpilot steers, and the raw `modelDataV2SP.modelCurvature` while it doesn't. Since Nov 8, 2026 modeld seeds the
+smoothed action from the truck's own curvature whenever lateral is off (openpilot #39091), so on manual stretches the
+action value leans toward your steering. Logs from before the Nov 5 Blendful build have no `modelCurvature` and keep the
+action value.
+
 Hand torque is the column's torsion bar, so it also reads the reaction of a loosely held wheel to openpilot's own torque.
 That reaction always points against openpilot's torque. So `turns.py` splits the hands by what openpilot was sending:
 *with* openpilot's torque is certainly you helping, while *against* it (marked `*`) is you resisting **or** just the

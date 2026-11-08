@@ -12,7 +12,7 @@ LEFT. Lane line y is positive to the right. See README.md.
 """
 import numpy as np
 
-from fmlog import MPH, load_drives, log_args, model_name, version
+from fmlog import MPH, load_drives, log_args, model_name, model_requests, version
 
 
 def main(drive, a):
@@ -40,6 +40,7 @@ def main(drive, a):
     print(f"{drive.label()}: missing carState / controlsState / carControl / modelV2")
     return
   cs, ctl, cc, mv = (np.array(x, float) for x in (cs, ctl, cc, mv))
+  mv[:, 1] = model_requests(drive)[:, 1]  # raw model request while openpilot isn't steering (see fmlog)
   co = np.array(co, float) if co else np.full((1, 2), -1e9)
   sp = np.array(sp, float) if sp else np.zeros((1, 2))
   print(f"{drive.label()}: version {version(evs)}, model {model_name(evs)}, model run {np.median(mv[:, 6]) * 1000:.0f} ms median")

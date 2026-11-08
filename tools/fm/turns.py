@@ -13,7 +13,7 @@ this sensor can't tell apart. While the driver steers alone, "into the turn" is 
 """
 import numpy as np
 
-from fmlog import MPH, load_drives, log_args, model_name, pct, split_runs
+from fmlog import MPH, load_drives, log_args, model_name, model_requests, pct, split_runs
 
 TURN_RADIUS_M = 40.0
 HANDS_NM = 0.5     # column torque that counts as pushing
@@ -41,7 +41,7 @@ def series(drive):
   cs, ctl, cc, md, co = [], [], [], [], []
   for e in drive.evs:
     w = e.which()
-    if w not in ("carState", "controlsState", "carControl", "modelV2", "carOutput"):
+    if w not in ("carState", "controlsState", "carControl", "carOutput"):
       continue
     t = drive.t(e)
     if w == "carState":
@@ -53,12 +53,11 @@ def series(drive):
       ctl.append((t, e.controlsState.curvature, e.controlsState.desiredCurvature, getattr(ts, "output", np.nan)))
     elif w == "carControl":
       cc.append((t, float(e.carControl.latActive)))
-    elif w == "modelV2":
-      md.append((t, e.modelV2.action.desiredCurvature))
     else:
       co.append((t, e.carOutput.actuatorsOutput.torque))
   co = co or [(0.0, 0.0)]
-  return [np.array(x, float) for x in (cs, ctl, cc, md, co)]
+  md = model_requests(drive)
+  return [np.array(x, float) for x in (cs, ctl, cc)] + [md, np.array(co, float)]
 
 
 def find_turns(t, curv, v):

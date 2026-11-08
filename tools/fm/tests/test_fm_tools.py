@@ -254,3 +254,33 @@ class TestTools:
     assert "TSFDOM" in run(events.main, d)
     assert "no straight engaged stretch" in run(sway.main, d, 20.0)  # 11 mph in the synthetic drive
     assert "no driver monitoring data" in run(dm.main, d)
+
+
+class TestModelRequests:
+  @staticmethod
+  def drive(lat_active, raw=-0.02, action=0.01, with_raw=True):
+    evs = []
+    for i in range(40):
+      t = i * 0.05
+      for kind in ("carControl", "modelV2") + (("modelDataV2SP",) if with_raw else ()):
+        e = log.Event.new_message()
+        e.logMonoTime = int((1000.0 + t) * 1e9) + (1000 if kind == "modelDataV2SP" else 0)
+        m = e.init(kind)
+        if kind == "carControl":
+          m.latActive = lat_active(t)
+        elif kind == "modelV2":
+          m.init("action").desiredCurvature = action
+        else:
+          m.modelCurvature = raw
+        evs.append(e)
+    return fmlog.Drive("r", [(0, "p", evs)])
+
+  def test_raw_request_while_not_steering(self):
+    out = fmlog.model_requests(self.drive(lambda t: t >= 1.0))
+    assert out.shape == (40, 2)
+    assert np.allclose(out[out[:, 0] < 0.99, 1], -0.02)
+    assert np.allclose(out[out[:, 0] > 1.01, 1], 0.01)
+
+  def test_old_logs_keep_the_action(self):
+    assert np.allclose(fmlog.model_requests(self.drive(lambda t: False, with_raw=False))[:, 1], 0.01)
+    assert np.allclose(fmlog.model_requests(self.drive(lambda t: False, raw=0.0))[:, 1], 0.01)

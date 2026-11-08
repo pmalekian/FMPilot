@@ -201,6 +201,37 @@ def load_drives(paths, each=False, keep=None):
   return drives
 
 
+def model_requests(drive):
+  """[(t, curvature)] per modelV2 frame: what the model asked for.
+
+  While openpilot steers it's modelV2.action.desiredCurvature, the request the controls follow. While it doesn't,
+  modeld (openpilot #39091, in FM Pilot since Nov 8, 2026) seeds that smoothed request from the truck's own curvature,
+  so it leans toward the driver's steering; there the raw model request, modelDataV2SP.modelCurvature (logged since the
+  Nov 5 Blendful build), is used instead. Older logs without it keep the action value throughout."""
+  T = drive.t
+  mv, raw, cc = [], [], []
+  for e in drive.evs:
+    w = e.which()
+    if w == "modelV2":
+      mv.append((T(e), e.modelV2.action.desiredCurvature))
+    elif w == "modelDataV2SP":
+      raw.append((T(e), e.modelDataV2SP.modelCurvature))
+    elif w == "carControl":
+      cc.append((T(e), float(e.carControl.latActive)))
+  out = np.array(mv, float).reshape(-1, 2)
+  raw = np.array(raw, float).reshape(-1, 2)
+  if not len(out) or not len(cc) or not len(raw) or not np.any(raw[:, 1] != 0.0):
+    return out
+  cc = np.array(cc, float)
+  i = np.clip(np.searchsorted(cc[:, 0], out[:, 0], side="right") - 1, 0, len(cc) - 1)
+  off = cc[i, 1] < 0.5
+  j = np.clip(np.searchsorted(raw[:, 0], out[:, 0]), 1, len(raw) - 1)
+  j = np.where(np.abs(raw[j - 1, 0] - out[:, 0]) <= np.abs(raw[j, 0] - out[:, 0]), j - 1, j)
+  near = np.abs(raw[j, 0] - out[:, 0]) < 0.03  # the same model frame (both are sent together)
+  out[off & near, 1] = raw[j[off & near], 1]
+  return out
+
+
 def split_runs(t, mask, gap=GAP_S):
   """Index arrays of consecutive True samples in mask, also broken wherever t jumps by more than gap seconds."""
   idx = np.flatnonzero(mask)

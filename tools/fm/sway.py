@@ -7,7 +7,7 @@ usage: sway.py rlog.zst [rlog.zst ...] [--min-mph 20] [--each]
 """
 import numpy as np
 
-from fmlog import MPH, load_drives, log_args, model_name, split_runs
+from fmlog import MPH, load_drives, log_args, model_name, model_requests, split_runs
 
 MIN_RUN = 160  # model frames (20 Hz): 8 s
 DETREND = 60   # model frames: 3 s
@@ -27,7 +27,7 @@ def main(drive, min_mph):
   cs = np.array([(T(e), e.carState.vEgo, e.carState.steeringAngleDeg, float(e.carState.steeringPressed)) for e in evs if e.which() == "carState"])
   ctl = np.array([(T(e), e.controlsState.desiredCurvature) for e in evs if e.which() == "controlsState"])
   cc = np.array([(T(e), float(e.carControl.latActive)) for e in evs if e.which() == "carControl"])
-  mv = np.array([(T(e), e.modelV2.action.desiredCurvature) for e in evs if e.which() == "modelV2"])
+  mv = model_requests(drive)
   if not (len(cs) and len(ctl) and len(cc) and len(mv)):
     print(f"{drive.label()}: missing carState / controlsState / carControl / modelV2")
     return
