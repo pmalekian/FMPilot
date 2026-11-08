@@ -383,6 +383,10 @@ struct OnroadEventSP @0xda96579883444c35 {
     bigModelReady @25;
     belowMadsMinEngageSpeed @26;
     fmLaneChangeRoadEdgeQuiet @27;
+    # Jetlink (AdventurePilot #12 / zoompilot); capnp enumerants are numbered in order, so after FM's @27
+    jetlinkReady @28;
+    jetlinkLinkLost @29;
+    jetlinkChime @30;
   }
 }
 

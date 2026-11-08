@@ -51,6 +51,7 @@ from openpilot.sunnypilot.modeld_v2.frame_fusion import fused_with_warp
 from openpilot.sunnypilot.modeld_v2.model_adapters import get_model_adapter
 from openpilot.sunnypilot.models.helpers import get_active_bundle
 from openpilot.sunnypilot.selfdrive.controls.lib.relc import RoadEdgeLaneChangeController
+from openpilot.sunnypilot import jetlink_adapter
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_lane_keep_mode import MODE_BLENDFUL, get_lane_keep_mode
 
 # FM Pilot: sunnypilot #2091 (James Vecellio-Grant, Nov 4 2026, MIT), as a setting. Action-head models output a lateral
@@ -280,7 +281,11 @@ def main(demo=False):
   cloudlog.bind(daemon=PROCESS_NAME)
   setproctitle(PROCESS_NAME)
 
-  CHESTNUT = _find_driving_pkl(get_active_bundle(chestnut=True)) is not None and (chestnut_present() or cable_connected())
+  # a Jetlink host on the USB-C port is a cable too: count the cable only while Jetlink is off (jetlink docs/porting.md)
+  CHESTNUT = _find_driving_pkl(get_active_bundle(chestnut=True)) is not None and \
+    (chestnut_present() or (cable_connected() and not jetlink_adapter.link_on()))
+  HOOKS = jetlink_adapter.hooks()
+  HOOKS.prepare(CHESTNUT)  # before going realtime: the GPU thread it starts would inherit SCHED_FIFO 54 on core 7
   if CHESTNUT:
     from tinygrad.runtime.ops_amd import AMDDevice
     AMDDevice.wait_timeout_ms = 3000
@@ -344,6 +349,9 @@ def main(demo=False):
   small_model = ModelState(cam_w=vipc_client_main.width, cam_h=vipc_client_main.height, chestnut=False) if model is None or CHESTNUT else None
   if model is None:
     model = small_model
+  # Jetlink: the joining model drives as small_model until the big model is ready; model unless prepare() said yes
+  if small_model is not None:
+    model = HOOKS.attach(model, small_model, vipc_client_main.width, vipc_client_main.height)
   params.put_bool("ChestnutLoading", False)
   assert model is not None
   cloudlog.warning(f"models loaded in {time.monotonic() - st:.1f}s, modeld starting")
@@ -478,8 +486,11 @@ def main(demo=False):
     if 'lateral_control_params' in model.numpy_inputs:
       inputs['lateral_control_params'] = np.array([v_ego, lat_delay], dtype=np.float32)
 
-    if 'action_t' in model.numpy_inputs:
-      inputs['action_t'] = np.array([lat_action_t, long_action_t], dtype=np.float32)
+    # action_t for every model: run() takes what it has a slot for, and a large model joining mid-drive over
+    # Jetlink reads it from a frame built for the small one
+    inputs['action_t'] = np.array([lat_action_t, long_action_t], dtype=np.float32)
+
+    model.frame_drop_ratio = frame_drop_ratio   # Jetlink hands a lagging big model back on it; before model.run()
 
     mt1 = time.perf_counter()
     try:
@@ -499,6 +510,8 @@ def main(demo=False):
       model_output = None
     mt2 = time.perf_counter()
     model_execution_time = mt2 - mt1
+    if HOOKS.handed_over(model):                # after model.run(): a swap's dropped frames restart the warmup
+      run_count, frame_drop_ratio = 0, 0.
 
     if model_output is not None:
       modelv2_send = messaging.new_message('modelV2')
@@ -510,7 +523,10 @@ def main(demo=False):
         prev_action.desiredCurvature = sm['controlsState'].curvature
       # Blendful only acts with no desire and no lane change (turns, lane changes stay the model's own)
       blendful_active = desire == log.Desire.none and DH.lane_change_state == log.LaneChangeState.off
-      model.action_speed_floor = action_speed_floor
+      # on the ModelStates themselves: a Jetlink joining model keeps a plain write to itself
+      for m in (model if isinstance(model, ModelState) else None, small_model):
+        if m is not None:
+          m.action_speed_floor = action_speed_floor
       action = model.get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego,
                                            partial(blendful.update, model_output, v_ego, blendful_active, enabled=blendful_enabled))
       prev_action = action

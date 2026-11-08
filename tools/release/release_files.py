@@ -21,6 +21,10 @@ blacklist = [
   ".gitmodules",
   ".run/",
   ".idea/",
+
+  # jetlink: the comma needs jetlink/, LICENSE, pyproject.toml and README.md (jetlink docs/porting.md) and runs
+  # scripts/comma/; the rest of the submodule is the Jetson's, the Mac's and the phones' (from zoompilot)
+  "^jetlink_repo/(?!jetlink/|scripts/comma/|LICENSE$|pyproject\\.toml$|README\\.md$)",
 ]
 
 # gets you through the blacklist

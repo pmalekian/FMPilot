@@ -140,6 +140,9 @@ class ModelFetcher:
   def _fetch_and_cache_models(self, source: str) -> list[custom.ModelManagerSP.ModelBundle] | None:
     """Fetches fresh model data from remote and updates cache.
     Returns None on transport errors. Raises on 404 and other fatal HTTP errors.
+
+    Deliberately not replaced by Jetlink's model index (its model-list hooks): the
+    model manager keeps the catalog it fetched itself (see the jetlink adapter).
     """
     model_url, _ = self.MODEL_SOURCES[source]
     try:
