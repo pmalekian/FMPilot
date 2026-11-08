@@ -60,9 +60,14 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
   `selfdrive/modeld` (SConscript, helpers, stock modeld, dmonitoringmodeld loading) moved to sunnypilot's, because the
   new tinygrad dropped `--device-input` and changed Buffer/UOp APIs. **DM model file unchanged** (FM's Aug model; sunnypilot
   has openpilot's newer Sep "Super Leicht", not taken). FM's own: Blendful hook kept in modeld_v2; load_oob rejoins
-  chunked files (FM prebuilds still chunk >95 MB). Not taken: #2091 (parked), #2092 (CI), .github changes.
+  chunked files (FM prebuilds still chunk >95 MB). Not taken: #2092 (CI), .github changes.
 - Also new from upstream: modeld_v2 and stock modeld seed the previous curvature from `controlsState` while lateral is
-  off (openpilot #39091), chestnut retry; `modeld_warmup` runs offroad.
+  off (openpilot #39091), chestnut retry; `modeld_warmup` runs offroad. Because of #39091, `tools/fm` now reads the raw
+  `modelDataV2SP.modelCurvature` as "model asked" while lateral is off (`fmlog.model_requests`).
+- **Calmer Crawl-Speed Steering** (`FM_LowSpeedCurvatureFloor`, Steering > FM Pilot: Turn Tweaks, **off**): sunnypilot
+  #2091 as a setting. Speed floor 2.5 m/s instead of 1.0 when turning the action into curvature: below 5.6 mph the
+  request drops (64% at 4.5 mph, 16% at 2.2 mph). Calms crawl twitch; may soften turns from a stop. Try as its own drive
+  on the same corners, with and without.
 - Off-device tests: modeld_v2 121 pass, models 28 pass (onnx hash test fails only because LFS isn't pulled); no new
   failures vs `60ddd2a` across sunnypilot/modeld/ui/controls tests.
 - **First boot:** build takes longer (DM and stock model recompile). The saved v23 selection (selector 20) no longer
@@ -96,8 +101,7 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
   Personality Settings and Smart Cruise > Curve Speed Settings pages. Sub-page links may render after a section's items.
 - **First log check:** Sunnylink shows Lane Centering before driving; `modelDataV2SP.blendfulCurvature` 0 all drive;
   lane centering active as before; plus the Higher Torque check below.
-- Also discussed, parked: sunnypilot #2083 (Set Speed Assist, a candidate 4th Accel Boost mode), #2091 (low-speed
-  action curvature floor), #2034 (smoother final stop), openpilot #39059 (torqued long-accel filter), #39225 (e2e
+- Also discussed, parked: sunnypilot #2083 (Set Speed Assist, a candidate 4th Accel Boost mode), #2034 (smoother final stop), openpilot #39059 (torqued long-accel filter), #39225 (e2e
   curve speed). Predictive Boost math in sunnypilot master (#2089) matches ours.
 
 ### 1. Higher Torque: working; Max Torque slider, faster ramp and full cap past 90° built, not yet driven
