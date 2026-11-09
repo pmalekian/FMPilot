@@ -1,29 +1,35 @@
-from types import SimpleNamespace
-
-from openpilot.selfdrive.ui.sunnypilot.onroad.fm_jetlink_icon import ACTIVE, LOADING, jetlink_icon_state
-
-
-def status(enabled=True, progress=None):
-  return SimpleNamespace(enabled=enabled, progress=progress)
+"""FM Pilot: the model icon's state for Jetlink comes from jetlink's own Status.icon()."""
+from jetlink.openpilot.status import Status
+from openpilot.selfdrive.ui.sunnypilot.onroad.fm_jetlink_icon import icon_state, stays_on
+from openpilot.selfdrive.ui.ui_state import ChestnutState
 
 
-def test_green_while_the_big_model_drives():
-  assert jetlink_icon_state(False, status(), True, True) == ACTIVE
-  assert jetlink_icon_state(False, status(progress={"stage": "join", "frac": 0.5}), True, True) == ACTIVE
+def view(**kw):
+  base = Status(enabled=True, mode='usb', transport='USB', present=True, port='host', ready=True, reason=None,
+                progress=None, model='Big', default_model='Big')
+  return base._replace(**kw)
 
 
-def test_pulsing_while_preparing_or_joining():
-  assert jetlink_icon_state(False, status(progress={"stage": "build", "frac": 0.2}), True, False) == LOADING
-  assert jetlink_icon_state(False, status(progress={"stage": "join"}), False, False) == LOADING
+def state(v, started, model_seen=True, running_big=False):
+  return ChestnutState(icon_state(v, started, model_seen, running_big))  # every answer is a ChestnutState
 
 
-def test_nothing_otherwise():
-  assert jetlink_icon_state(False, status(), True, False) is None
-  assert jetlink_icon_state(False, status(progress={"stage": "ready"}), True, False) is None
-  assert jetlink_icon_state(False, status(enabled=False), True, True) is None
-  assert jetlink_icon_state(False, None, True, True) is None
-  assert jetlink_icon_state(False, status(), False, True) is None  # stale modelV2
+def test_parked():
+  assert state(view(progress={'stage': 'download', 'frac': 0.3}), False) == ChestnutState.LOADING  # pulsing
+  assert state(view(), False) == ChestnutState.READY                                                # green
+  assert state(view(progress={'stage': 'failed'}), False) == ChestnutState.FAILED                   # orange
+  assert state(view(present=False), False) == ChestnutState.DISCONNECTED                             # no icon
 
 
-def test_a_chestnut_keeps_its_own_icon():
-  assert jetlink_icon_state(True, status(), True, True) is None
+def test_driving():
+  assert state(view(running='joining'), True) == ChestnutState.LOADING                    # pulsing
+  assert state(view(running='ready'), True) == ChestnutState.WAITING                      # dimmed: disengage to switch
+  assert state(view(running='running'), True, running_big=True) == ChestnutState.ACTIVE   # green
+  assert state(view(running='unavailable'), True) == ChestnutState.FAILED                 # orange
+  assert state(view(running=None), True) == ChestnutState.FAILED                          # no live modeld record
+
+
+def test_only_jetlinks_green_stays_on_the_road_view():
+  assert stays_on('active', True) and stays_on('waiting', True)
+  assert not stays_on('active', False)                       # a chestnut's green fades as before
+  assert not stays_on('loading', True) and not stays_on('failed', True)

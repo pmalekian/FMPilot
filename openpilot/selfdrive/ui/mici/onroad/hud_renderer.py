@@ -263,26 +263,28 @@ class HudRenderer(Widget):
     if ui_state.sm.recv_frame['selfdriveState'] < ui_state.started_frame:
       return
 
-    # FM Pilot: Jetlink's big model gets the same icon, green for as long as it drives (fm_jetlink_icon)
-    jetlink = fm_jetlink_icon.jetlink_icon_state(ui_state.chestnut_present, ui_state.jetlink, ui_state.sm.alive['modelV2'],
-                                                 ui_state.sm['modelV2'].big)
-    loading = ui_state.chestnut_state == ChestnutState.LOADING or jetlink == fm_jetlink_icon.LOADING
+    loading = ui_state.chestnut_state == ChestnutState.LOADING
     if loading:
       icon = self._txt_chestnut
       opacity = 0.35 + 0.65 * (0.5 - 0.5 * math.cos(rl.get_time() * 6.0))
     elif ui_state.chestnut_state in (ChestnutState.UNCOMPILED, ChestnutState.FAILED):
       icon = self._txt_chestnut_orange
       opacity = 1.0
-    elif ui_state.chestnut_state == ChestnutState.ACTIVE or jetlink == fm_jetlink_icon.ACTIVE:
+    elif ui_state.chestnut_state == ChestnutState.ACTIVE:
       icon = self._txt_chestnut_green
       opacity = 1.0
+    elif ui_state.chestnut_state == ChestnutState.WAITING:  # FM Pilot: Jetlink ready, disengage fully to switch
+      icon = self._txt_chestnut_green
+      opacity = fm_jetlink_icon.DIMMED
     else:
       return
 
     if icon is not self._chestnut_icon:
       self._chestnut_fade_time = rl.get_time()
       self._chestnut_icon = icon
-    visible = loading or jetlink == fm_jetlink_icon.ACTIVE or rl.get_time() - self._chestnut_fade_time < SET_SPEED_PERSISTENCE
+    # FM Pilot: Jetlink's green and dimmed green stay on (fm_jetlink_icon); the chestnut's fade as before
+    stays = fm_jetlink_icon.stays_on(ui_state.chestnut_state.value, ui_state.jetlink_view is not None)
+    visible = loading or stays or rl.get_time() - self._chestnut_fade_time < SET_SPEED_PERSISTENCE
     alpha = self._chestnut_alpha_filter.update(visible)
     if alpha < 1e-2:
       return

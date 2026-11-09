@@ -1,22 +1,27 @@
-"""FM Pilot: the road view's model icon for Jetlink.
+"""FM Pilot: Jetlink drives the comma's model icon, on the home screen and the road view.
 
-The icon next to the steering wheel shows the chestnut's big model, and only while a chestnut is fitted. With Jetlink
-the big model runs on the computer on the USB-C port instead, so nothing showed which model drives. This picks the
-same icon for Jetlink: pulsing while the big model is being prepared or is joining, green for as long as it drives
-(modelV2.big). None leaves the chestnut's own icon logic in charge.
+The icon (chestnut icons) shows the chestnut's big model. With Jetlink the big model runs on the computer on the
+USB-C port instead, so the icon follows Jetlink, as zoompilot does (zoompilot develop 92e1ecb, ui_state_zp.py
+`_jetlink_state` and mici home `_set_chestnut_visibility`, Zeph Leggett, MIT; jetlink docs/using-jetlink.md):
+
+  pulsing      the big model is downloading or being prepared (parked), or joining (driving)
+  green        ready (parked) or driving (onroad)
+  dimmed green ready, waiting for a switch: disengage fully
+  orange       a problem: read the home screen's alert
+
+The state comes from jetlink's own Status.icon(). Onroad it needs the joining model's state; zoompilot publishes
+that in its own message, FM reads the same value from jetlink's runtime record (Status.running).
+FM change: on the road view the green and dimmed green stay on (the chestnut's own green fades after 2.5 s).
 """
 
-ACTIVE = "active"
-LOADING = "loading"
+DIMMED = 0.5  # zoompilot's opacity for the waiting icon
 
 
-def jetlink_icon_state(chestnut_present: bool, jetlink, model_alive: bool, model_big: bool) -> str | None:
-  """jetlink: ui_state.jetlink (jetlink's Status, refreshed in the params pass), or None."""
-  if chestnut_present or jetlink is None or not jetlink.enabled:
-    return None
-  if model_alive and model_big:
-    return ACTIVE
-  progress = jetlink.progress
-  if progress and str(progress.get("stage", "")) not in ("", "ready"):
-    return LOADING
-  return None
+def icon_state(view, started: bool, model_seen: bool, running_big: bool) -> str:
+  """A ChestnutState value for the link. view: jetlink's Status (ui_state.jetlink_view)."""
+  return view.icon(started, model_seen, running_big, view.running or 'none')
+
+
+def stays_on(state: str, from_jetlink: bool) -> bool:
+  """Road view: Jetlink's green and dimmed green stay as long as they hold, instead of fading."""
+  return from_jetlink and state in ('active', 'waiting')

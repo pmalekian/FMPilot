@@ -17,6 +17,7 @@ from openpilot.selfdrive.modeld.helpers import chestnut_compiled
 
 from openpilot.selfdrive.ui.sunnypilot.ui_state import UIStateSP, DeviceSP
 from openpilot.sunnypilot import jetlink_adapter
+from openpilot.selfdrive.ui.sunnypilot.onroad import fm_jetlink_icon
 
 BACKLIGHT_OFFROAD = 65 if HARDWARE.get_device_type() == "mici" else 50
 PARAM_UPDATE_TIME = 1 / 5.0
@@ -37,6 +38,8 @@ class ChestnutState(Enum):
   LOADING = "loading"
   ACTIVE = "active"
   FAILED = "failed"
+  # FM Pilot (from zoompilot): Jetlink only, onroad: the big model is ready and waits for a switch window
+  WAITING = "waiting"
 
 
 class UIState(UIStateSP):
@@ -221,7 +224,19 @@ class UIState(UIStateSP):
 
       self._started_prev = self.started
 
+  @property
+  def jetlink_view(self):
+    """FM Pilot (from zoompilot): jetlink's Status when the model icon is the link's: no chestnut fitted, and
+    something to show (the link on, a host on the port, or progress)."""
+    return self.jetlink if self.jetlink is not None and self.jetlink.shown else None
+
   def _update_chestnut_state(self) -> None:
+    if (view := self.jetlink_view) is not None:
+      model_seen = self.sm.recv_frame["modelV2"] > self.started_frame
+      running_big = self.sm.alive["modelV2"] and self.sm["modelV2"].big
+      self.chestnut_state = ChestnutState(fm_jetlink_icon.icon_state(view, self.started, model_seen, running_big))
+      return
+
     detected = self.sm["deviceState"].chestnutPresent
     if not self.started:
       self.chestnut_present = detected
@@ -275,7 +290,9 @@ class UIState(UIStateSP):
         self.usb_connected_ts = now
         self.usb_unknown = False
       elif self.usb_connected_ts is not None and now - self.usb_connected_ts > 10.:
-        self.usb_unknown = not any(is_chestnut_usb_id(d["vendorId"], d["productId"], True) for d in get_usb_state())
+        # a Jetlink host is known too: the comma is its USB gadget and enumerates nothing (from zoompilot)
+        self.usb_unknown = not (self.jetlink_view is not None or
+                                any(is_chestnut_usb_id(d["vendorId"], d["productId"], True) for d in get_usb_state()))
         self.usb_connected_ts = None
     elif self.usb_connected:
       if self.usb_disconnected_ts is None:
@@ -284,6 +301,10 @@ class UIState(UIStateSP):
         self.usb_connected = False
         self.usb_connected_ts = None
         self.usb_unknown = False
+
+    # Jetlink's host can show up after the one-time usb_unknown decision (a Jetson configures ~25 s after boot)
+    if (view := self.jetlink_view) is not None and view.present and self.usb_unknown:
+      self.usb_unknown = False
 
     UIStateSP.update_params(self)
 
