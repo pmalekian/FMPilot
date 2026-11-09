@@ -85,6 +85,8 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 - Frankie's host: MacBook M1 Pro (tested platform; ~20 s prepare, up to 10 s load). Needs a USB 3 data cable, the comma
   powered from the harness (Jetlink cuts USB-C draw at boot when on), the Mac on its own power and awake. S25 Ultra
   Android app is experimental.
+- Road view icon (Nov 9): the chestnut model icon by the steering wheel now also shows Jetlink: pulsing while preparing
+  or joining, green for as long as `modelV2.big` (the big model drives). Before, it only showed with a real chestnut.
 - Off-device: adapter conformance, both modeld seams, joining-model contract, fallback: pass. Not run on a device.
 - Order: drive v25 on `fm-dev-set` first; then `fm-dev-jet` with Jetlink off (same as fm-dev-set); then on, parked first.
 

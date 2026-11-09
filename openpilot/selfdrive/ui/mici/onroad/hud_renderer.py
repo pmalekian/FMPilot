@@ -11,6 +11,7 @@ from openpilot.system.ui.widgets import Widget
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.cereal import log
 from openpilot.selfdrive.ui.sunnypilot.onroad.fm_torque_readout import TURN_NOTICE_TYPES, make_readout
+from openpilot.selfdrive.ui.sunnypilot.onroad import fm_jetlink_icon
 
 EventName = log.OnroadEvent.EventName
 
@@ -262,14 +263,17 @@ class HudRenderer(Widget):
     if ui_state.sm.recv_frame['selfdriveState'] < ui_state.started_frame:
       return
 
-    loading = ui_state.chestnut_state == ChestnutState.LOADING
+    # FM Pilot: Jetlink's big model gets the same icon, green for as long as it drives (fm_jetlink_icon)
+    jetlink = fm_jetlink_icon.jetlink_icon_state(ui_state.chestnut_present, ui_state.jetlink, ui_state.sm.alive['modelV2'],
+                                                 ui_state.sm['modelV2'].big)
+    loading = ui_state.chestnut_state == ChestnutState.LOADING or jetlink == fm_jetlink_icon.LOADING
     if loading:
       icon = self._txt_chestnut
       opacity = 0.35 + 0.65 * (0.5 - 0.5 * math.cos(rl.get_time() * 6.0))
     elif ui_state.chestnut_state in (ChestnutState.UNCOMPILED, ChestnutState.FAILED):
       icon = self._txt_chestnut_orange
       opacity = 1.0
-    elif ui_state.chestnut_state == ChestnutState.ACTIVE:
+    elif ui_state.chestnut_state == ChestnutState.ACTIVE or jetlink == fm_jetlink_icon.ACTIVE:
       icon = self._txt_chestnut_green
       opacity = 1.0
     else:
@@ -278,7 +282,7 @@ class HudRenderer(Widget):
     if icon is not self._chestnut_icon:
       self._chestnut_fade_time = rl.get_time()
       self._chestnut_icon = icon
-    visible = loading or rl.get_time() - self._chestnut_fade_time < SET_SPEED_PERSISTENCE
+    visible = loading or jetlink == fm_jetlink_icon.ACTIVE or rl.get_time() - self._chestnut_fade_time < SET_SPEED_PERSISTENCE
     alpha = self._chestnut_alpha_filter.update(visible)
     if alpha < 1e-2:
       return
