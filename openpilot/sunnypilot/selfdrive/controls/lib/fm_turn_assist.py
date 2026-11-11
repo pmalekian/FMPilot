@@ -26,6 +26,11 @@ only change the requested curvature, so every steering limit after them still ap
     truck has started turning; steering against the turn still releases it at once. Hand
     torque toward the turn is the same direction openpilot steers, so the wheel's own reaction (which reads against
     openpilot) can't trigger it. From StarPilot's Model Turn Assist curvature hold (driver-confirmed wind).
+    Option Hold Through Early Correction: at the start of a turn (under 5 mph and before the truck has turned 20
+    degrees), steering against the turn, for example straightening the truck before turning, doesn't release the hold.
+    While you steer, the model's request passes through and the hold's fade is paused; once you let go it carries on
+    from the same peak. Past 5 mph or 20 degrees, steering against the turn releases it as before. Straightening also
+    doesn't count against the 75 degrees.
   - Turn Lead starts the turn on time when a model turns in late. Between Turn Lead Min Speed (2 to 7 mph, default 7;
     full strength about 2.2 mph above it) and about 16 mph it reads the curve of the planned path 1.3 s ahead (4 to
     14 m) and, if that bends harder toward the turn than the model's request, asks for 85% of it instead. It fades out
@@ -59,6 +64,7 @@ PARAM_LEAD_MIN_SPEED = "FM_TurnLeadMinSpeed"  # mph
 PARAM_HOLD_PATH = "FM_TurnHoldPathSource"
 PARAM_TURN_NUDGE = "FM_TurnNudgeEnabled"
 PARAM_HOLD_DRIVER = "FM_TurnHoldDriverAdds"
+PARAM_HOLD_EARLY = "FM_TurnHoldEarlyCorrection"
 PARAM_MIN_RADIUS = "FM_TurnPathMinRadius"
 
 BOOST_LIMITS = (1.0, 1.5)
@@ -70,6 +76,8 @@ HOLD_DECAY = 0.15  # fraction of the peak per second, after the peak
 HOLD_MAX_HEADING = math.radians(75.)
 HOLD_MAX_TIME = 8.0  # s of moving
 HOLD_MOVING_SPEED = 0.5  # m/s
+HOLD_EARLY_MAX_SPEED = 5 * CV.MPH_TO_MS  # Hold Through Early Correction: the start of a turn is under this speed
+HOLD_EARLY_MAX_HEADING = math.radians(20.)  # and before the truck has turned this much
 
 # Turn Lead (from StarPilot's TURN_LEAD_*)
 LEAD_TIME = 1.3  # s of travel to the path point it reads
@@ -174,6 +182,7 @@ class FmTurnAssist:
     self.lead_min_speed = LEAD_MIN_SPEED_DEFAULT * CV.MPH_TO_MS
     self.hold_path = False
     self.hold_driver = False
+    self.hold_early = False
     self.max_curvature = 1.0 / MIN_RADIUS_DEFAULT
     self.amount = 0.0  # 0..1 fade
     self._reset_turn(0)
@@ -200,6 +209,7 @@ class FmTurnAssist:
     self.lead_min_speed = float(np.clip(mph, *LEAD_MIN_SPEED_LIMITS)) * CV.MPH_TO_MS
     self.hold_path = self.params.get_bool(PARAM_HOLD_PATH)
     self.hold_driver = self.params.get_bool(PARAM_HOLD_DRIVER)
+    self.hold_early = self.params.get_bool(PARAM_HOLD_EARLY)
     self.nudge_enabled = self.params.get_bool(PARAM_TURN_NUDGE)
     try:
       radius = float(self.params.get(PARAM_MIN_RADIUS, return_default=True) or MIN_RADIUS_DEFAULT)
@@ -337,7 +347,13 @@ class FmTurnAssist:
       # the truck's curve is only adopted once it is actually turning that way.
       into_turn = steering_pressed and self.hold_driver and sign * steering_torque < 0.0
       driver_adds = into_turn and sign * actual_curvature > HOLD_DRIVER_MIN_CURVATURE
-      if (steering_pressed and not into_turn) or self.heading >= HOLD_MAX_HEADING or self.turn_time >= HOLD_MAX_TIME:
+      against = steering_pressed and not into_turn
+      early_correction = (steering_pressed and sign * steering_torque > 0.0 and self.hold_early and v_ego < HOLD_EARLY_MAX_SPEED
+                          and self.heading < HOLD_EARLY_MAX_HEADING and self.turn_time < HOLD_MAX_TIME)
+      if early_correction:
+        # Straightening before the turn: pass the request through, pause the fade, keep the peak; don't release
+        self.heading = max(self.heading, 0.0)
+      elif against or self.heading >= HOLD_MAX_HEADING or self.turn_time >= HOLD_MAX_TIME:
         self.hold_released = True
       else:
         if driver_adds:

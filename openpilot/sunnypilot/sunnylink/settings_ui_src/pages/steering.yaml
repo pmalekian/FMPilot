@@ -684,6 +684,16 @@ sections:
       - type: param
         key: FM_TurnHoldEnabled
         equals: true
+    - key: FM_TurnHoldEarlyCorrection
+      widget: toggle
+      title: Hold Through Early Correction
+      description: At the start of a turn (under 5 mph, before the truck has turned 20 degrees), steering against the turn,
+        like straightening the truck before turning, doesn't release Turn Hold. It picks up again when you let go. Later in
+        the turn or above 5 mph, steering against the turn still releases it.
+      enablement:
+      - type: param
+        key: FM_TurnHoldEnabled
+        equals: true
   - id: turn_lead_settings
     label: Turn Lead Settings
     trigger_key: FM_TurnLeadEnabled

@@ -8,7 +8,7 @@ from openpilot.common.realtime import DT_CTRL
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_assist import (FmTurnAssist, TurnDirection, PARAM_BOOST, PARAM_BOOST_LEFT,
                                                                          PARAM_BOOST_RIGHT, PARAM_HOLD, HOLD_MAX_HEADING, FADE_TIME,
                                                                          PARAM_LEAD, PARAM_MIN_RADIUS, MIN_RADIUS_DEFAULT, PARAM_HOLD_PATH,
-                                                                         PARAM_HOLD_DRIVER, PARAM_LEAD_MIN_SPEED,
+                                                                         PARAM_HOLD_DRIVER, PARAM_LEAD_MIN_SPEED, PARAM_HOLD_EARLY,
                                                                          plan_circle_curvature)
 
 LEFT, RIGHT, NONE = TurnDirection.turnLeft, TurnDirection.turnRight, TurnDirection.none
@@ -18,7 +18,7 @@ FADE_STEPS = int(FADE_TIME / DT_CTRL) + 2
 class FakeParams:
   def __init__(self, **values):
     self.values = {PARAM_BOOST: False, PARAM_BOOST_LEFT: 1.1, PARAM_BOOST_RIGHT: 1.2, PARAM_HOLD: False, PARAM_LEAD: False,
-                   PARAM_HOLD_PATH: False, PARAM_HOLD_DRIVER: False, PARAM_LEAD_MIN_SPEED: 7.0,
+                   PARAM_HOLD_PATH: False, PARAM_HOLD_DRIVER: False, PARAM_HOLD_EARLY: False, PARAM_LEAD_MIN_SPEED: 7.0,
                    PARAM_MIN_RADIUS: MIN_RADIUS_DEFAULT} | values
 
   def get_bool(self, key):
@@ -314,6 +314,61 @@ class TestHoldDriverAdds:
   def test_needs_turn_hold_on(self):
     a = FmTurnAssist(FakeParams(**{PARAM_HOLD_DRIVER: True}))
     assert run(a, 0.03, RIGHT, steps=FADE_STEPS, pressed=True, torque=self.INTO_RIGHT, actual=0.06) == 0.03
+
+
+class TestHoldEarlyCorrection:
+  # hand torque is positive to the LEFT; curvature positive to the RIGHT
+  AGAINST_RIGHT, AGAINST_LEFT, INTO_RIGHT = 1.5, -1.5, -1.5
+
+  def hold(self, early=True, **values):
+    return FmTurnAssist(FakeParams(**({PARAM_HOLD: True, PARAM_HOLD_EARLY: early} | values)))
+
+  def test_off_still_releases(self):
+    a = self.hold(early=False)
+    run(a, 0.09, RIGHT, mph=3, steps=FADE_STEPS, actual=0.0)
+    run(a, 0.0, RIGHT, mph=3, pressed=True, torque=self.AGAINST_RIGHT, actual=-0.005)
+    assert a.hold_released
+
+  def test_straightening_at_the_start_keeps_the_hold(self):
+    a = self.hold()
+    run(a, 0.09, RIGHT, mph=3, steps=FADE_STEPS, actual=0.0)
+    # while you steer, the model's request passes through
+    assert run(a, 0.0, RIGHT, mph=3, steps=20, pressed=True, torque=self.AGAINST_RIGHT, actual=-0.005) == 0.0
+    assert not a.hold_released
+    # let go: the hold carries on from the same peak, its fade paused while you steered
+    assert run(a, 0.03, RIGHT, mph=3, actual=0.0) == pytest.approx(0.09 * 0.9, rel=0.01)
+
+  def test_left_turn(self):
+    a = self.hold()
+    run(a, -0.09, LEFT, mph=3, steps=FADE_STEPS, actual=0.0)
+    run(a, 0.0, LEFT, mph=3, pressed=True, torque=self.AGAINST_LEFT, actual=0.005)
+    assert not a.hold_released
+    assert run(a, -0.03, LEFT, mph=3, actual=0.0) == pytest.approx(-0.09 * 0.9, rel=0.01)
+
+  def test_at_5_mph_releases(self):
+    a = self.hold()
+    run(a, 0.09, RIGHT, mph=6, steps=FADE_STEPS, actual=0.0)
+    run(a, 0.0, RIGHT, mph=6, pressed=True, torque=self.AGAINST_RIGHT, actual=0.0)
+    assert a.hold_released
+
+  def test_late_in_the_turn_releases(self):
+    a = self.hold()
+    k, v = 0.1, 3 * CV.MPH_TO_MS
+    run(a, k, RIGHT, mph=3, steps=int(math.radians(25) / (k * v * DT_CTRL)))  # turned 25 degrees
+    run(a, 0.05, RIGHT, mph=3, pressed=True, torque=self.AGAINST_RIGHT, actual=0.05)
+    assert a.hold_released
+
+  def test_straightening_doesnt_add_to_the_turn_left(self):
+    a = self.hold()
+    run(a, 0.09, RIGHT, mph=3, steps=FADE_STEPS, actual=0.0)
+    run(a, 0.0, RIGHT, mph=3, steps=50, pressed=True, torque=self.AGAINST_RIGHT, actual=-0.05)
+    assert a.heading == 0.0
+
+  def test_steering_into_the_turn_without_hold_adds_still_releases(self):
+    a = self.hold()
+    run(a, 0.09, RIGHT, mph=3, steps=FADE_STEPS, actual=0.0)
+    run(a, 0.0, RIGHT, mph=3, pressed=True, torque=self.INTO_RIGHT, actual=0.0)
+    assert a.hold_released
 
 
 class TestTurnLead:
