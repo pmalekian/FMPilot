@@ -75,6 +75,29 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
   (from the code, not yet seen on the device); leave it offroad for the warmup. **Check before driving:** DM works (face seen, no DM faults), model label/picker
   shows the selected model, no modeld errors. Then try Cheddar as its own drive.
 
+### 0e. Turn desire fixes on `fm-dev-jet` (Nov 11): built, not driven
+
+From `0000005e--e26703ace2--2` (Nov 9 build, Cheddar, Road Edge Turn Desire on): a left turn after a 12 s stop.
+- **The turn desire did not drop.** turnLeft was held from the previous segment through the stop until 20 s. What felt
+  like letting go: (1) the model's desire pulse had aged out of its 5 s history (`desireState` read "none" while
+  waiting), so pulling away it asked ~305 m then ~47 m radius while the truck drove ~69 m then ~24 m (he steered);
+  (2) **openpilot never steers at a standstill** (`controlsd`: `latActive` needs `vEgo > 0.3` unless
+  `steerAtStandstill`); MADS stays enabled, `latActive` came back at 12.89 s; (3) an `e2eChime` alert covered the
+  "Turning Left" banner 11.2 to 14.2 s.
+- **Rivian blind spot is reported** with the long harness upgrade (`carstate_ext.py`, `enableBsm`), and AP's Lane Turn
+  Desire drops the turn while it's lit. Not the cause in this log (no BSM). `tools/fm` doesn't read BSM yet.
+- He keeps Road Edge Turn Desire **off** now (false edges, especially on lefts).
+- `4ef32d0` Road Edge Turn Desire: turns under 20 mph start without openpilot steering, like AP's, so they start (and
+  restart on a blinker cycle) while stopped. Road-edge turns from 20 mph still need it.
+- `792475a` **Turn Pulse on Pull-Away** (`FM_TurnPulseOnPullAway`, Models > Model Behavior, off): once stopped during a
+  held turn, `DesireHelper.model_desire` drops to none for one model frame at 0.3 m/s, so the model gets a fresh pulse.
+  Both modeld's feed `DH.model_desire`; `DH.desire`, `laneTurnDirection`, alert, Turn Assist, Blendful unchanged.
+  Replayed on the log above: fires once, at 12.89 s. Works with AP's Lane Turn Desire (Road Edge off).
+- `ced5574` Turn Hold option **Hold Through Early Correction** (`FM_TurnHoldEarlyCorrection`, off): under 5 mph and
+  under 20 degrees turned, hand torque against the turn doesn't release Turn Hold (request passes through, fade paused,
+  same peak after). Later/faster still releases. Only matters with Turn Hold on (it was off in this log).
+- Test: Turn Pulse on, Road Edge off, corners with a long wait; compare turn-in with earlier logs (`turns.py`).
+
 ### 0d. Lateral Smoothing setting on `fm-dev-jet` (Nov 11): built, off, not driven
 
 - Why: Cheddar's lateral felt bad. Cheddar's list entry has `lat` .0 (unsmoothed), TSFDOM's has .1 (not re-verified in the
