@@ -75,6 +75,34 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
   (from the code, not yet seen on the device); leave it offroad for the warmup. **Check before driving:** DM works (face seen, no DM faults), model label/picker
   shows the selected model, no modeld errors. Then try Cheddar as its own drive.
 
+### 0f. Torque: the ramp, not the cap, holds slow turns back (Nov 11 logs); `turns.py` torque line (`7b61af6`)
+
+- **Logs:** `00000061--142cb659d9--10/14/15` (Cheddar, build `2eaf5852`, Max Torque 580, Faster Ramp on, Full Torque Past
+  90° on, Turn Lead/Hold/Boost off) and `00000067--4e0a74a75c--0` (Rebel Legion, `72bb922`, Max Torque 580, Faster Ramp
+  on, Full Torque Past 90° **off**, Turn Pulse on). Both had Lane Turn Desire on.
+- **With 580 the cap is rarely the limit.** `00000061`: torque sat at 580 only in the `--10` +12.9 s right turn (1.3 s, 14
+  mph, hands off) and about 0.5 s in `--15` +45-46.5 s. `00000067`: never; peak 511, limit 551 past 90° (95% of 580).
+  Torque climbs at 5 per message (about 490 per second, ~1.2 s to 580) and the request often eased off first.
+  Unwinding is slow the same way: when the request flips, sent torque decays at 5 per message (`STEER_DELTA_DOWN`)
+  (`--10` +14.2 to 15.3 s: asked +580 while sent was still -450 to -35). The Nov 4 "at the cap" finding was at 385.
+- **`turns.py` fix:** the old "torque at limit" column was the controller request at 95% of the base 385 curve, which
+  read 61-83% of slow turns. Each turn now has a second line from the logged limit (`carStateSP.fmSteerCap`) and sent
+  torque (`torqueOutputCan`): peak sent vs limit, and shares at limit / climbing / held / unwinding. Older logs fall back
+  to the speed curve and say so. Details in `tools/fm/README.md`.
+- **Software delay:** `LagdToggle` off, `LagdToggleDelay` 0.10 + Rivian `steerActuatorDelay` 0.15 = 0.25 s; the learned
+  delay in these logs is 0.242 s (calibrated, std at most 0.006). Not a cause of late or wide turns.
+- **Cheddar** under-turns and goes wide, in his drives. Both Cheddar and TSFDOM are generation 12, 20 Hz, small models in
+  the sunnypilot list; the only listed difference is lat smoothing (.0 vs .1), which can't make a model ask for less.
+  Treated as a model issue. Its comma PR (#39255) is still open as a development model.
+- **Lat/long smoothing (explained in chat, nothing built):** sunnypilot's list sets them per model (OPM16D .1/.3, Rebel
+  Legion .1/.3, Rebellious Hope .1/.3, TSFDOM .1/.3, Cheddar .0/.3; chestnut v28 is all .0); comma's own `modeld.py` had
+  0.0/0.3 at OPM16D and TSFDOM, 0.1/0.1 at Rebel Legion. The value filters the model's request and is also added to the
+  delay the model plans for (reads further ahead). Long only affects speed, never steering.
+- **Proposed, not built:** drive TSFDOM with Full Torque Past 90° on and Turn Lead on (min 2 mph); Turn Hold + Hold Adds
+  Your Steering as its own drive. Then maybe a release guard (limit torque built against him while he steers into a turn),
+  and lat smoothing 0.0 only during turn desires (0.1 otherwise, TSFDOM). A faster ramp up or down is a panda safety
+  limit: **discuss with him first, no code until he agrees.**
+
 ### 0e. Turn desire fixes on `fm-dev-jet` (Nov 11): built, not driven
 
 From `0000005e--e26703ace2--2` (Nov 9 build, Cheddar, Road Edge Turn Desire on): a left turn after a 12 s stop.
@@ -257,6 +285,7 @@ From `0000005e--e26703ace2--2` (Nov 9 build, Cheddar, Road Edge Turn Desire on):
 ## Next steps
 
 0. Update the comma to `fm-dev-set` (v25), do the first-boot checks in item 00, re-select TSFDOM, then try Cheddar.
+0a. Drive TSFDOM with Full Torque Past 90° on and Turn Lead on (item 0f), then Turn Hold + Hold Adds Your Steering, each as its own drive.
 1. Torque test day on `fm-dev-set` (item 1 test plan). Then decide the Max Torque number and drop the slider.
 2. Radar settings test (above).
 3. Smoother stops: his answers to item 5, then decide whether to build the taper (off by default).
