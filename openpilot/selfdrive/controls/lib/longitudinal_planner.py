@@ -65,7 +65,7 @@ class LongitudinalPlanner(LongitudinalPlannerSP):
     self.fcw = False
     self.dt = dt
     self.allow_throttle = True
-    self.accel_boost = FmBoostMode(Params())  # FM Pilot: No Boost / Gas Boost / Predictive Boost (FM_AccelBoostMode)
+    self.accel_boost = FmBoostMode(Params())  # FM Pilot: No Boost / Gas / Predictive / Set Speed Assist (FM_AccelBoostMode)
 
     self.v_desired_filter = FirstOrderFilter(init_v, 2.0, self.dt)
     self.a_cruise = init_a
@@ -148,8 +148,8 @@ class LongitudinalPlanner(LongitudinalPlannerSP):
                                      accel_coast, self.allow_throttle)
     cruise_should_stop = should_stop(v_ego, self.a_cruise)
 
-    # FM Pilot: the selected boost (Gas or Predictive, see fm_boost_mode.py). Only raises the model (e2e) target; each boost fades
-    # out before the model brakes hard (Gas below -1 m/s^2, Predictive below -0.7 m/s^2).
+    # FM Pilot: the selected boost (Gas, Predictive or Set Speed Assist, see fm_boost_mode.py). Only raises the model (e2e) target;
+    # each boost fades out before the model brakes hard (Gas below -1 m/s^2, Predictive below -0.7, Set Speed Assist below -0.5).
     output_a_target_e2e = self.accel_boost.update(sm, output_a_target_e2e, output_a_target_mpc, self.a_cruise)
 
     candidates = [(output_a_target_mpc, self.mpc.source, output_should_stop_mpc),

@@ -1261,7 +1261,7 @@
                   "key": "FM_AccelBoostMode",
                   "widget": "multiple_button",
                   "title": "Accel Boost",
-                  "description": "Adds a little acceleration on top of the model's. Gas Boost: after you press the gas while the model holds the car below what the lead and set speed allow, adds up to +0.2 m/s\u00b2 for that engagement. Predictive Boost: adds acceleration whenever the model predicts no reason to slow, sized by driving personality (up to +0.4 m/s\u00b2 aggressive, +0.25 standard, +0.1 relaxed); fades out in tight curves and when the model wants to stop. Only one can be on.",
+                  "description": "Adds a little acceleration on top of the model's. Gas Boost: after you press the gas while the model holds the car below what the lead and set speed allow, adds up to +0.2 m/s\u00b2 for that engagement. Predictive Boost: adds acceleration whenever the model predicts no reason to slow, sized by driving personality (up to +0.4 m/s\u00b2 aggressive, +0.25 standard, +0.1 relaxed); fades out in tight curves and when the model wants to stop. Set Speed: above 20 mph (and down to 10 mph after a lead you braked for leaves), helps the car reach your set speed when only the model is holding it back, up to +0.7 / 0.5 / 0.3 m/s\u00b2 by personality; shrinks as the model slows or the road turns, drops out when the model brakes or wants to stop. From EVPilot. Only one can be on.",
                   "options": [
                     {
                       "value": 0,
@@ -1274,6 +1274,10 @@
                     {
                       "value": 2,
                       "label": "Predictive"
+                    },
+                    {
+                      "value": 3,
+                      "label": "Set Speed"
                     }
                   ],
                   "enablement": [
@@ -1288,7 +1292,7 @@
                   "key": "FM_AccelBoostIndicator",
                   "widget": "toggle",
                   "title": "Show Accel Boost On Screen",
-                  "description": "Draws a green bar in the side panel of the comma 4 while Accel Boost is on, in place of the confidence ball. It fills as the boost adds acceleration, up to the most the selected boost can add (+0.2 m/s\u00b2 for Gas, or +0.4 / 0.25 / 0.1 m/s\u00b2 for Predictive by personality), and stays empty while the car ahead or your set speed is what limits the speed. From sunnypilot.",
+                  "description": "Draws a green bar in the side panel of the comma 4 while Accel Boost is on, in place of the confidence ball. It fills as the boost adds acceleration, up to the most the selected boost can add (+0.2 m/s\u00b2 for Gas; by personality +0.4 / 0.25 / 0.1 m/s\u00b2 for Predictive and +0.7 / 0.5 / 0.3 for Set Speed), and stays empty while the car ahead or your set speed is what limits the speed. From sunnypilot.",
                   "enablement": [
                     {
                       "type": "capability",

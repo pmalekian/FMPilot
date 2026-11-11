@@ -6,9 +6,10 @@ from openpilot.cereal import log
 from openpilot.common.constants import CV
 from openpilot.common.realtime import DT_MDL
 from openpilot.selfdrive.controls.lib.fm_boost_mode import (FmBoostMode, PARAM_MODE, MODE_OFF, MODE_GAS, MODE_PREDICTIVE,
-                                                            DEFAULT_MODE, parse_mode)
+                                                            MODE_SET_SPEED, DEFAULT_MODE, parse_mode)
 from openpilot.sunnypilot import PARAMS_UPDATE_PERIOD
 from openpilot.sunnypilot.selfdrive.controls.lib.accel_boost import AccelBoostSP, ACCEL_BOOST_MAX
+from openpilot.sunnypilot.selfdrive.controls.lib.set_speed_assist import MAX_BOOST as SSA_MAX
 
 P = log.LongitudinalPersonality
 READ_FRAMES = int(PARAMS_UPDATE_PERIOD / DT_MDL)
@@ -23,12 +24,13 @@ class FakeParams:
 
 
 def make_sm(enabled=True, gas_pressed=False, mph=30, brake=0.0, gas=0.0, should_stop=False, curvature=0.0,
-            personality=P.aggressive, probs=6):
+            personality=P.aggressive, probs=6, a_ego=0.0, lead=False):
   meta = SimpleNamespace(disengagePredictions=SimpleNamespace(brakePressProbs=[brake] * probs, gasPressProbs=[gas] * probs))
   return {
     'selfdriveState': SimpleNamespace(enabled=enabled, personality=personality),
-    'carState': SimpleNamespace(gasPressed=gas_pressed, vEgo=mph * CV.MPH_TO_MS),
+    'carState': SimpleNamespace(gasPressed=gas_pressed, vEgo=mph * CV.MPH_TO_MS, aEgo=a_ego),
     'modelV2': SimpleNamespace(meta=meta, action=SimpleNamespace(shouldStop=should_stop, desiredCurvature=curvature)),
+    'radarState': SimpleNamespace(leadOne=SimpleNamespace(present=lead)),
   }
 
 
@@ -42,6 +44,7 @@ def run(boost, frames, e2e=0.5, **kwargs):
 
 class TestParseMode:
   @pytest.mark.parametrize("value,mode", [(0, MODE_OFF), (1, MODE_GAS), (2, MODE_PREDICTIVE), ("2", MODE_PREDICTIVE),
+                                          (3, MODE_SET_SPEED), ("3", MODE_SET_SPEED),
                                           (None, DEFAULT_MODE), (7, DEFAULT_MODE), ("x", DEFAULT_MODE)])
   def test_parse(self, value, mode):
     assert parse_mode(value) == mode
@@ -140,7 +143,7 @@ class TestExclusive:
 
 # FM Pilot: what the boost added, for the log and the on-screen bar
 
-@pytest.mark.parametrize("mode", [MODE_OFF, MODE_GAS, MODE_PREDICTIVE])
+@pytest.mark.parametrize("mode", [MODE_OFF, MODE_GAS, MODE_PREDICTIVE, MODE_SET_SPEED])
 def test_applied_is_what_was_added(mode):
   boost = FmBoostMode(FakeParams(mode))
   for frame in range(400):
@@ -162,3 +165,39 @@ def test_boost_max_per_mode():
   assert boost_max(MODE_PREDICTIVE, P.aggressive) == ACCEL_BOOST_MAX[0]
   assert boost_max(MODE_PREDICTIVE, P.standard) == ACCEL_BOOST_MAX[1]
   assert boost_max(MODE_PREDICTIVE, P.relaxed) == ACCEL_BOOST_MAX[2]
+  assert boost_max(MODE_SET_SPEED, P.aggressive) == SSA_MAX[0]
+  assert boost_max(MODE_SET_SPEED, P.standard) == SSA_MAX[1]
+  assert boost_max(MODE_SET_SPEED, P.relaxed) == SSA_MAX[2]
+
+
+# FM Pilot: Set Speed Assist as mode 3
+
+class TestSetSpeed:
+  def test_set_speed_mode_boosts_toward_cruise_at_highway_speed(self):
+    boost = FmBoostMode(FakeParams(MODE_SET_SPEED))
+    out = run(boost, 400, mph=40, brake=0.5)  # predictions say slow: Set Speed doesn't use them
+    assert out == pytest.approx(0.5 + SSA_MAX[0])
+    assert boost.gas.total_boost == 0.0 and boost.predictive.total_boost == 0.0  # never stacks
+
+  def test_set_speed_mode_waits_above_20_mph(self):
+    boost = FmBoostMode(FakeParams(MODE_SET_SPEED))
+    assert run(boost, 400, mph=15) == 0.5
+
+  def test_other_modes_never_run_set_speed(self):
+    for mode in (MODE_OFF, MODE_GAS, MODE_PREDICTIVE):
+      boost = FmBoostMode(FakeParams(mode))
+      run(boost, 400, mph=40)
+      assert boost.set_speed.total_boost == 0.0
+
+  def test_switching_away_and_back_starts_clean(self):
+    params = FakeParams(MODE_SET_SPEED)
+    boost = FmBoostMode(params)
+    run(boost, 400, mph=40)
+    assert boost.total_boost > 0.0
+    params.values[PARAM_MODE] = MODE_OFF
+    run(boost, READ_FRAMES, mph=40)
+    assert boost.mode == MODE_OFF
+    params.values[PARAM_MODE] = MODE_SET_SPEED
+    run(boost, READ_FRAMES, mph=40, e2e=-0.6)  # the model brakes, so a new boost can't build: what's left is carried over
+    assert boost.mode == MODE_SET_SPEED
+    assert boost.total_boost == 0.0
