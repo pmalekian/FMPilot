@@ -207,3 +207,13 @@ class TestLaneGuard(OpenpilotTestCase):
     # 30 cm clear: leaves it alone
     car_y = 1.4 - RIVIAN.half_width - 0.30
     assert settle(LaneGuard(RIVIAN), make_model(car_y, lane_width=2.8, curve=0.0)) == 0.0
+
+  def test_target_low_pass_decays_to_exactly_zero(self):
+    # the low-pass only approaches zero: it used to leave ~1e-200, which crashed Rivian off-tracking (OverflowError)
+    guard = LaneGuard(RIVIAN)
+    guard.target = 0.01
+    md = make_model()  # centered, nothing to guard
+    for _ in range(20000):
+      c = guard.update(V_EGO, md, True)
+    assert c == 0.0
+    assert guard.target == 0.0

@@ -98,6 +98,9 @@ def get_lane_guard_curvature(v_ego, path_x, path_y, left, right, left_edge, righ
   return float(np.clip(curvature, -max_curvature, max_curvature))
 
 
+CURVATURE_EPS = 1e-9  # 1/m, a 1000 km radius: below this lane guard is doing nothing
+
+
 class LaneGuard:
   def __init__(self, tune=STOCK, dt=DT_CTRL):
     self.tune, self.dt = tune, dt
@@ -126,7 +129,12 @@ class LaneGuard:
 
     if self.tune.target_tau > 0.0:
       self.target += (target - self.target) * min(self.dt / self.tune.target_tau, 1.0)
+      # the low-pass only ever approaches zero; snap the tail so it can't decay into ~1e-300 values
+      if abs(self.target) < CURVATURE_EPS:
+        self.target = 0.0
       target = self.target
     max_change = self.tune.max_lat_jerk / max(v_ego, MIN_SPEED) ** 2 * self.dt
     self.curvature = float(np.clip(target, self.curvature - max_change, self.curvature + max_change))
+    if abs(self.curvature) < CURVATURE_EPS:
+      self.curvature = 0.0
     return self.curvature

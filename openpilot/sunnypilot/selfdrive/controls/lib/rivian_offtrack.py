@@ -4,7 +4,11 @@ import math
 
 def offtrack_curvature(curvature: float, wheelbase: float, gain: float) -> float:
   # In a turn the rear axle cuts inside the front's path by r - sqrt(r^2 - L^2). Widen the radius by gain * that cut-in.
-  radius = 1. / abs(curvature) if curvature else math.inf
-  if gain <= 0. or not wheelbase < radius < math.inf:
+  # Worked in curvature (k = 1/r) so a near-zero curvature can't blow up: r - sqrt(r^2 - L^2) = r * c with
+  # c = 1 - sqrt(1 - (L*k)^2), written as (L*k)^2 / (1 + sqrt(1 - (L*k)^2)) to stay exact for small k.
+  # The old radius form squared r and raised OverflowError (crashing controlsd) for |k| below ~1e-154.
+  x = wheelbase * curvature
+  if gain <= 0. or not math.isfinite(curvature) or abs(x) >= 1.:
     return curvature
-  return math.copysign(1. / (radius + gain * (radius - math.sqrt(radius ** 2 - wheelbase ** 2))), curvature)
+  cut = x * x / (1. + math.sqrt(1. - x * x))
+  return curvature / (1. + gain * cut)
