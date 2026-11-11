@@ -1,13 +1,13 @@
 # FM Pilot: handoff for new chats (short)
 
-State as of Nov 8, 2026. This is the current state only. Background findings, past drive analyses and
+State as of Nov 11, 2026. This is the current state only. Background findings, past drive analyses and
 the ideas backlog are in `claude/FM_PILOT_FINDINGS.md`: read it only when a task needs that history. Features, settings
 and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 
 ## Setup
 
 - **Truck:** 2022 Rivian R1S Launch Edition (Gen 1), comma 4, torque harness.
-- **Repo:** `pmalekian/fmpilot`. Active branch **`fm-dev-set`** (v25 model list and tinygrad 92b742f since Nov 8), cut from `fm-dev-torque` `bece23e`
+- **Repo:** `pmalekian/FMPilot`. Active branch **`fm-dev-set`** (v25 model list and tinygrad 92b742f since Nov 8), cut from `fm-dev-torque` `bece23e`
   (Higher Torque + radar settings) and adding the settings reorganization, Blendful and the boost bar; `fm-dev-torque`
   stays at `bece23e` as the fallback. `fm-dev-max` (`d189ccc`) is the everyday branch, installer `pmalekian/fm-dev-max`. Own fork of AdventurePilot `dev` (last synced `980dd5c`, Oct 31).
   **No more AP syncs**; borrow single pieces only if wanted.
@@ -75,6 +75,17 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
   (from the code, not yet seen on the device); leave it offroad for the warmup. **Check before driving:** DM works (face seen, no DM faults), model label/picker
   shows the selected model, no modeld errors. Then try Cheddar as its own drive.
 
+### 0c. Set Speed Assist on `fm-dev-jet` (Nov 11): built, not driven
+
+- From EVPilot (gerrylum's fork, `evpilotgo/openpilot` `dev`, through `c594381` Nov 10: the boost now shrinks in
+  proportion to a model slow-down or a turn instead of cutting off, which fixed its every-4-s pulsing). Ported as
+  **Accel Boost mode 3, "Set Speed"** (`FM_AccelBoostMode`, Sunnylink Cruise > Driving Personality Settings); exclusive
+  with Gas / Predictive, default still Gas. Logic and numbers unchanged; see FM_PILOT.md for the behavior and credits.
+- Only on `fm-dev-jet` (`2002100`), not `fm-dev-set`. Cherry-pick if wanted.
+- Test: its own drive in Experimental Mode on roads where the model creeps up to the set speed (20+ mph), boost bar on.
+  In logs, `longitudinalPlanSP.fmAccelBoost` (what it added) with `fmAccelBoostMode` 3. Watch for: surging toward the
+  set speed into curves, and the 3 s grace after a lead leaves.
+
 ### 0b. Jetlink on `fm-dev-jet` (Nov 8): built, off, not yet on the device
 
 - Branch `fm-dev-jet` = `fm-dev-set` + Jetlink (zoompilot/jetlink v0.9.0, API 4). Sources: AP PR #12 (params, events,
@@ -119,7 +130,7 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
   Personality Settings and Smart Cruise > Curve Speed Settings pages. Sub-page links may render after a section's items.
 - **First log check:** Sunnylink shows Lane Centering before driving; `modelDataV2SP.blendfulCurvature` 0 all drive;
   lane centering active as before; plus the Higher Torque check below.
-- Also discussed, parked: sunnypilot #2083 (Set Speed Assist, a candidate 4th Accel Boost mode), #2034 (smoother final stop), openpilot #39059 (torqued long-accel filter), #39225 (e2e
+- Also discussed, parked: #2034 (smoother final stop), openpilot #39059 (torqued long-accel filter), #39225 (e2e
   curve speed). Predictive Boost math in sunnypilot master (#2089) matches ours.
 
 ### 1. Higher Torque: working; Max Torque slider, faster ramp and full cap past 90° built, not yet driven
