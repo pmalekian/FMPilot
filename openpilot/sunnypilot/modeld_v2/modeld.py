@@ -9,6 +9,7 @@ See the LICENSE.md file in the root directory for more details.
 from collections.abc import Callable
 from functools import partial
 import gc
+import math
 import os
 os.environ['GMMU'] = '0'
 from tinygrad.device import Device
@@ -66,6 +67,22 @@ def fm_action_speed_floor(params) -> float:
   return ACTION_SPEED_FLOOR_LOW_SPEED_FIX if params.get_bool(PARAM_LOW_SPEED_FLOOR) else ACTION_SPEED_FLOOR
 
 
+# FM Pilot: FM_LateralSmoothingEnabled. The model bundle's `lat` override (LAT_SMOOTH_SECONDS) does two things at once: it
+# low-passes the model's curvature (post-FOF models) and it is added to the lateral delay the model is told about, which
+# moves the point of the plan the steering is read from. With the setting on, the chosen value (0, 0.1 or 0.2 s) replaces
+# the bundle's; with it off, the bundle's value is used as before.
+PARAM_LAT_SMOOTH = "FM_LateralSmoothingEnabled"
+PARAM_LAT_SMOOTH_SECONDS = "FM_LateralSmoothingSeconds"
+LAT_SMOOTH_MAX = 0.2
+
+
+def fm_lat_smooth_seconds(params, bundle_seconds: float) -> float:
+  if not params.get_bool(PARAM_LAT_SMOOTH):
+    return bundle_seconds
+  seconds = float(params.get(PARAM_LAT_SMOOTH_SECONDS, return_default=True))
+  return min(max(seconds, 0.0), LAT_SMOOTH_MAX) if math.isfinite(seconds) else bundle_seconds
+
+
 PROCESS_NAME = "openpilot.selfdrive.modeld.modeld_tinygrad"
 BIG_MODEL_TIMEOUT = 60
 
@@ -114,7 +131,8 @@ class ModelState(ModelStateBase):
     self.generation = model_bundle.generation if model_bundle is not None else None
     overrides = {override.key: override.value for override in model_bundle.overrides} if model_bundle else {}
 
-    self.LAT_SMOOTH_SECONDS = float(overrides.get('lat', ".0"))
+    self.BUNDLE_LAT_SMOOTH_SECONDS = float(overrides.get('lat', ".0"))
+    self.LAT_SMOOTH_SECONDS = self.BUNDLE_LAT_SMOOTH_SECONDS  # FM Pilot: FM_LateralSmoothingEnabled replaces it while driving
     self.LONG_SMOOTH_SECONDS = float(overrides.get('long', ".0"))
     self.MIN_LAT_CONTROL_SPEED = 0.3
     self.PLANPLUS_CONTROL: float = 1.0
@@ -443,6 +461,7 @@ def main(demo=False):
       camera_offset_helper.set_offset(params.get("CameraOffset", return_default=True))
       blendful_enabled = get_lane_keep_mode(params) == MODE_BLENDFUL
       action_speed_floor = fm_action_speed_floor(params)
+      model.LAT_SMOOTH_SECONDS = fm_lat_smooth_seconds(params, model.BUNDLE_LAT_SMOOTH_SECONDS)
     lat_delay = model.lat_delay + model.LAT_SMOOTH_SECONDS
     if sm.updated["extrinsicsCalibration"] and sm.seen['narrowRoadCameraState'] and sm.seen['deviceState']:
       device_from_calib_euler = np.array(sm["extrinsicsCalibration"].rpyCalib, dtype=np.float32)

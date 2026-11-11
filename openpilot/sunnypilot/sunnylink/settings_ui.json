@@ -1016,9 +1016,44 @@
               "widget": "toggle",
               "title": "Calmer Crawl-Speed Steering",
               "description": "Below 5.6 mph, ask for less steering than the model's raw output (about 64% at 4.5 mph, 36% at 3.4 mph, 16% at 2.2 mph), as sunnypilot and openpilot now do. Calms twitchy steering near a stop, but turns pulled out from a stop may start softer. Applies to all driving, not only blinker turns. Off: FM Pilot's previous behavior. From sunnypilot #2091."
+            },
+            {
+              "key": "FM_LateralSmoothingEnabled",
+              "widget": "toggle",
+              "title": "Lateral Smoothing",
+              "description": "Replaces the model's own built-in lateral smoothing value (each model sets its own, often 0 or 0.1 s) with the one you pick in Lateral Smoothing Settings. It does two things at once. Higher smooths the model's steering request more, which calms jitter but answers a little later. Higher also reads the model's plan slightly further ahead, which starts steering earlier. Which one you feel more depends on the model and the road. Applies to all driving, not only turns. Off: each model uses its own value."
             }
           ],
           "sub_panels": [
+            {
+              "id": "lateral_smoothing_settings",
+              "label": "Lateral Smoothing Settings",
+              "trigger_key": "FM_LateralSmoothingEnabled",
+              "trigger_condition": {
+                "type": "param",
+                "key": "FM_LateralSmoothingEnabled",
+                "equals": true
+              },
+              "items": [
+                {
+                  "key": "FM_LateralSmoothingSeconds",
+                  "widget": "option",
+                  "title": "Lateral Smoothing Seconds",
+                  "description": "Seconds of lateral smoothing and look-ahead. 0: raw model steering, read from the plan as it is now. 0.1 (default): a common model setting. 0.2: smoothest, reads furthest ahead. Applies to custom models; takes up to a few seconds to apply while driving.",
+                  "min": 0.0,
+                  "max": 0.2,
+                  "step": 0.1,
+                  "unit": "s",
+                  "enablement": [
+                    {
+                      "type": "param",
+                      "key": "FM_LateralSmoothingEnabled",
+                      "equals": true
+                    }
+                  ]
+                }
+              ]
+            },
             {
               "id": "turn_boost_settings",
               "label": "Turn Boost Settings",
