@@ -86,6 +86,11 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
   In logs, `longitudinalPlanSP.fmAccelBoost` (what it added) with `fmAccelBoostMode` 3. Watch for: surging toward the
   set speed into curves, and the 3 s grace after a lead leaves.
 
+- Also on `fm-dev-jet` from EVPilot (Nov 11): the off-tracking / Lane Guard near-zero-curvature crash fix (`868d1b7`) and
+  Rivian `steerLimitTimer` 0.8 (`17d4a0d`; only counts above 22 mph, so it doesn't change slow turns). Not taken, decided
+  Nov 11: EVPilot's MAP_NORESERVE model load (`6a1ff0b9`; only for ~2 GB models loaded on the comma, which Jetlink avoids),
+  its generic resend of panda-blocked frames, and its navigation (openpilot's nav, Mapbox; compare with the StarPilot nav plan first).
+
 ### 0b. Jetlink on `fm-dev-jet` (Nov 8): built, off, not yet on the device
 
 - Branch `fm-dev-jet` = `fm-dev-set` + Jetlink (zoompilot/jetlink v0.9.0, API 4). Sources: AP PR #12 (params, events,

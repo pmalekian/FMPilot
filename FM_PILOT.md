@@ -52,6 +52,10 @@ to sunnypilot's v25 model list; in git history before that date).
   `3241411`..`c594381` (Oct 30 – Nov 10, 2026; MIT), `set_speed_assist.py` and its tests at `c5943813`; numbers and logic
   unchanged. FM Pilot changes: a mode of `FM_AccelBoostMode` instead of its own `SetSpeedAssist` toggle (never stacks with
   Gas or Predictive), and switching to it while driving doesn't start an engage grace.
+- **Near-zero curvature crash fix** and **Rivian steerLimitTimer 0.8**: EVPilot `a0500916` (Nov 2, 2026) and the
+  `steerLimitTimer` line of `9214103e` (Oct 28, 2026), Gerry / gerrylum (MIT), code unchanged; the crash fix's tests are
+  FM Pilot's. Off-tracking and Lane Guard can no longer raise OverflowError in controlsd when the curvature is ~0; the
+  steering-required alert and Curve Speed Control's running-wide signal now wait 0.8 s of saturation instead of 0.4 s.
 - **Turn Lead**, **Hold Path Source** and **Hold Adds Your Steering**: StarPilot's Model Turn Assist "turn lead" and
   curvature hold (plan source, driver-confirmed wind), `openpilot/starpilot/lateral/model_turn_assist.py`, Dom branch,
   Nov 2026, firestar5683 and StarPilot contributors (MIT). FM Pilot changes: smooth speed fade for Turn Lead, its low end
