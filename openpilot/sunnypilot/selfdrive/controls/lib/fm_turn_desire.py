@@ -5,8 +5,9 @@ With the setting on, a blinker toward a detected road edge (between 20 mph and t
 desire instead of a rejected lane change, and every turn desire follows one rule:
 
   1. Started by the blinker alone, no nudge. Under 20 mph that is AP's Lane Turn Desire as it stands (its own setting
-     and speed); from 20 mph to the max speed the road edge must also be detected on that side. No turn starts toward
-     an occupied blind spot.
+     and speed), and like AP's it starts whether or not openpilot is steering, so it can start while stopped (openpilot
+     never steers at a standstill). From 20 mph to the max speed the road edge must also be detected on that side and
+     openpilot must be steering. No turn starts toward an occupied blind spot.
   2. Held until the blinker is cancelled or switched, whatever the speed does, including stops.
 
 While a turn is active, no lane change starts and no lane change prompt or road-edge message shows.
@@ -79,7 +80,8 @@ class FmTurnDesire:
       v_ego = carstate.vEgo
       under_lane_change_speed = v_ego < LANE_CHANGE_SPEED_MIN and stock_turn_direction == blinker_dir
       edge_turn = LANE_CHANGE_SPEED_MIN <= v_ego <= self.max_speed and edge
-      if not blindspot and lateral_active and (under_lane_change_speed or edge_turn):
+      # AP's Lane Turn Desire doesn't need openpilot steering, so a slow turn can start (or restart) while stopped
+      if not blindspot and (under_lane_change_speed or (edge_turn and lateral_active)):
         self.direction = blinker_dir
         self.active = True  # the blinker alone starts the turn
 

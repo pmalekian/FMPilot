@@ -44,9 +44,20 @@ class TestFmTurnDesire:
     assert step(t, cs(35, right=True)) == TurnDirection.none
     assert not t.armed
 
-  def test_needs_lateral_active(self):
+  def test_edge_turn_needs_lateral_active(self):
     t = FmTurnDesire(FakeParams())
     assert step(t, cs(35, right=True), right_edge=True, lat=False) == TurnDirection.none
+
+  def test_slow_turn_starts_while_stopped(self):
+    # openpilot never steers at a standstill; AP's Lane Turn Desire starts anyway, so FM Pilot's must too
+    t = FmTurnDesire(FakeParams())
+    assert step(t, cs(0, left=True), stock=TurnDirection.turnLeft, lat=False) == TurnDirection.turnLeft
+
+  def test_blinker_cycle_while_stopped_restarts_turn(self):
+    t = FmTurnDesire(FakeParams())
+    step(t, cs(0, right=True), stock=TurnDirection.turnRight, lat=False)
+    assert step(t, cs(0), lat=False) == TurnDirection.none
+    assert step(t, cs(0, right=True), stock=TurnDirection.turnRight, lat=False) == TurnDirection.turnRight
 
   def test_held_through_slowdown_and_stop(self):
     t = FmTurnDesire(FakeParams())
