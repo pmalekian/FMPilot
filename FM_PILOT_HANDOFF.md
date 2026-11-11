@@ -75,6 +75,19 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
   (from the code, not yet seen on the device); leave it offroad for the warmup. **Check before driving:** DM works (face seen, no DM faults), model label/picker
   shows the selected model, no modeld errors. Then try Cheddar as its own drive.
 
+### 0d. Lateral Smoothing setting on `fm-dev-jet` (Nov 11): built, off, not driven
+
+- Why: Cheddar's lateral felt bad. Cheddar's list entry has `lat` .0 (unsmoothed), TSFDOM's has .1 (not re-verified in the
+  list this session). The tinygrad gap (5d186bd vs 92b742f) is probably not the cause: compiled model files are baked.
+- The `lat` value does two things in `modeld_v2/modeld.py`: it low-passes the model curvature (post-FOF models only,
+  `smooth_value`) and it is added to the lateral delay given to the model (`lat_action_t`, `lateral_control_params`).
+  Higher = calmer but later, and also reads the plan further ahead (earlier). So .2 is not simply "turns sooner".
+  controlsd adds the constant 0.0 from `selfdrive/modeld`, not the bundle's value (upstream behavior, left alone).
+- Setting: `FM_LateralSmoothingEnabled` (off) + `FM_LateralSmoothingSeconds` slider 0 / 0.1 / 0.2 (default 0.1),
+  Steering > FM Pilot: Turn Tweaks > Lateral Smoothing Settings. Replaces the bundle's value while on; read every ~3 s.
+- Test: Cheddar, same road, off vs 0.1 vs 0.2. In the rlog compare actual vs desired curvature lag and steer jitter
+  (`tools/fm`). Not applied to a Jetlink big model's own action path (stock modeld, unsmoothed).
+
 ### 0c. Set Speed Assist on `fm-dev-jet` (Nov 11): built, not driven
 
 - From EVPilot (gerrylum's fork, `evpilotgo/openpilot` `dev`, through `c594381` Nov 10: the boost now shrinks in
