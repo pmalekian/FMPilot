@@ -37,8 +37,9 @@ def curvature_at(t):
   return 0.05 if 8.0 <= t < 13.0 else 0.0
 
 
-def segment(n, prm, loaded=None, turn=curvature_at, hand=0.0, init_t=None):
-  """Events of segment n: 100 Hz car/controls, 20 Hz model; drive time t = n * SEG_S + local time."""
+def segment(n, prm, loaded=None, turn=curvature_at, hand=0.0, init_t=None, cap=None, can=None):
+  """Events of segment n: 100 Hz car/controls, 20 Hz model; drive time t = n * SEG_S + local time. cap(t) and can(t),
+  when given, log carStateSP.fmSteerCap and carOutput.actuatorsOutput.torqueOutputCan (counts)."""
   evs = []
 
   def ev(t, kind):
@@ -61,7 +62,7 @@ def segment(n, prm, loaded=None, turn=curvature_at, hand=0.0, init_t=None):
     t = n * SEG_S + i / 100 + 0.01
     k = turn(t)
     e, cs = ev(t, "carState")
-    cs.vEgo, cs.steeringAngleDeg = 5.0, -k * 1500  # angle is left-positive: a right turn reads negative
+    cs.vEgo, cs.vEgoRaw, cs.steeringAngleDeg = 5.0, 5.0, -k * 1500  # angle is left-positive: a right turn reads negative
     cs.steeringTorque = hand
     evs.append(e)
     e, ctl = ev(t, "controlsState")
@@ -74,7 +75,13 @@ def segment(n, prm, loaded=None, turn=curvature_at, hand=0.0, init_t=None):
     evs.append(e)
     e, co = ev(t, "carOutput")
     co.actuatorsOutput.torque = -min(k * 20, 1.0)
+    if can is not None:
+      co.actuatorsOutput.torqueOutputCan = can(t)
     evs.append(e)
+    if cap is not None:
+      e, sp = ev(t, "carStateSP")
+      sp.fmSteerCap = cap(t)
+      evs.append(e)
     if i % 5 == 0:
       e, m = ev(t, "modelV2")
       m.action.desiredCurvature = k
@@ -217,6 +224,66 @@ class TestHands:
   def test_light_hands_dont_count(self):
     h = turns.hand_split([0.3] * 10, [-0.5] * 10, [True] * 10, -1)
     assert h["with_op"] == 0 and h["against_op"] == 0
+
+
+class TestTorqueLimits:
+  @staticmethod
+  def q(asked, sent, limit, lat=True):
+    n = len(asked)
+    return turns.torque_limits(asked, sent, np.broadcast_to(limit, n), np.broadcast_to(lat, n))
+
+  def test_climbing_then_at_the_limit(self):
+    n = 400
+    sent = -np.minimum(580.0, 5.0 * np.arange(n))  # 5 per message: 116 messages to full
+    r = self.q(np.full(n, -580.0), sent, 580)
+    assert r["at_limit"] == pytest.approx(71, abs=2) and r["climbing"] == pytest.approx(29, abs=2)
+    assert r["held"] == 0 and r["unwinding"] == 0 and r["peak"] == 580 and r["limit"] == 580
+
+  def test_the_limit_in_force_is_what_counts(self):
+    sent = np.full(100, 551.0)  # past 90 degrees the cap is 95%: asked 580, limit 551
+    assert self.q(np.full(100, 580.0), sent, 551)["at_limit"] == 100
+    assert self.q(np.full(100, 580.0), sent, 580)["at_limit"] == 0  # same torque, higher limit: not at it
+
+  def test_unwinding_when_the_request_flips(self):
+    sent = np.minimum(300.0, -300.0 + 5.0 * np.arange(200))  # still pushing -300 down to 0 while asked +300
+    r = self.q(np.full(200, 300.0), sent, 580)
+    assert r["unwinding"] == pytest.approx(28, abs=2) and r["at_limit"] == 0  # 56 of 200 messages are still above 20
+
+  def test_held_below_the_request_without_rising(self):
+    r = self.q(np.full(100, 300.0), np.full(100, 100.0), 580)
+    assert r["held"] == 100 and r["climbing"] == 0
+
+  def test_follows_the_request_is_none_of_them(self):
+    r = self.q(np.full(100, 200.0), np.full(100, 200.0), 580)
+    assert (r["at_limit"], r["climbing"], r["held"], r["unwinding"]) == (0, 0, 0, 0)
+
+  def test_only_openpilot_steered_frames_count(self):
+    lat = np.arange(100) >= 50
+    r = self.q(np.full(100, 580.0), np.full(100, 580.0), 580, lat)
+    assert r["at_limit"] == 100
+    assert np.isnan(self.q(np.full(10, 580.0), np.zeros(10), 580, False)["at_limit"])
+
+  def test_speed_curve_matches_the_car_code(self):
+    values = pytest.importorskip("opendbc.car.rivian.values")
+    assert turns.STEER_MAX_LOOKUP == tuple(values.CarControllerParams.STEER_MAX_LOOKUP)
+
+  def test_turn_line_uses_the_logged_limit_and_sent_torque(self, tmp_path):
+    ramp = lambda t: -min(385.0, max(0.0, (t - 8.0) * 490))  # noqa: E731  # right turn, torque ramps up from 8 s
+    for n in (0, 1):
+      write(tmp_path / f"{ROUTE}--{n}" / "rlog.zst", segment(n, settings(), cap=lambda t: 385, can=ramp))
+    (d,) = fmlog.load_drives([str(tmp_path)])
+    out = run(turns.main, d)
+    line = next(x for x in out.splitlines() if "torque:" in x)
+    assert "peak sent 385 of 385 limit" in line and "(" not in line  # nothing had to be worked out from the speed curve
+    at_limit, climbing = (float(line.split(f"{k} ")[1].split("%")[0]) for k in ("at limit", "climbing"))
+    assert at_limit > 70 and 5 < climbing < 25
+
+  def test_old_logs_fall_back_to_the_speed_curve(self, drive_dir):
+    (d,) = fmlog.load_drives([str(drive_dir)])
+    line = next(x for x in run(turns.main, d).splitlines() if "torque:" in x)
+    assert "limit from the speed curve; sent from the logged torque" in line
+    assert "peak sent 385 of 385 limit" in line
+    assert float(line.split("at limit ")[1].split("%")[0]) > 80  # all of the turn, less the padding around it
 
 
 class TestTools:

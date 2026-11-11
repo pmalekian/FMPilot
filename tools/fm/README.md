@@ -40,7 +40,7 @@ path has no route name (e.g. a bare `rlog.zst`) are taken as one drive.
 |---|---|
 | `timeline.py rlog.zst ... [--step 2] [--start s] [--end s]` | Steering over time: model / final / achieved curvature, torque requested and sent, lane lines, hands, blinker, turn desire, faults |
 | `events.py rlog.zst ...` | Version, model, FM-related settings, on-screen alerts, onroad events, fault and model-load log messages |
-| `turns.py rlog.zst ...` | Every sharp turn: tightest radius asked vs driven, time at the torque limit, hand force: with or against openpilot's torque while it steers, into the turn while you steer |
+| `turns.py rlog.zst ...` | Every sharp turn: tightest radius asked vs driven, where torque was held back (at the limit, still climbing, held, unwinding; see below), hand force: with or against openpilot's torque while it steers, into the turn while you steer |
 | `sway.py rlog.zst ...` | Straight-road sway: wheel, model, lane centering's share, dominant period |
 | `dm.py rlog.zst ...` | Driver monitoring: % distracted and why (pose / eyes / phone), alert levels |
 
@@ -70,5 +70,23 @@ Hand torque is the column's torsion bar, so it also reads the reaction of a loos
 That reaction always points against openpilot's torque. So `turns.py` splits the hands by what openpilot was sending:
 *with* openpilot's torque is certainly you helping, while *against* it (marked `*`) is you resisting **or** just the
 wheel's reaction, and this sensor can't tell those apart. While you steer alone, *into the turn* is your own effort.
+
+### Torque line in `turns.py`
+
+Each turn has a second line, `torque: peak sent 506 of 551 limit | at limit … climbing … held … unwinding …`, as shares of
+the time openpilot was steering in that turn (counts, left-positive):
+
+| Share | Means |
+|---|---|
+| at limit | sent torque within 5 counts of the limit in force, and openpilot asked for at least that much |
+| climbing | asked for more than was sent (by over 20 counts) and torque still rising: the ramp (3, or 5 per message with Faster Torque Ramp) is the limit, not the cap |
+| held | asked for more than was sent and torque not rising: something else holds it back (hands on the wheel, the driver-torque limiter) |
+| unwinding | more torque still being sent than asked for, or the opposite way: the same ramp, on the way down |
+
+The limit is `carStateSP.fmSteerCap` frame by frame, so Max Torque, the 95% cap past 90° and the speed curve all count.
+"Asked" is `carControl.actuators.torque` times the base speed curve (`STEER_MAX_LOOKUP`), and "sent" is
+`carOutput.actuatorsOutput.torqueOutputCan`. Older logs without them fall back to the speed curve and the logged torque, and the
+line says so. Before Nov 11, 2026 this column was `controlsState` torque at or above 95% of the base 385 curve (the
+request, not what was sent), which read high once Max Torque was on.
 
 Tests: `python -m pytest tests` (small synthetic logs; no device or real logs needed).
