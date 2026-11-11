@@ -109,6 +109,13 @@ class TestLongitudinalNeedsHarness(unittest.TestCase):
     self.assertTrue(CP.safetyConfigs[0].safetyParam & RivianSafetyFlags.LONG_CONTROL)
 
 
+class TestSteerLimitTimer(unittest.TestCase):
+  def test_saturation_needs_0_8_s(self):
+    # 0.4 s flagged normal turn-in lag as steerSaturated (EVPilot 9214103e); LatControl uses this as its saturation time limit
+    CP = TestLongitudinalNeedsHarness._get([0x1310])
+    self.assertAlmostEqual(CP.steerLimitTimer, 0.8, places=6)  # float32 in capnp
+
+
 class TestDeclinedEngagePress(unittest.TestCase):
   """An ACC press openpilot passed on but the stock ACM did not take: report the likely reason once, after 0.5 s."""
 

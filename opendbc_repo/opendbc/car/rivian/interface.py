@@ -23,7 +23,7 @@ class CarInterface(CarInterfaceBase):
       ret.flags |= RivianFlags.GEN2.value
 
     ret.steerActuatorDelay = 0.15
-    ret.steerLimitTimer = 0.4
+    ret.steerLimitTimer = 0.8  # 0.4 flagged normal turn-in lag as steerSaturated; EVPilot 9214103e (Gerry / gerrylum, MIT)
     CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
 
     ret.steerControlType = structs.CarParams.SteerControlType.torque
