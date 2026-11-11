@@ -2962,6 +2962,12 @@
               ]
             },
             {
+              "key": "FM_TurnPulseOnPullAway",
+              "widget": "toggle",
+              "title": "Turn Pulse on Pull-Away",
+              "description": "The model only hears a turn for about 5 seconds after it starts, so after a long wait at a corner it has forgotten the turn and turns in late. With this on, when you pull away from a stop with a turn still on, the model is told about the turn again. Only the model's input changes; the turn, its alert and Turn Assist are the same."
+            },
+            {
               "key": "LagdToggle",
               "widget": "toggle",
               "title": "Live Learning Steer Delay",
