@@ -11,6 +11,7 @@ from openpilot.common.pid import PIDController
 
 from openpilot.sunnypilot.selfdrive.controls.lib.latcontrol_torque_ext import LatControlTorqueExt
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_torque_mode import FmTorqueMode
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_low_speed_gain import FmLowSpeedGain
 
 # At higher speeds (25+mph) we can assume:
 # Lateral acceleration achieved by a specific car correlates to
@@ -51,6 +52,8 @@ class LatControlTorque(LatControl):
 
     self.extension = LatControlTorqueExt(self, CP, CP_SP, CI)
     self.fm_torque = FmTorqueMode(CP, CP_SP)  # FM Pilot Higher Torque (Rivian); (1.0, 1.0) otherwise
+    # FM Pilot Calmer Low-Speed Correction (Rivian): scales KP_INTERP below 7 m/s; 1.0 otherwise
+    self.fm_low_speed = FmLowSpeedGain(CP)
 
   def update_torque_parameters(self, latAccelFactor, latAccelOffset, friction):
     self.torque_params.latAccelFactor = latAccelFactor
@@ -66,6 +69,8 @@ class LatControlTorque(LatControl):
     # Override torque params from extension
     if self.extension.update_override_torque_params(self.torque_params):
       self.update_limits()
+
+    self.fm_low_speed.apply(self, INTERP_SPEEDS, KP_INTERP)
 
     # FM Pilot Higher Torque: max request past 1.0 (Headroom) and request scale (Full); (1.0, 1.0) is AP's behavior
     fm_max, fm_scale = self.fm_torque.update(CS.vEgo)

@@ -699,6 +699,41 @@
                   "equals": "rivian"
                 }
               ]
+            },
+            {
+              "key": "FM_LowSpeedGainEnabled",
+              "widget": "toggle",
+              "title": "Calmer Low-Speed Correction",
+              "description": "Under about 16 mph, openpilot corrects steering errors very hard, then overshoots and corrects back the other way, which you can feel as the wheel grabbing and swinging in slow turns. This tones that correction down to Calmer Low-Speed Correction Strength, blending back to normal by 20 mph; highway steering is unchanged. Turns may build torque a little more gently at the start. Changes take effect while driving. On by default.",
+              "enablement": [
+                {
+                  "type": "capability",
+                  "field": "brand",
+                  "equals": "rivian"
+                }
+              ]
+            },
+            {
+              "key": "FM_LowSpeedGainPercent",
+              "widget": "option",
+              "title": "Calmer Low-Speed Correction Strength",
+              "description": "How much of openpilot's low-speed correction to keep. 100% is openpilot's; lower is calmer but builds torque more gently. Default 70%.",
+              "min": 40,
+              "max": 100,
+              "step": 10,
+              "unit": "%",
+              "enablement": [
+                {
+                  "type": "capability",
+                  "field": "brand",
+                  "equals": "rivian"
+                },
+                {
+                  "type": "param",
+                  "key": "FM_LowSpeedGainEnabled",
+                  "equals": true
+                }
+              ]
             }
           ],
           "sub_panels": [
