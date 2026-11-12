@@ -985,6 +985,34 @@
               "description": "During a blinker turn from Turn Lead Min Speed up to about 16 mph, start turning on time when the model turns in late. Reads the curve of the planned path just ahead and asks for it until the truck catches up, then hands back to the model. Never asks for a tighter turn than Turn Path Tightest Radius. Works with Turn Hold, but using one at a time is recommended so each turn is easier to judge. From StarPilot's Model Turn Assist."
             },
             {
+              "key": "FM_TurnPhaseIn",
+              "widget": "toggle",
+              "title": "Smooth Turn Start",
+              "description": "Whatever Turn Boost, Turn Lead, Turn Hold and Turn Nudge add on top of the model eases in over about a third of a second instead of arriving all at once, so the steering doesn't grab and then swing back. It still lets go at once, so handing back to the model isn't delayed. The model's own steering is never slowed. On by default.",
+              "enablement": [
+                {
+                  "type": "any",
+                  "conditions": [
+                    {
+                      "type": "param",
+                      "key": "FM_TurnBoostEnabled",
+                      "equals": true
+                    },
+                    {
+                      "type": "param",
+                      "key": "FM_TurnHoldEnabled",
+                      "equals": true
+                    },
+                    {
+                      "type": "param",
+                      "key": "FM_TurnLeadEnabled",
+                      "equals": true
+                    }
+                  ]
+                }
+              ]
+            },
+            {
               "key": "FM_TurnPathMinRadius",
               "widget": "option",
               "title": "Turn Path Tightest Radius",

@@ -44,6 +44,12 @@ only change the requested curvature, so every steering limit after them still ap
 
 Turn Lead and Turn Hold can both be on, though one at a time makes a turn easier to judge. Turn Lead runs before Turn
 Hold, so Turn Hold holds whatever Turn Lead asked for.
+
+  - Smooth Turn Start (on by default): whatever Turn Boost, Lead, Hold and Turn Nudge add on top of the model's request
+    eases in over about 0.3 s (a 0.12 s low-pass) instead of arriving in one step; it still drops at once, so handing back
+    to the model is never delayed. A step makes openpilot's torque controller saturate and then swing the other way as
+    the truck catches up (00000068--1 +24.3 s: Turn Lead stepped from 0.016 to 0.050 1/m in 0.1 s, the request went to
+    the cap, then briefly steered out of the left turn at +25.4 s). The model's own request is never filtered.
 """
 import math
 
@@ -66,6 +72,7 @@ PARAM_TURN_NUDGE = "FM_TurnNudgeEnabled"
 PARAM_HOLD_DRIVER = "FM_TurnHoldDriverAdds"
 PARAM_HOLD_EARLY = "FM_TurnHoldEarlyCorrection"
 PARAM_MIN_RADIUS = "FM_TurnPathMinRadius"
+PARAM_PHASE_IN = "FM_TurnPhaseIn"
 
 BOOST_LIMITS = (1.0, 1.5)
 FULL_SPEED = 15 * CV.MPH_TO_MS
@@ -111,6 +118,10 @@ NUDGE_MAX_CURVATURE = 0.01  # 1/m added to the normal request
 
 HOLD_DRIVER_MIN_CURVATURE = 0.003  # 1/m: the truck must already be turning the turn's way (StarPilot's CONFIRM_MIN)
 HOLD_DRIVER_MAX_CURVATURE = 0.25  # 1/m (4 m): beyond the R1S's full lock (about 6.6 m), only guards a bad reading
+
+# Smooth Turn Start: first-order low-pass on the extra request while it rises (about 90% after 0.3 s)
+PHASE_IN_TAU = 0.12  # s
+PHASE_IN_ALPHA = DT_CTRL / (PHASE_IN_TAU + DT_CTRL)
 
 MIN_RADIUS_LIMITS = (8.0, 20.0)  # m
 MIN_RADIUS_DEFAULT = 12.0
@@ -184,6 +195,7 @@ class FmTurnAssist:
     self.hold_driver = False
     self.hold_early = False
     self.max_curvature = 1.0 / MIN_RADIUS_DEFAULT
+    self.phase_in = False
     self.amount = 0.0  # 0..1 fade
     self._reset_turn(0)
     self.read_params()
@@ -211,6 +223,7 @@ class FmTurnAssist:
     self.hold_driver = self.params.get_bool(PARAM_HOLD_DRIVER)
     self.hold_early = self.params.get_bool(PARAM_HOLD_EARLY)
     self.nudge_enabled = self.params.get_bool(PARAM_TURN_NUDGE)
+    self.phase_in = self.params.get_bool(PARAM_PHASE_IN)
     try:
       radius = float(self.params.get(PARAM_MIN_RADIUS, return_default=True) or MIN_RADIUS_DEFAULT)
     except (TypeError, ValueError):
@@ -231,6 +244,7 @@ class FmTurnAssist:
     self.turn_ended = False
     self.nudge_time = 0.0
     self.nudge_remaining = 0.0
+    self.extra = 0.0  # Smooth Turn Start: what is applied on top of the model's request, toward the turn
 
   @property
   def enabled(self) -> bool:
@@ -321,6 +335,7 @@ class FmTurnAssist:
     self.amount = float(np.clip(target, self.amount - step, self.amount + step))
     self.hold_exit_amount = 0.0
     if self.amount <= 0.0 or sign == 0:
+      self.extra = 0.0
       return desired_curvature
 
     out = desired_curvature
@@ -378,4 +393,17 @@ class FmTurnAssist:
       self.hold_exit_curvature = sign * out
       self.hold_exit_amount = 1.0
     # The timing nudge never feeds the hold peak or its signal-cancel fade.
-    return self.turn_nudge(out, sign, v_ego, a_ego, model_v2, steering_pressed, steering_torque, lat_active, lane_changing)
+    out = self.turn_nudge(out, sign, v_ego, a_ego, model_v2, steering_pressed, steering_torque, lat_active, lane_changing)
+    return self._smooth_start(desired_curvature, out, sign)
+
+  def _smooth_start(self, desired_curvature: float, out: float, sign: int) -> float:
+    """Smooth Turn Start: the extra request toward the turn rises through a low-pass and drops at once."""
+    target = sign * (out - desired_curvature)
+    if self.phase_in and target > self.extra:
+      self.extra += (target - self.extra) * PHASE_IN_ALPHA
+    else:
+      self.extra = target
+    if self.hold_exit_amount > 0.0:
+      # a blinker cancel fades out from what was actually applied, never from more
+      self.hold_exit_curvature = min(self.hold_exit_curvature, sign * desired_curvature + self.extra)
+    return desired_curvature + sign * self.extra

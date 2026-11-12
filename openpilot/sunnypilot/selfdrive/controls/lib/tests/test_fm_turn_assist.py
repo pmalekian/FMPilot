@@ -9,7 +9,7 @@ from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_assist import (FmTurnAs
                                                                          PARAM_BOOST_RIGHT, PARAM_HOLD, HOLD_MAX_HEADING, FADE_TIME,
                                                                          PARAM_LEAD, PARAM_MIN_RADIUS, MIN_RADIUS_DEFAULT, PARAM_HOLD_PATH,
                                                                          PARAM_HOLD_DRIVER, PARAM_LEAD_MIN_SPEED, PARAM_HOLD_EARLY,
-                                                                         plan_circle_curvature)
+                                                                         PARAM_PHASE_IN, PHASE_IN_TAU, plan_circle_curvature)
 
 LEFT, RIGHT, NONE = TurnDirection.turnLeft, TurnDirection.turnRight, TurnDirection.none
 FADE_STEPS = int(FADE_TIME / DT_CTRL) + 2
@@ -19,7 +19,7 @@ class FakeParams:
   def __init__(self, **values):
     self.values = {PARAM_BOOST: False, PARAM_BOOST_LEFT: 1.1, PARAM_BOOST_RIGHT: 1.2, PARAM_HOLD: False, PARAM_LEAD: False,
                    PARAM_HOLD_PATH: False, PARAM_HOLD_DRIVER: False, PARAM_HOLD_EARLY: False, PARAM_LEAD_MIN_SPEED: 7.0,
-                   PARAM_MIN_RADIUS: MIN_RADIUS_DEFAULT} | values
+                   PARAM_MIN_RADIUS: MIN_RADIUS_DEFAULT, PARAM_PHASE_IN: False} | values
 
   def get_bool(self, key):
     return bool(self.values.get(key))
@@ -504,3 +504,56 @@ class TestFmLateralWiring:
     for _ in range(FADE_STEPS):
       out = lat.update(0.08, model, CS, True, True, 0.08)
     assert out == pytest.approx(0.08 * 1.2)
+
+
+class TestSmoothTurnStart:
+  """Smooth Turn Start: the extra request eases in over about 0.3 s and drops at once; the model's own request is never
+  filtered (00000068--1 +24.3 s: a stepped Turn Lead request saturated the controller, which then swung back)."""
+
+  def _boosted(self, phase_in):
+    assist = FmTurnAssist(FakeParams(**{PARAM_BOOST: True, PARAM_BOOST_RIGHT: 1.5, PARAM_PHASE_IN: phase_in}))
+    run(assist, 0.01, RIGHT, steps=FADE_STEPS + 100)  # fully faded in, steady
+    return assist
+
+  def test_off_steps_at_once(self):
+    assist = self._boosted(False)
+    assert run(assist, 0.05, RIGHT) == pytest.approx(0.075)
+
+  def test_on_eases_a_step_in_over_about_0_3_s(self):
+    assist = self._boosted(True)
+    assert run(assist, 0.01, RIGHT) == pytest.approx(0.015, abs=1e-5)  # steady before the step
+    first = run(assist, 0.05, RIGHT)
+    assert 0.05 + 0.005 < first < 0.05 + 0.005 + 0.003  # the model's own step passes; the extra barely moves
+    after = run(assist, 0.05, RIGHT, steps=int(0.3 / DT_CTRL) - 1)
+    assert after == pytest.approx(0.075, abs=0.025 * 0.12)  # about 90% of the extra
+    assert run(assist, 0.05, RIGHT, steps=int(6 * PHASE_IN_TAU / DT_CTRL)) == pytest.approx(0.075, abs=1e-4)
+
+  def test_on_drops_at_once(self):
+    assist = self._boosted(True)
+    run(assist, 0.05, RIGHT, steps=200)
+    assert run(assist, 0.01, RIGHT) == pytest.approx(0.015)
+
+  def test_model_request_is_never_filtered(self):
+    assist = FmTurnAssist(FakeParams(**{PARAM_HOLD: True, PARAM_PHASE_IN: True}))
+    run(assist, 0.0, RIGHT, steps=FADE_STEPS)
+    assert run(assist, 0.04, RIGHT) == pytest.approx(0.04)
+
+  def test_left_turn_is_eased_the_same(self):
+    assist = FmTurnAssist(FakeParams(**{PARAM_BOOST: True, PARAM_BOOST_LEFT: 1.5, PARAM_PHASE_IN: True}))
+    run(assist, -0.01, LEFT, steps=FADE_STEPS + 100)
+    first = run(assist, -0.05, LEFT)
+    assert -0.05 - 0.008 < first < -0.05 - 0.005
+
+  def test_new_turn_starts_from_zero(self):
+    assist = self._boosted(True)
+    run(assist, 0.05, RIGHT, steps=200)
+    run(assist, 0.0, NONE, steps=FADE_STEPS)
+    assert assist.extra == 0.0
+
+  def test_signal_cancel_fades_from_what_was_applied(self):
+    assist = FmTurnAssist(FakeParams(**{PARAM_HOLD: True, PARAM_PHASE_IN: True}))
+    run(assist, 0.0, RIGHT, steps=FADE_STEPS)
+    run(assist, 0.06, RIGHT, steps=20)  # the hold's peak
+    applied = run(assist, 0.0, RIGHT)  # the model lets go: the hold's floor eases in
+    assert 0.0 < applied < 0.06 * 0.9
+    assert run(assist, 0.0, NONE) <= applied
