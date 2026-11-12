@@ -75,6 +75,25 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
   (from the code, not yet seen on the device); leave it offroad for the warmup. **Check before driving:** DM works (face seen, no DM faults), model label/picker
   shows the selected model, no modeld errors. Then try Cheddar as its own drive.
 
+### 0i. Following feels harsh in traffic (Nov 12 logs `00000070--11/12/17`); Set Speed grace fade built, not driven
+
+- **What he felt:** slowing for traffic is harsher than before, "like lifting off too fast with regen", with Predictive and
+  Set Speed both. Morning was colder.
+- **Findings:** the boosts don't drive these slowdowns (the lead MPC is the planner's min; --17's swings happened in Gas
+  mode with boost 0). openpilot's requests are smooth (fast wiggle 0.01–0.02 m/s²). The 55–59 mph swings in --17 track a
+  lead wandering 52–59 mph (~1.5 s lag, corr 0.73) at a 1.35 s gap (Aggressive, -20%).
+- **Truck over-braking vs the sent request** (incl. drag FF), same request levels: Nov 3 6 pm (`0000002d`, 42 min)
+  -0.26..-0.27 when braking, -0.19..-0.20 cruising; Nov 12 8:22 am -0.34..-0.39 braking (one stop, ~8 s, thin),
+  -0.21..-0.23 cruising. So ~0.1 more when braking on the cold morning. Regen setting: Standard on every drive (he said).
+  The long PID (ki 0.2, no kp) closes a steady gap in ~5–10 s and resets each engage: too slow for transitions.
+- **Built (`fm-dev-jet`):** Set Speed grace fade. On --11 an engage at 35 mph with the model at -0.5..-0.75 held the
+  target ~0 for 3 s, then stepped -0.03 → -0.76 in one frame. Now when the window runs out with the model still braking,
+  the boost is trimmed to the part above min(lead MPC, cruise) and fades at RAMP_DOWN 1.5 m/s³ (~0.6 s here). A stop,
+  braking below the floor, low speed, a turn or a disengage still hand back at once. Default in Set Speed mode.
+- **Candidate (discuss first):** a braking-only drag correction, ~0.1–0.15 m/s², off by default, if more cold mornings
+  show the same. Changes the request, not panda limits.
+- **Test:** Set Speed, engage while slowing behind a lead; `fmAccelBoost` should fall over ~0.5 s, not in one frame.
+
 ### 0h. Release Guard on `fm-dev-jet` (Nov 12): built, OFF by default, not driven
 
 - **Problem (his):** in a slow turn, holding the wheel tighter than openpilot wants makes the torque controller push back;
@@ -378,6 +397,8 @@ From `0000005e--e26703ace2--2` (Nov 9 build, Cheddar, Road Edge Turn Desire on):
 ## Next steps
 
 00. Drive the request-side turn fixes on `fm-dev-jet` (item 0g), all on, together; send rlogs; `turns.py` timing and torque lines.
+00a0. Set Speed grace fade (item 0i): one drive in Set Speed mode with traffic; plus more cold-morning segments with
+   braking behind a lead to confirm the extra over-braking.
 00a. Then Release Guard (item 0h) on at 150 as its own drive on the same corners; `turns.py` release line.
 0. Update the comma to `fm-dev-set` (v25), do the first-boot checks in item 00, re-select TSFDOM, then try Cheddar.
 0a. Drive TSFDOM with Full Torque Past 90° on and Turn Lead on (item 0f), then Turn Hold + Hold Adds Your Steering, each as its own drive.
