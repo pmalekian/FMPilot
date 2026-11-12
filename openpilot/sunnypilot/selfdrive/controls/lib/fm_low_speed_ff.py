@@ -23,6 +23,10 @@ existing feedforward covers most of it. Strength in four steps: Gentle 40 % (def
 of the table. Changes blend over a second. Same in both directions (the logs couldn't separate a left/right difference
 from road crown). The counts are what is sent, also in Higher Torque's Full mode. It only adds to the request: every
 torque limit, the ramp and the panda's checks still apply.
+
+Not with sunnypilot's Lateral Jerk Torque Controller or NNLC: both rebuild the feedforward in torque space in
+LatControlTorqueExt and would drop this one, so with either on it stands down (read once per drive; both are offroad
+settings) and Sunnylink greys it out.
 """
 import math
 
@@ -32,6 +36,7 @@ from openpilot.common.realtime import DT_CTRL
 
 PARAM_ENABLED = "FM_LowSpeedFFEnabled"
 PARAM_STEP = "FM_LowSpeedFFStep"
+REPLACES_FEEDFORWARD = ("LateralJerkTorqueController", "NeuralNetworkLateralControl")  # sunnypilot settings
 STEPS = {1: 0.4, 2: 0.6, 3: 0.8, 4: 1.0}  # Gentle, Medium, Firm, Full
 STEP_DEFAULT = 1
 # |steering wheel angle| (deg) -> counts at Full: never more than the measured gap in any bin of the Nov 11 logs
@@ -54,6 +59,8 @@ class FmLowSpeedFF:
       if self.params is None:
         from openpilot.common.params import Params
         self.params = Params()
+      self.available = not any(self.params.get_bool(k) for k in REPLACES_FEEDFORWARD)
+    if self.available:
       self.read_params()
       self.strength = self.target  # the drive starts at the setting, no blend
 

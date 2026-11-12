@@ -73,6 +73,15 @@ def test_off_disabled_or_other_brand_is_zero():
   assert counts(make(brand="toyota"), 90.0, 3.0) == 0.0
 
 
+@pytest.mark.parametrize("other", ["LateralJerkTorqueController", "NeuralNetworkLateralControl"])
+def test_stands_down_with_controllers_that_rebuild_the_feedforward(other):
+  params = FakeParams(True, 4)
+  params.values[other] = True
+  ff = FmLowSpeedFF(SimpleNamespace(brand="rivian"), params)
+  assert not ff.available
+  assert ff.update(curvature_for(60.0, 3.0), 3.0, VM, LAF) == 0.0
+
+
 def test_direction_follows_the_turn():
   ff = make(step=4)
   assert counts(ff, 60.0, 3.0) > 0  # left
