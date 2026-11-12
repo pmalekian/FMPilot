@@ -13,6 +13,7 @@ from openpilot.sunnypilot.selfdrive.controls.lib.latcontrol_torque_ext import La
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_torque_mode import FmTorqueMode
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_low_speed_gain import FmLowSpeedGain
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_low_speed_ff import FmLowSpeedFF
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_release_guard import FmReleaseGuard
 
 # At higher speeds (25+mph) we can assume:
 # Lateral acceleration achieved by a specific car correlates to
@@ -57,6 +58,8 @@ class LatControlTorque(LatControl):
     self.fm_low_speed = FmLowSpeedGain(CP)
     # FM Pilot Low-Speed Steering Feedforward (Rivian): torque from the asked wheel angle below about 16 mph; 0 otherwise
     self.fm_low_speed_ff = FmLowSpeedFF(CP)
+    # FM Pilot Release Guard (Rivian, off): limits the P term's push against the driver steering into a turn
+    self.fm_release_guard = FmReleaseGuard(CP)
 
   def update_torque_parameters(self, latAccelFactor, latAccelOffset, friction):
     self.torque_params.latAccelFactor = latAccelFactor
@@ -112,12 +115,15 @@ class LatControlTorque(LatControl):
     if not active:
       output_torque = 0.0
       pid_log.active = False
+      self.fm_release_guard.idle()
     else:
       # do error correction in lateral acceleration space, convert at end to handle non-linear torque responses correctly
       pid_log.error = float(error)
 
       freeze_integrator = steer_limited_by_safety or CS.steeringPressed or CS.vEgo < 5
       output_lataccel = self.pid.update(pid_log.error, speed=CS.vEgo, feedforward=ff, freeze_integrator=freeze_integrator)
+      output_lataccel = self.fm_release_guard.update(self.pid, True, CS.vEgo, CS.steeringPressed, CS.steeringTorque,
+                                                      measured_curvature, self.torque_params.latAccelFactor, fm_scale)
       output_torque = self.torque_from_lateral_accel(output_lataccel, self.torque_params)
 
       # Lateral acceleration torque controller extension updates

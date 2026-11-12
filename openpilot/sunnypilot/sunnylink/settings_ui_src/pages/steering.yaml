@@ -454,6 +454,34 @@ sections:
     enablement:
     - {type: capability, field: brand, equals: rivian}
     - {type: param, key: FM_LowSpeedFFEnabled, equals: true}
+  - key: FM_ReleaseGuard
+    widget: toggle
+    title: Release Guard
+    description: 'In a slow turn, when you hold the wheel tighter than openpilot wants, openpilot pushes back against
+      your hands, and when you let go that push is still there and swings the wheel past center. This limits how hard
+      openpilot pushes against you while you steer into the turn, so there is less left to unwind when you let go.
+      Only while you press into the turn the truck is already making, under 15 mph (gone by 20). Fades out half a
+      second after you let go, and never weakens the pull back once the wheel has passed openpilot''s target.
+      Changes take effect while driving. Not available with Lateral Jerk Torque Controller or Neural Network Lateral
+      Control.'
+    enablement:
+    - {type: capability, field: brand, equals: rivian}
+    - {type: param, key: LateralJerkTorqueController, equals: false}
+    - {type: param, key: NeuralNetworkLateralControl, equals: false}
+  - key: FM_ReleaseGuardMax
+    widget: multiple_button
+    title: Most Torque Against You
+    description: 'How hard openpilot may still push against you while you steer into a turn, in torque counts (it can
+      send up to 580). 150 leaves a light push back; 75 almost none. In the Nov 11 logs 150 cut the push still swinging
+      the wheel past center after you let go from 0.6-0.8 s to under 0.2 s.'
+    options:
+    - value: 75
+      label: '75'
+    - value: 150
+      label: '150'
+    enablement:
+    - {type: capability, field: brand, equals: rivian}
+    - {type: param, key: FM_ReleaseGuard, equals: true}
   sub_panels:
   - id: torque_settings
     label: Torque Settings
