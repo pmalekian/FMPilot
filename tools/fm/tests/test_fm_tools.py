@@ -286,6 +286,39 @@ class TestTorqueLimits:
     assert float(line.split("at limit ")[1].split("%")[0]) > 80  # all of the turn, less the padding around it
 
 
+class TestTurnTiming:
+  """turns.py timing line: when the model, openpilot and the truck reached 30% of the turn's tightest curve."""
+  t = np.arange(0, 6, 0.01)
+
+  def ramp(self, start, rise=1.0, peak=0.08):
+    return np.clip((self.t - start) / rise, 0, 1) * peak
+
+  def test_onset_time(self):
+    x = self.ramp(2.0)
+    assert turns.onset_time(self.t, x, 0.3 * 0.08, len(x) - 1) == pytest.approx(2.3, abs=0.011)
+    assert np.isnan(turns.onset_time(self.t, x * 0.2, 0.3 * 0.08, len(x) - 1))  # never asked that much
+    assert turns.onset_time(self.t, np.full_like(self.t, 1.0), 0.5, len(self.t) - 1) == self.t[0]
+
+  def test_model_late(self):
+    truck = self.ramp(2.0)
+    q = turns.turn_timing(self.t, self.ramp(3.0), self.ramp(1.5), truck, len(truck) - 1)
+    assert q["truck"] == pytest.approx(2.3, abs=0.011)
+    assert q["model"] == pytest.approx(1.0, abs=0.02) and q["openpilot"] == pytest.approx(-0.5, abs=0.02)
+    assert q["verdict"] == "model late"
+
+  def test_model_never_asked_is_late(self):
+    truck = self.ramp(2.0)
+    assert turns.turn_timing(self.t, truck * 0.1, truck, truck, len(truck) - 1)["verdict"] == "model late"
+
+  def test_wheel_late(self):
+    truck = self.ramp(3.0)
+    assert turns.turn_timing(self.t, self.ramp(2.0), self.ramp(2.0), truck, len(truck) - 1)["verdict"] == "wheel late"
+
+  def test_on_time(self):
+    truck = self.ramp(2.5)
+    assert turns.turn_timing(self.t, self.ramp(2.0), self.ramp(2.0), truck, len(truck) - 1)["verdict"] == "on time"
+
+
 class TestTools:
   def test_turn_across_segments_is_one_turn(self, drive_dir):
     (d,) = fmlog.load_drives([str(drive_dir)])

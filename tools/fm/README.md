@@ -40,7 +40,7 @@ path has no route name (e.g. a bare `rlog.zst`) are taken as one drive.
 |---|---|
 | `timeline.py rlog.zst ... [--step 2] [--start s] [--end s]` | Steering over time: model / final / achieved curvature, torque requested and sent, lane lines, hands, blinker, turn desire, faults |
 | `events.py rlog.zst ...` | Version, model, FM-related settings, on-screen alerts, onroad events, fault and model-load log messages |
-| `turns.py rlog.zst ...` | Every sharp turn: tightest radius asked vs driven, where torque was held back (at the limit, still climbing, held, unwinding; see below), hand force: with or against openpilot's torque while it steers, into the turn while you steer |
+| `turns.py rlog.zst ...` | Every sharp turn: tightest radius asked vs driven, whether the model or the steering was late (see below), where torque was held back (at the limit, still climbing, held, unwinding; see below), hand force: with or against openpilot's torque while it steers, into the turn while you steer |
 | `sway.py rlog.zst ...` | Straight-road sway: wheel, model, lane centering's share, dominant period |
 | `dm.py rlog.zst ...` | Driver monitoring: % distracted and why (pose / eyes / phone), alert levels |
 
@@ -88,5 +88,21 @@ The limit is `carStateSP.fmSteerCap` frame by frame, so Max Torque, the 95% cap 
 `carOutput.actuatorsOutput.torqueOutputCan`. Older logs without them fall back to the speed curve and the logged torque, and the
 line says so. Before Nov 11, 2026 this column was `controlsState` torque at or above 95% of the base 385 curve (the
 request, not what was sent), which read high once Max Torque was on.
+
+### Timing line in `turns.py`
+
+Each turn also has `timing: truck turned in at --1 +24.7s | model asked +1.1 s, openpilot asked -0.5 s | model late`:
+when the model's request, openpilot's request (after Turn Lead / Hold / Boost) and the truck's own curve each first
+reached 30% of the turn's tightest driven curve, looking back up to 4 s before the turn. Model and openpilot times are
+relative to the truck (minus = before it); "never" means that request never got that tight.
+
+| Verdict | Means |
+|---|---|
+| model late | the model asked less than 0.3 s before the truck turned in, or never: only Turn Lead / Hold (or you) start the turn on time |
+| wheel late | the model asked more than 0.8 s before the truck turned in: the request was there and the steering followed slowly |
+| on time | in between |
+
+The 0.3 / 0.8 s lines are working guesses for sorting turns. Drive known corners with Turn Lead off to see which kind of
+late they are.
 
 Tests: `python -m pytest tests` (small synthetic logs; no device or real logs needed).

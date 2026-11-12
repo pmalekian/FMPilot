@@ -14,6 +14,16 @@ Torque line (counts, left-positive; shares are of the time openpilot was steerin
   held               asked for more than was sent and torque not rising: something else holds it back (hands on the
                      wheel, the driver-torque limiter)
   unwinding          more torque is still being sent than asked for, or the opposite way: the same ramp, on the way down
+Timing line: when the model (modelV2 action, or the raw model curve while openpilot isn't steering), openpilot (its
+desired curvature, after Turn Lead / Hold / Boost) and the truck each first reached ONSET_FRAC of the turn's tightest
+driven curve, searched back up to ONSET_LOOKBACK_S before the turn. Times are relative to the truck. The verdict:
+  model late   the model asked less than MODEL_LATE_S before the truck turned in (or never asked that much): the model
+               is late, and only Turn Lead / Hold (or you) can start the turn on time
+  wheel late   the model asked more than WHEEL_LATE_S before the truck turned in: the request was there, the steering
+               followed slowly (torque ramp, controller)
+  on time      in between
+These thresholds are working guesses, to sort turns, not limits of anything.
+
 The limit is the logged `carStateSP.fmSteerCap` frame by frame (so Max Torque, the 95% cap past 90 degrees and the
 speed curve all count). Logs from before it existed fall back to the base speed curve, and logs without
 `carOutput.torqueOutputCan` use the logged torque times the same curve.
@@ -35,6 +45,10 @@ RAMP_GAP = 20      # counts: asked and sent further apart than this means the ra
 # Rivian base speed curve (m/s -> counts), the scale of carControl.actuators.torque. Mirrors
 # CarControllerParams.STEER_MAX_LOOKUP in opendbc/car/rivian/values.py; a test keeps the two equal.
 STEER_MAX_LOOKUP = ([9, 13, 25, 27], [385, 350, 295, 275])
+ONSET_FRAC = 0.3        # of the turn's tightest driven curve
+ONSET_LOOKBACK_S = 4.0  # s before the turn window to look for the start of the request
+MODEL_LATE_S = 0.3
+WHEEL_LATE_S = 0.8
 AMBIGUOUS_NOTE = ("* against openpilot = you resisting OR the loose wheel's reaction to openpilot's torque; the column "
                   "sensor can't tell them apart")
 
@@ -76,6 +90,27 @@ def torque_limits(asked, sent, limit, lat_active):
   pk = int(np.argmax(np.where(la, s, -1.0)))
   return {"at_limit": share(at_limit), "climbing": share(below & rising), "held": share(below & ~rising),
           "unwinding": share(unwinding), "peak": float(s[pk]), "limit": float(limit[pk])}
+
+
+def onset_time(t, toward, threshold, end):
+  """Time the signal (toward the turn, positive) last rose to the threshold before index end, or nan if it was below
+  it at end."""
+  above = np.asarray(toward[:end + 1], float) >= threshold
+  if not len(above) or not above[-1]:
+    return float("nan")
+  below = np.flatnonzero(~above)
+  return float(t[below[-1] + 1] if below.size else t[0])
+
+
+def turn_timing(t, model, openpilot, truck, peak):
+  """Onsets of the model's request, openpilot's request and the truck's curve (all toward the turn, 1/m) at ONSET_FRAC
+  of the truck's curve at index peak, relative to the truck, and a verdict ('model late', 'wheel late', 'on time')."""
+  thr = ONSET_FRAC * truck[peak]
+  truck_on = onset_time(t, truck, thr, peak)
+  model_on, op_on = onset_time(t, model, thr, peak), onset_time(t, openpilot, thr, peak)
+  model_lead = truck_on - model_on if np.isfinite(model_on) else -np.inf
+  verdict = "model late" if model_lead < MODEL_LATE_S else ("wheel late" if model_lead > WHEEL_LATE_S else "on time")
+  return {"truck": truck_on, "model": model_on - truck_on, "openpilot": op_on - truck_on, "verdict": verdict}
 
 
 def series(drive):
@@ -164,6 +199,7 @@ def main(drive):
           f"driven r {1 / max(ak.max(), 1e-4):5.1f} m | hands "
           f"{np.abs(hand).mean():.2f} Nm avg; openpilot steering: with it {pct(h['with_op'])}, against it* {pct(h['against_op'])}; "
           f"you steering: into the turn {pct(h['driver_into'])}")
+    print_timing(drive, t, ctl, md, curv, a, b, turn_lp)
     asked, sent, cap, notes = torque_counts(tt, cs, cc, co, sp)
     q = torque_limits(asked, sent, cap, la)
     if np.isnan(q["at_limit"]):
@@ -172,6 +208,25 @@ def main(drive):
     print(f"      torque: peak sent {q['peak']:3.0f} of {q['limit']:3.0f} limit | at limit {pct(q['at_limit'])}, climbing "
           f"{pct(q['climbing'])}, held {pct(q['held'])}, unwinding {pct(q['unwinding'])}"
           + (f"  ({'; '.join(notes)})" if notes else ""))
+
+
+def print_timing(drive, t, ctl, md, curv, a, b, turn_lp):
+  """The timing line for the turn window [a, b), looking back up to ONSET_LOOKBACK_S without crossing a gap in the log."""
+  start = a
+  while start > 0 and t[a] - t[start - 1] <= ONSET_LOOKBACK_S and t[start] - t[start - 1] < 1:
+    start -= 1
+  toward = lambda x: -turn_lp * np.asarray(x, float)  # noqa: E731  curvature is right-positive, turn_lp left-positive
+  tw = t[start:b]
+  truck = toward(curv[start:b])
+  model = toward(np.interp(tw, md[:, 0], md[:, 1])) if len(md) else np.zeros_like(tw)
+  op = toward(ctl[start:b, 2])
+  peak = int(np.argmax(truck))
+  if truck[peak] <= 0:
+    return
+  q = turn_timing(tw, model, op, truck, peak)
+  rel = lambda x: "never" if np.isnan(x) else f"{x:+.1f} s"  # noqa: E731
+  print(f"      timing: truck turned in at {drive.where(q['truck'])} | model asked {rel(q['model'])}, openpilot asked "
+        f"{rel(q['openpilot'])} (before is -) | {q['verdict']}")
 
 
 if __name__ == "__main__":
