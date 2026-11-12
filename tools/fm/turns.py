@@ -23,6 +23,11 @@ driven curve, searched back up to ONSET_LOOKBACK_S before the turn. Times are re
                followed slowly (torque ramp, controller)
   on time      in between
 These thresholds are working guesses, to sort turns, not limits of anything.
+Release line (only for turns where you pressed the wheel into the turn while openpilot steered): how long you pressed
+into it, the most and average torque openpilot sent against you meanwhile, and when you let go: what was still being
+sent out of the turn, how far the wheel then went past center (within RELEASE_LOOK_S) and how long openpilot's torque
+kept pushing it that way after it crossed center. With Release Guard on (logged as carControlSP.releaseGuard) also the
+share of the pressing time it limited the push and the most it cut; "guard off" when it never ran in this log.
 
 The limit is the logged `carStateSP.fmSteerCap` frame by frame (so Max Torque, the 95% cap past 90 degrees and the
 speed curve all count). Logs from before it existed fall back to the base speed curve, and logs without
@@ -49,6 +54,10 @@ ONSET_FRAC = 0.3        # of the turn's tightest driven curve
 ONSET_LOOKBACK_S = 4.0  # s before the turn window to look for the start of the request
 MODEL_LATE_S = 0.3
 WHEEL_LATE_S = 0.8
+PRESS_CURVATURE = 0.003  # 1/m: the truck already turning that way (as Release Guard and Hold Adds Your Steering)
+RELEASE_LOOK_S = 2.0    # s after letting go to look for the wheel passing center
+PRESS_MIN_S = 0.3       # s: shorter presses into the turn get no release line
+PRESS_GAP_S = 0.2       # s: breaks shorter than this are one press
 AMBIGUOUS_NOTE = ("* against openpilot = you resisting OR the loose wheel's reaction to openpilot's torque; the column "
                   "sensor can't tell them apart")
 
@@ -114,10 +123,10 @@ def turn_timing(t, model, openpilot, truck, peak):
 
 
 def series(drive):
-  cs, ctl, cc, md, co, sp = [], [], [], [], [], []
+  cs, ctl, cc, md, co, sp, rg = [], [], [], [], [], [], []
   for e in drive.evs:
     w = e.which()
-    if w not in ("carState", "controlsState", "carControl", "carOutput", "carStateSP"):
+    if w not in ("carState", "controlsState", "carControl", "carOutput", "carStateSP", "carControlSP"):
       continue
     t = drive.t(e)
     if w == "carState":
@@ -131,13 +140,17 @@ def series(drive):
       cc.append((t, float(e.carControl.latActive), e.carControl.actuators.torque))
     elif w == "carStateSP":
       sp.append((t, e.carStateSP.fmSteerCap))
+    elif w == "carControlSP":
+      g = e.carControlSP.releaseGuard
+      rg.append((t, float(g.active), abs(g.cut), g.limit))
     else:
       out = e.carOutput.actuatorsOutput
       co.append((t, out.torque, out.torqueOutputCan))
   co = co or [(0.0, 0.0, 0.0)]
   sp = sp or [(0.0, 0.0)]
+  rg = rg or [(0.0, 0.0, 0.0, 0.0)]
   md = model_requests(drive)
-  return [np.array(x, float) for x in (cs, ctl, cc)] + [md, np.array(co, float), np.array(sp, float)]
+  return [np.array(x, float) for x in (cs, ctl, cc)] + [md, np.array(co, float), np.array(sp, float), np.array(rg, float)]
 
 
 def torque_counts(tt, cs, cc, co, sp):
@@ -158,6 +171,51 @@ def torque_counts(tt, cs, cc, co, sp):
   return asked, sent, cap, notes
 
 
+def release_check(t, ang, hand, pressed, curv, sent, lat_active, turn_lp, guard_active=None, guard_cut=None,
+                  guard_logged=False):
+  """The release line's numbers, or None when you didn't press into the turn for PRESS_MIN_S while openpilot steered.
+  Angle, hand and sent are left-positive, curv right-positive, turn_lp the turn's side (+1 left). The longest press into
+  the turn is the one checked (not a short catch afterwards); 'released' is False when the log ends (or the window does)
+  before you let go."""
+  toward = -np.asarray(curv) * turn_lp  # the truck's curve toward the turn
+  into_all = pressed & lat_active & (np.asarray(hand) * turn_lp > 0) & (toward > PRESS_CURVATURE)
+  if not into_all.any():
+    return None
+  dt = float(np.median(np.diff(t))) if len(t) > 1 else 0.01
+  runs = []
+  for r in split_runs(t, into_all):
+    if runs and t[r[0]] - t[runs[-1][-1]] < PRESS_GAP_S:
+      runs[-1] = [runs[-1][0], int(r[-1])]
+    else:
+      runs.append([int(r[0]), int(r[-1])])
+  run = max(runs, key=lambda r: t[r[-1]] - t[r[0]])
+  into = np.zeros(len(t), bool)
+  into[run[0]:run[-1] + 1] = into_all[run[0]:run[-1] + 1]
+  if into.sum() * dt < PRESS_MIN_S:
+    return None
+  against = np.clip(-np.asarray(sent) * turn_lp, 0, None)  # sent out of the turn
+  out = {"press_s": into.sum() * dt, "against_max": against[into].max(), "against_avg": against[into].mean(),
+         "released": False}
+  if guard_logged and guard_active is not None:
+    out["guard_share"] = float(np.mean(guard_active[into] > 0.5))
+    out["guard_cut"] = float(np.max(guard_cut[into])) if len(guard_cut[into]) else 0.0
+  last = int(np.where(into)[0][-1])
+  after = np.where(~pressed[last + 1:])[0]
+  if not len(after):
+    return out
+  rel = last + 1 + int(after[0])
+  end = int(np.searchsorted(t, t[rel] + RELEASE_LOOK_S))
+  side = np.asarray(ang[rel:end]) * turn_lp  # positive while still on the turn's side
+  out.update(released=True, t=t[rel], at_release=against[rel], crossed=False, past_deg=0.0, push_past_s=0.0)
+  cross = np.where(side <= 0)[0]
+  if len(cross):
+    c = rel + int(cross[0])
+    out.update(crossed=True, past_deg=float(max(-side.min(), 0.0)), at_center=against[c])
+    pushing = against[c:end] > 0
+    out["push_past_s"] = (int(np.argmin(pushing)) if not pushing.all() else len(pushing)) * dt
+  return out
+
+
 def find_turns(t, curv, v):
   """(start, end) index windows of turns tighter than TURN_RADIUS_M lasting over 1 s, padded 0.6 s before and 0.2 s
   after, never across a gap in the log."""
@@ -175,7 +233,7 @@ def find_turns(t, curv, v):
 
 
 def main(drive):
-  cs, ctl, cc, md, co, sp = series(drive)
+  cs, ctl, cc, md, co, sp, rg = series(drive)
   if not len(cs) or not len(ctl):
     print(f"{drive.label()}: no carState / controlsState")
     return
@@ -183,6 +241,7 @@ def main(drive):
   t, curv = ctl[:, 0], ctl[:, 1]
   v = at(cs, t, 1)
   turns = find_turns(t, curv, v)
+  guard_logged = bool(np.any(rg[:, 3] > 0))
   print(f"{drive.label()}: model {model_name(drive.evs)}, {len(turns)} sharp turns")
   if turns:
     print(f"  {AMBIGUOUS_NOTE}")
@@ -208,6 +267,34 @@ def main(drive):
     print(f"      torque: peak sent {q['peak']:3.0f} of {q['limit']:3.0f} limit | at limit {pct(q['at_limit'])}, climbing "
           f"{pct(q['climbing'])}, held {pct(q['held'])}, unwinding {pct(q['unwinding'])}"
           + (f"  ({'; '.join(notes)})" if notes else ""))
+    print_release(drive, t, cs, cc, co, sp, rg, curv, a, b, turn_lp, guard_logged)
+
+
+def print_release(drive, t, cs, cc, co, sp, rg, curv, a, b, turn_lp, guard_logged):
+  """The release line for the turn window [a, b), carried on RELEASE_LOOK_S past it to see the wheel cross center."""
+  end = min(int(np.searchsorted(t, t[b - 1] + RELEASE_LOOK_S)), len(t))
+  while end > b and t[end - 1] - t[b - 1] > RELEASE_LOOK_S + 1:
+    end -= 1
+  tt = t[a:end]
+  at = lambda arr, c: np.interp(tt, arr[:, 0], arr[:, c])  # noqa: E731
+  _, sent, _, _ = torque_counts(tt, cs, cc, co, sp)
+  r = release_check(tt, at(cs, 2), at(cs, 4), at(cs, 3) > 0.5, curv[a:end], sent, at(cc, 1) > 0.5, turn_lp,
+                    at(rg, 1), at(rg, 2), guard_logged)
+  if r is None:
+    return
+  guard = "guard off"
+  if "guard_share" in r:
+    guard = f"guard on {pct(r['guard_share'])} of it, cut up to {r['guard_cut']:.1f} m/s^2"
+  line = (f"      release: you pressed into the turn {r['press_s']:.1f} s, openpilot against you max {r['against_max']:3.0f} "
+          f"avg {r['against_avg']:3.0f} ({guard})")
+  if not r["released"]:
+    line += " | still pressing at the end"
+  elif not r["crossed"]:
+    line += f" | let go at {drive.where(r['t'])}: {r['at_release']:3.0f} still pushing out, wheel stayed on the turn's side"
+  else:
+    line += (f" | let go at {drive.where(r['t'])}: {r['at_release']:3.0f} still pushing out, {r['at_center']:3.0f} at center, "
+             f"wheel {r['past_deg']:3.0f} deg past center, pushed past center {r['push_past_s']:.2f} s")
+  print(line)
 
 
 def print_timing(drive, t, ctl, md, curv, a, b, turn_lp):

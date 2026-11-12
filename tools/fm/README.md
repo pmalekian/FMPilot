@@ -105,4 +105,18 @@ relative to the truck (minus = before it); "never" means that request never got 
 The 0.3 / 0.8 s lines are working guesses for sorting turns. Drive known corners with Turn Lead off to see which kind of
 late they are.
 
+### Release line in `turns.py`
+
+Turns where you pressed the wheel into the turn (hand torque toward it, the truck already turning that way) for at least
+0.3 s while openpilot steered get a third line, for Release Guard:
+```
+release: you pressed into the turn 2.0 s, openpilot against you max 472 avg 188 (guard off) | let go at --0 +34.9s:
+  433 still pushing out, 396 at center, wheel  39 deg past center, pushed past center 0.78 s
+```
+Against you is sent torque out of the turn while you press (counts). After you let go: what was still being sent out of
+the turn, what was sent when the wheel crossed center, how far past center it went within 2 s, and how long openpilot's
+torque kept pushing it that way after it crossed. With Release Guard on, `(guard on 95% of it, cut up to 8.1 m/s^2)`
+from `carControlSP.releaseGuard`. The longest press in the turn is the one checked, so catching an overshoot afterwards
+doesn't replace it. A turn that started in a segment you didn't load may not be found as a turn.
+
 Tests: `python -m pytest tests` (small synthetic logs; no device or real logs needed).

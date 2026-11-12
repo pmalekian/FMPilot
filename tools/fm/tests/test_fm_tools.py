@@ -384,3 +384,56 @@ class TestModelRequests:
   def test_old_logs_keep_the_action(self):
     assert np.allclose(fmlog.model_requests(self.drive(lambda t: False, with_raw=False))[:, 1], 0.01)
     assert np.allclose(fmlog.model_requests(self.drive(lambda t: False, raw=0.0))[:, 1], 0.01)
+
+
+def _release_case(guard=False):
+  """A left turn at 100 Hz: 1 s of you pressing into it (2 Nm) while openpilot sends 400 against you (right), then you
+  let go at the wheel's 30 deg; it swings 20 deg past center while 300 decays at 5 per message."""
+  n = 300
+  t = np.arange(n) * 0.01
+  ang = np.concatenate([np.full(100, 300.0), np.linspace(30.0, -20.0, 30), np.linspace(-20.0, 0.0, 170)])
+  hand = np.concatenate([np.full(100, 2.0), np.zeros(200)])
+  pressed = hand > 1.0
+  curv = -np.clip(ang, 0, None) / 3000.0  # right-positive: turning left while the wheel is left
+  sent = np.concatenate([np.full(100, -400.0), np.minimum(-300.0 + 5 * np.arange(200), 0.0)])
+  lat = np.ones(n, bool)
+  ga = np.concatenate([np.ones(100), np.zeros(200)]) if guard else None
+  gc = np.concatenate([np.full(100, 2.5), np.zeros(200)]) if guard else None
+  return t, ang, hand, pressed, curv, sent, lat, ga, gc
+
+
+def test_release_check_measures_the_push_against_you_and_past_center():
+  t, ang, hand, pressed, curv, sent, lat, _, _ = _release_case()
+  r = turns.release_check(t, ang, hand, pressed, curv, sent, lat, 1)
+  assert r["press_s"] == pytest.approx(1.0, abs=0.02)
+  assert r["against_max"] == 400 and r["against_avg"] == pytest.approx(400)
+  assert r["released"] and r["t"] == pytest.approx(1.0)
+  assert r["at_release"] == 300
+  assert r["crossed"] and r["past_deg"] == pytest.approx(20.0, abs=0.5)
+  assert r["push_past_s"] == pytest.approx((60 - 18) * 0.01, abs=0.03)  # crosses center at frame 118, sent 0 at 160
+  assert "guard_share" not in r
+
+
+def test_release_check_reports_the_guard_when_logged():
+  t, ang, hand, pressed, curv, sent, lat, ga, gc = _release_case(guard=True)
+  r = turns.release_check(t, ang, hand, pressed, curv, sent, lat, 1, ga, gc, guard_logged=True)
+  assert r["guard_share"] == pytest.approx(1.0) and r["guard_cut"] == pytest.approx(2.5)
+
+
+def test_release_check_ignores_short_presses_and_reaction():
+  t, ang, hand, pressed, curv, sent, lat, _, _ = _release_case()
+  short = pressed.copy()
+  short[20:] = False
+  assert turns.release_check(t, ang, hand, short, curv, sent, lat, 1) is None
+  # hands read against the turn (the wheel's reaction to openpilot's torque, or steering out of it): not a press into it
+  assert turns.release_check(t, ang, -hand, -hand > 1.0, curv, sent, lat, 1) is None
+
+
+def test_release_check_picks_the_long_press_not_a_later_catch():
+  t, ang, hand, pressed, curv, sent, lat, _, _ = _release_case()
+  hand, pressed, curv = hand.copy(), pressed.copy(), curv.copy()
+  hand[250:260] = 2.0  # a short catch later, while the truck turns left a little again
+  pressed[250:260] = True
+  curv[250:260] = -0.01
+  r = turns.release_check(t, ang, hand, pressed, curv, sent, lat, 1)
+  assert r["t"] == pytest.approx(1.0)
