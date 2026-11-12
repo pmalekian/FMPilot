@@ -1,6 +1,6 @@
 # FM Pilot: handoff for new chats (short)
 
-State as of Nov 11, 2026. This is the current state only. Background findings, past drive analyses and
+State as of Nov 12, 2026 (early). This is the current state only. Background findings, past drive analyses and
 the ideas backlog are in `claude/FM_PILOT_FINDINGS.md`: read it only when a task needs that history. Features, settings
 and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 
@@ -40,8 +40,8 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 
 ## What he drives now
 
-- **TSFDOM**, Experimental Mode, lane centering on (One-Line on; on `fm-dev-set` this is `FM_LaneKeepMode` = Lane
-  Centering), Lane Guard off, off-tracking off, Camera Offset 0.05 m
+- **TSFDOM**, Experimental Mode, **Blendful** as his daily lane keeping (`FM_LaneKeepMode` 3, in the Nov 11 logs; said
+  Nov 11), Lane Guard off, off-tracking off, Camera Offset 0.05 m
   (since Nov 4, not yet analyzed). Aggressive personality, following time offset -20% (Nov 3 backup).
 - Road Edge Turn Desire on (max 35 mph in the Nov 5 logs), quiet road-edge block on.
 - Accel Boost: **Predictive** (mode 2) on the Nov 5 drives (up to +0.4 m/s² on aggressive).
@@ -75,6 +75,32 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
   (from the code, not yet seen on the device); leave it offroad for the warmup. **Check before driving:** DM works (face seen, no DM faults), model label/picker
   shows the selected model, no modeld errors. Then try Cheddar as its own drive.
 
+### 0g. Request-side turn fixes on `fm-dev-jet` (Nov 12): built, ON by default, not driven
+
+Frankie's choice after the faster-ramp discussion (below): fix the request first, no safety-limit changes. All five
+built, all on by default (his call), to be tested together. One commit each:
+- `b7b2d77` **Smooth Turn Start** (`FM_TurnPhaseIn`): Turn Assist's extra request (Boost / Lead / Hold / Nudge) rises
+  through a 0.12 s low-pass (~90% in 0.3 s), drops at once; model request never filtered.
+- `6bbdcf5` **Turn Lead Adaptive Look-Ahead** (`FM_TurnLeadAdaptive`): 0.5 s (gentle) to 0.9 s (tight) instead of 1.3 s,
+  min 3 m; tightness from `plan_max_curvature` (tightest bend toward the turn in the next 17 m).
+- `f61de04` **Turn Lead Start Distance gate** (`FM_TurnLeadGate`, `FM_TurnLeadGateDist` 3–10 m, default 5): no lead until
+  the plan's 10°-toward-the-turn point is within that distance (fade over 2 m).
+- `7573f96` **Calmer Low-Speed Correction** (`FM_LowSpeedGainEnabled`, `FM_LowSpeedGainPercent` 40–100, default 70):
+  v0 and v1 `KP_INTERP` scaled below 7 m/s, normal by 9 m/s (`fm_low_speed_gain.py`), Rivian only.
+- `0059e09` **`turns.py` timing line**: model / openpilot / truck onsets at 30% of the turn's peak curve, verdict model
+  late (< 0.3 s) / wheel late (> 0.8 s) / on time. Nov 11: `00000068--1` +24.7 s L model +1.1 s, openpilot -0.5 s
+  (model late, Turn Lead did the work); `00000061--10` +12.2 s R model -0.4 s (on time).
+- **Replay** of `00000068--1` through Turn Assist (old settings reproduce the logged request, median diff 0): with the new
+  settings Turn Lead's early 0.006–0.021 at +23.9–24.2 s drops to 0.001–0.005 (corner 5–7 m out) and the +24.4 s step
+  (0.052 at once) arrives over ~0.2 s; the peak is unchanged. Calmer Correction can't be replayed (closed loop); open
+  loop it scales P by 0.7 (the +25.4 s reversal would be ~30% smaller, a guess).
+- Tests: 564 pass off-device (was 516), no new failures; Sunnylink compiled and validated.
+- **Watch for:** turn-in feeling softer or later (Calmer Correction 70% builds less torque early; try 80–90% if so);
+  Turn Lead starting too late at a tight corner (raise Start Distance to 6–7 m, or Adaptive off); wheel still grabbing
+  then swinging (lower Strength to 60%). Note his drives have Turn Lead **and** Turn Hold on.
+- Test: Turn Lead on (min 2 mph), known corners incl. the `0000003a--83` curb ones; run `turns.py` (timing and torque
+  lines) and compare with `00000068--1`. Then a drive with Turn Lead off to sort model-late vs wheel-late corners.
+
 ### 0f. Torque: the ramp, not the cap, holds slow turns back (Nov 11 logs); `turns.py` torque line (`7b61af6`)
 
 - **Logs:** `00000061--142cb659d9--10/14/15` (Cheddar, build `2eaf5852`, Max Torque 580, Faster Ramp on, Full Torque Past
@@ -98,6 +124,15 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
   Legion .1/.3, Rebellious Hope .1/.3, TSFDOM .1/.3, Cheddar .0/.3; chestnut v28 is all .0); comma's own `modeld.py` had
   0.0/0.3 at OPM16D and TSFDOM, 0.1/0.1 at Rebel Legion. The value filters the model's request and is also added to the
   delay the model plans for (reads further ahead). Long only affects speed, never steering.
+- **Faster ramp discussed Nov 11, deferred (no safety changes):** the car code's `TorqueRtLimiter` (120 over the lowest of
+  the last 30 messages) already holds "5 per message" to a 24-up / 6-flat staircase, avg 4.1 (`00000068--1` +24.0 s),
+  0 to 580 in ~1.4 s. The panda's 250 ms check (125, reference every 26 messages at 100 Hz) means a faster climb needs
+  `max_rate_up` + `max_rt_delta` + car `TORQUE_RT_MAX_DELTA` raised together (e.g. 6/190/180 → 0→580 0.96 s; 8/250/240 →
+  0.72 s, zero refusals in jitter sims); unwinding only needs `max_rate_down` + `STEER_DELTA_DOWN` (−450→0: 0.89 s at 5,
+  0.56 s at 8). At 5 per message both logs had 0 ToiFlt / reduced / fault bits, ToiActive 100%, 0 panda refusals. Held
+  off because the request swings full-scale mid-turn (v0 P term at low speed + Turn Lead / Hold steps) and the slow ramp
+  is what smooths it; also `00000061--10` +11.4–11.8 s sat at ~-390 vs -580 asked from the hands-on rule (1.8–2 Nm
+  against: him or wheel reaction). Revisit after 0g is driven.
 - **Proposed, not built:** drive TSFDOM with Full Torque Past 90° on and Turn Lead on (min 2 mph); Turn Hold + Hold Adds
   Your Steering as its own drive. Then maybe a release guard (limit torque built against him while he steers into a turn),
   and lat smoothing 0.0 only during turn desires (0.1 otherwise, TSFDOM). A faster ramp up or down is a panda safety
@@ -284,6 +319,7 @@ From `0000005e--e26703ace2--2` (Nov 9 build, Cheddar, Road Edge Turn Desire on):
 
 ## Next steps
 
+00. Drive the request-side turn fixes on `fm-dev-jet` (item 0g), all on, together; send rlogs; `turns.py` timing and torque lines.
 0. Update the comma to `fm-dev-set` (v25), do the first-boot checks in item 00, re-select TSFDOM, then try Cheddar.
 0a. Drive TSFDOM with Full Torque Past 90° on and Turn Lead on (item 0f), then Turn Hold + Hold Adds Your Steering, each as its own drive.
 1. Torque test day on `fm-dev-set` (item 1 test plan). Then decide the Max Torque number and drop the slider.
