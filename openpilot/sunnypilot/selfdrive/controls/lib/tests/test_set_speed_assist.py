@@ -1,5 +1,6 @@
 # FM Pilot: tests ported from EVPilot (evpilotgo/openpilot dev, c5943813, Gerry / gerrylum), with the SetSpeedAssist param
 # toggles removed (FM_AccelBoostMode picks it; off and mode switching are tested in test_fm_boost_mode.py), plus FM tests at the end.
+# test_engage_grace_ends_after_the_window_and_fades_out_smoothly changed for FM Pilot's fade at the end of the window.
 from types import SimpleNamespace
 
 import pytest
@@ -10,12 +11,13 @@ from openpilot.sunnypilot.selfdrive.controls.lib.set_speed_assist import (GRACE,
                                                                            personality_index)
 
 
-def run(ssa, frames, a_e2e=0.1, a_cruise=1.2, v_mph=40., should_stop=False, curvature=0., enabled=True, personality=0, a_ego=0., lead=False):
+def run(ssa, frames, a_e2e=0.1, a_cruise=1.2, v_mph=40., should_stop=False, curvature=0., enabled=True, personality=0, a_ego=0., lead=False,
+        a_mpc=float('inf')):
   sm = {'carState': SimpleNamespace(vEgo=v_mph * CV.MPH_TO_MS, aEgo=a_ego),
         'selfdriveState': SimpleNamespace(enabled=enabled, personality=SimpleNamespace(raw=personality)),
         'modelV2': SimpleNamespace(action=SimpleNamespace(shouldStop=should_stop, desiredCurvature=curvature)),
         'radarState': SimpleNamespace(leadOne=SimpleNamespace(present=lead))}
-  return [ssa.update(sm, a_e2e, a_cruise) for _ in range(frames)][-1]
+  return [ssa.update(sm, a_e2e, a_cruise, a_mpc) for _ in range(frames)][-1]
 
 
 @pytest.mark.parametrize("personality", [0, 1, 2])
@@ -88,7 +90,9 @@ def test_engage_grace_hands_back_at_once(after):
 def test_engage_grace_ends_after_the_window_and_fades_out_smoothly():
   ssa = engaged_ssa()
   assert run(ssa, int(GRACE / DT_MDL) - 1, **SLOWING) == -0.5
-  assert run(ssa, 2, **SLOWING) == -0.8
+  # FM Pilot: EVPilot stepped to -0.8 here; the boost now fades out at RAMP_DOWN
+  assert run(ssa, 2, **SLOWING) == pytest.approx(-0.5 - RAMP_DOWN * DT_MDL)
+  assert run(ssa, 3, **SLOWING) == pytest.approx(-0.8)
   ssa = engaged_ssa()
   run(ssa, 10, **SLOWING)
   assert run(ssa, 1, a_e2e=-0.05, a_cruise=0.5) > -0.5  # braking faded out: no step down
@@ -119,3 +123,41 @@ def test_a_fresh_instance_while_engaged_is_not_an_engage():
 @pytest.mark.parametrize("personality, idx", [(0, 0), (1, 1), (2, 2), (SimpleNamespace(raw=2), 2), (None, 1), (9, 1)])
 def test_personality_index(personality, idx):
   assert personality_index(personality) == idx
+
+
+TODAY = {"a_e2e": -0.75, "a_cruise": 1.0, "a_ego": -0.28, "v_mph": 35., "a_mpc": 0.15, "lead": True}  # 00000070--11, Nov 12
+
+
+def grace_ran_out():
+  """An engage with the model braking; the lead MPC allows +0.15, so only part of the grace boost is lifting the target."""
+  ssa = engaged_ssa()
+  run(ssa, 1, **(TODAY | {"a_e2e": -0.5}))
+  for i in range(int(GRACE / DT_MDL) - 2):  # the model deepens -0.5 -> -0.75 through the window
+    run(ssa, 1, **(TODAY | {"a_e2e": -0.5 - 0.25 * i / (GRACE / DT_MDL)}))
+  return ssa
+
+
+def test_end_of_window_fades_out_without_a_step():
+  ssa = grace_ran_out()
+  outs = [min(run(ssa, 1, **TODAY), TODAY["a_mpc"]) for _ in range(30)]  # what the planner's min() gets from the model and the MPC
+  assert outs[0] == pytest.approx(TODAY["a_mpc"])  # the last grace frame: the MPC's +0.15 leads
+  assert outs[1] == pytest.approx(TODAY["a_mpc"] - RAMP_DOWN * DT_MDL)  # the fade starts at once, from where the target was
+  assert max(abs(b - a) for a, b in zip(outs, outs[1:], strict=False)) <= RAMP_DOWN * DT_MDL + 1e-9
+  assert outs[-1] == pytest.approx(TODAY["a_e2e"])  # caught up with the model, about 0.6 s later
+  assert not ssa.fade
+
+
+@pytest.mark.parametrize("after", [{"should_stop": True}, {"a_e2e": -1.5}, {"v_mph": 15.}, {"enabled": False}])
+def test_a_stop_or_harder_braking_during_the_fade_hands_back_at_once(after):
+  ssa = grace_ran_out()
+  run(ssa, 3, **TODAY)
+  assert ssa.fade
+  kw = TODAY | after
+  assert run(ssa, 1, **kw) == kw["a_e2e"]
+
+
+def test_the_lead_mpc_braking_during_the_fade_is_never_held_back():
+  ssa = grace_ran_out()
+  run(ssa, 2, **TODAY)
+  out = run(ssa, 1, **(TODAY | {"a_mpc": -1.2}))  # the car ahead brakes hard: the MPC asks for more than the model
+  assert out == pytest.approx(TODAY["a_e2e"])  # the boost is gone, so the planner's min() takes the MPC's -1.2 straight away

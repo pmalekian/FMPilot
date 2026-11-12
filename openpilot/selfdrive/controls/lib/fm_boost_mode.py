@@ -74,6 +74,6 @@ class FmBoostMode:
     elif self.mode == MODE_PREDICTIVE:
       out = self.predictive.update(sm, output_a_target_e2e, output_a_target_mpc, a_cruise)
     elif self.mode == MODE_SET_SPEED:
-      out = self.set_speed.update(sm, output_a_target_e2e, a_cruise)
+      out = self.set_speed.update(sm, output_a_target_e2e, a_cruise, output_a_target_mpc)
     self.applied = float(out - output_a_target_e2e)
     return out

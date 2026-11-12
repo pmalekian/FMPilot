@@ -8,6 +8,11 @@ FM Pilot changes:
 - a fresh instance (mode switched on while driving) takes the current engaged state on its first frame instead of
   treating it as a new engage, so switching modes onroad doesn't start an engage grace
 - personality read through personality_index(), which takes a capnp enum or a plain int
+- when the grace window runs out while the model still brakes, the boost fades out at RAMP_DOWN instead of dropping in one
+  frame. It is first trimmed to the part that was still lifting the target (above the lower of the lead MPC and the cruise
+  ramp), so the fade starts at once. A stop, harder braking than the floor, low speed, a turn or a disengage still hand back
+  at once, as in EVPilot. Route ca7c5c9bf40939cc/00000070--f5503aff7c/11, Nov 12 2026: an engage at 35 mph with the model at
+  -0.5 to -0.75 held the target near 0 for 3 s, then stepped it from -0.03 to -0.76 in one frame.
 """
 import numpy as np
 
@@ -40,12 +45,13 @@ class SetSpeedAssist:
   def __init__(self):
     self.boost = 0.
     self.engaged, self.lead, self.grace, self.floor, self.ramp, self.v_min = None, False, 0., 0., 0., MIN_SPEED
+    self.fade = False  # FM Pilot: the grace window ran out with the boost still up, fading it out
 
   @property
   def total_boost(self) -> float:
     return self.boost
 
-  def update(self, sm, a_e2e: float, a_cruise: float) -> float:
+  def update(self, sm, a_e2e: float, a_cruise: float, a_mpc: float = float('inf')) -> float:
     cs, action, engaged, lead = sm['carState'], sm['modelV2'].action, sm['selfdriveState'].enabled, sm['radarState'].leadOne.present
     v, a_ego = cs.vEgo, cs.aEgo
     lat_accel = abs(action.desiredCurvature) * v ** 2
@@ -61,11 +67,23 @@ class SetSpeedAssist:
     if (engaged and not self.engaged) or lead_left:
       ramp = max(a_ego, a_e2e + self.boost) if lead_left else a_ego  # a lead leaving mid-boost never steps the accel down
       self.grace, self.floor, self.ramp, self.v_min = GRACE, min(a_e2e, a_ego) - GRACE_MARGIN, ramp, LEAD_MIN_SPEED if lead_left else MIN_SPEED
-    self.engaged, self.lead, self.grace = engaged, lead, self.grace - DT_MDL if ok and v > self.v_min and a_e2e >= self.floor else 0.
+    holds = ok and v > self.v_min and a_e2e >= self.floor
+    was_grace = self.grace > 0
+    self.engaged, self.lead, self.grace = engaged, lead, self.grace - DT_MDL if holds else 0.
+    if was_grace and holds and self.grace <= 0 and self.boost > 0:  # FM Pilot: the window ran out, not a hand-back reason
+      self.fade = True
     if self.grace > 0 and a_e2e < MODEL_SLOWING:  # carried as a boost, so it hands back to the model smoothly once the braking fades out
       self.ramp = min(self.ramp + GRACE_JERK * DT_MDL, a_cruise)
       self.boost = max(self.ramp - a_e2e, 0.)
       return a_e2e + self.boost
+
+    # FM Pilot: fade out what the grace left, while the model still brakes. Keep only the part that still lifts the target above
+    # the lower of the lead MPC and the cruise ramp (the planner's min() picks them otherwise), then take RAMP_DOWN off per second.
+    if self.fade and holds and a_e2e < MODEL_BRAKING:
+      self.boost = max(min(self.boost, min(a_mpc, a_cruise) - a_e2e) - RAMP_DOWN * DT_MDL, 0.)
+      self.fade = self.boost > 0
+      return a_e2e + self.boost
+    self.fade = False
 
     if a_e2e < MODEL_BRAKING or action.shouldStop:
       self.boost = 0.
