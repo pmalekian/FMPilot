@@ -116,6 +116,14 @@ class ControlsExt(ModelStateBase):
     CC_SP.laneCentering.singleLine = bool(self.lane_centering.single_line)
     CC_SP.laneCentering.lineSide = int(self.lane_centering.line_side)
 
+    # FM Pilot Release Guard (on the torque controllers only)
+    guard = getattr(getattr(self, 'LaC', None), 'fm_release_guard', None)
+    if guard is not None:
+      CC_SP.releaseGuard.active = bool(guard.active)
+      CC_SP.releaseGuard.amount = float(guard.amount * guard.enabled)
+      CC_SP.releaseGuard.cut = float(guard.cut)
+      CC_SP.releaseGuard.limit = float(guard.limit)
+
     return CC_SP
 
   @staticmethod

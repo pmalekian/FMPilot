@@ -417,6 +417,7 @@ struct CarControlSP @0xa5cd762cd951a455 {
   leadTwo @3 :LeadData;
   intelligentCruiseButtonManagement @4 :IntelligentCruiseButtonManagement;
   laneCentering @5 :LaneCentering;
+  releaseGuard @6 :ReleaseGuard;  # FM Pilot Release Guard
 
   struct LaneCentering {
     active @0 :Bool;         # the lane lines passed every gate this frame
@@ -426,6 +427,13 @@ struct CarControlSP @0xa5cd762cd951a455 {
     clipped @4 :Bool;        # the raw demand hit MAX_RAW_CORRECTION and was cut back
     singleLine @5 :Bool;     # One-Line Mode is in charge: only one line is trusted and the car is kept clear of it
     lineSide @6 :Int8;       # which side of the car that line is on, signed like correction: +1 right, -1 left, 0 when not in One-Line Mode
+  }
+
+  struct ReleaseGuard {
+    active @0 :Bool;     # the torque controller's P term was limited this frame
+    amount @1 :Float32;  # 1 while you press into the turn under 15 mph, fading with speed and after you let go; 0 = off
+    cut @2 :Float32;     # m/s^2 lateral accel removed from the P term, signed like curvature: positive is to the right
+    limit @3 :Float32;   # m/s^2 the P term may still push against you (Most Torque Against You, in controller units)
   }
 
   struct Param {

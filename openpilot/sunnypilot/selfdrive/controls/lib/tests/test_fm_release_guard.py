@@ -252,3 +252,23 @@ def test_every_selectable_torque_controller_has_the_hook(enforce, tune):
   chosen = ControlsExt.initialize_lateral_control(host, _controllers()["v1"](CP, CP_SP, CI, DT_CTRL), CI, DT_CTRL)
   assert isinstance(getattr(chosen, "fm_release_guard", None), FmReleaseGuard), type(chosen).__module__
   assert chosen.fm_release_guard.available
+
+
+def test_logged_in_car_control_sp():
+  from openpilot.cereal import messaging
+  from openpilot.sunnypilot.selfdrive.controls.controlsd_ext import ControlsExt
+  g = FmReleaseGuard(RIVIAN, FakeParams())
+  step(g, pid(10.0))
+  lc = SimpleNamespace(active=False, holding=False, correction=0.0, center_error=0.0, clipped=False, single_line=False,
+                       line_side=0)
+  host = SimpleNamespace(LaC=SimpleNamespace(fm_release_guard=g), lane_centering=lc, get_lead_data=lambda *a: None)
+  sm = {'radarState': messaging.new_message('radarState').radarState,
+        'selfdriveStateSP': messaging.new_message('selfdriveStateSP').selfdriveStateSP}
+  rg = ControlsExt.state_control_ext(host, sm).releaseGuard
+  assert rg.active and rg.amount == pytest.approx(1.0)
+  assert rg.cut == pytest.approx(10.0 - limit_for(150), rel=1e-5)
+  assert rg.limit == pytest.approx(limit_for(150), rel=1e-5)
+  # a controller without the guard (angle or PID steering) logs nothing
+  host.LaC = SimpleNamespace()
+  rg = ControlsExt.state_control_ext(host, sm).releaseGuard
+  assert not rg.active and rg.cut == 0.0
