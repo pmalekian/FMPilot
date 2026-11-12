@@ -286,7 +286,8 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"FM_LowSpeedGainEnabled", {PERSISTENT | BACKUP, BOOL, "1"}},
     {"FM_LowSpeedGainPercent", {PERSISTENT | BACKUP, INT, "70"}},
     {"FM_LowSpeedFFEnabled", {PERSISTENT | BACKUP, BOOL, "0"}},
-    {"FM_LowSpeedFFStep", {PERSISTENT | BACKUP, INT, "1"}},
+    {"FM_LowSpeedFFStepLeft", {PERSISTENT | BACKUP, INT, "1"}},
+    {"FM_LowSpeedFFStepRight", {PERSISTENT | BACKUP, INT, "1"}},
     {"FM_MaxTorque", {PERSISTENT | BACKUP, INT, "480"}},
     {"FM_PandaHighTorque", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"FM_QuietRoadEdgeBlock", {PERSISTENT | BACKUP, BOOL, "0"}},  // no longer read: the quiet block is always on; kept so old backups restore

@@ -95,16 +95,17 @@ built, all on by default (his call), to be tested together. One commit each:
   (0.052 at once) arrives over ~0.2 s; the peak is unchanged. Calmer Correction can't be replayed (closed loop); open
   loop it scales P by 0.7 (the +25.4 s reversal would be ~30% smaller, a guess).
 - Tests: 564 pass off-device (was 516), no new failures; Sunnylink compiled and validated.
-- **Low-Speed Steering Feedforward** (Nov 12, `FM_LowSpeedFFEnabled` **off** by default, `FM_LowSpeedFFStep` Gentle 40 /
-  Medium 60 / Firm 80 / Full 100): torque for the asked wheel angle (vehicle model), full below 4.5 m/s, gone by 7 m/s,
+- **Low-Speed Steering Feedforward** (Nov 12, `FM_LowSpeedFFEnabled` **off** by default, `FM_LowSpeedFFStepLeft` and
+  `...StepRight`, each Off / Gentle 40 (default) / Medium 60 / Firm 80 / Full 100): torque for the asked wheel angle (vehicle model), full below 4.5 m/s, gone by 7 m/s,
   both v0 and v1 (`fm_low_speed_ff.py`). Fitted on 18 Nov 11 segments (`00000061` --10/14/15, `00000068` --1/2/5,
   `00000069` --3/4/7/9/10/11/12, `0000006a` --10/11/12/14/15; 3300 openpilot-steered hands-off frames following the
   request): below 10 mph existing feedforward ~0 (-4..+5 counts), correction gave 50-70 at 15-45 deg, truck 15-19% wide;
   10-20 mph existing feedforward 75-85% of torque, truck 2-8% wide. Table counts at Full [0,10,30,65,120,180 deg] ->
   [0,20,70,95,105,110] (`e783540`, refit in review: 00000061's Full-mode x1.5 had inflated the tight-turn gap to 79,
   really 54): Full never exceeds the measured gap in any bin. Tight crawl turns had no clean frames (always
-  ramp-limited or hands on): estimated from 10-16 mph. Under 20 deg left ~70-80 vs right ~0 (road crown); 20-45 deg
-  crawl data is right turns only; table symmetric. Stands down with Lateral Jerk or NNLC (`7a35e09`). Over 266 s of
+  ramp-limited or hands on): estimated from 10-16 mph. Left/right checked by speed: no reliable side difference (small-angle split
+  reverses with speed; tight turns 5 left vs 8 right, within the spread); table symmetric, per-side strength added as
+  a tuning knob only (both Gentle). Stands down with Lateral Jerk or NNLC (`7a35e09`). Over 266 s of
   openpilot steering under 16 mph, Gentle adds median 18 / max 44 counts and changes <= 2 counts per step (99th pct)
   vs the P term's 140, so it adds no twitch. Test: turn it on at Gentle with 0g, step up one level per drive if turns still run wide.
 - **Watch for:** turn-in feeling softer or later (Calmer Correction 70% builds less torque early; try 80–90% if so);

@@ -1,21 +1,21 @@
 """FM Pilot Low-Speed Steering Feedforward: torque from the asked wheel angle below about 16 mph, Rivian only, off by
-default, four strength steps."""
+default, strength per side (Off / Gentle / Medium / Firm / Full, Gentle by default)."""
 import math
 from types import SimpleNamespace
 
 import pytest
 
 from openpilot.common.realtime import DT_CTRL
-from openpilot.sunnypilot.selfdrive.controls.lib.fm_low_speed_ff import (BASE_COUNTS, BLEND_S, PARAM_ENABLED, PARAM_STEP,
-                                                                         SPEEDS, STEPS, FmLowSpeedFF)
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_low_speed_ff import (BASE_COUNTS, BLEND_S, PARAM_ENABLED, PARAM_STEP_LEFT,
+                                                                         PARAM_STEP_RIGHT, SPEEDS, STEPS, FmLowSpeedFF)
 
 LAF = 2.7  # learned latAccelFactor in the Nov 11 logs
 BLEND_STEPS = int(BLEND_S / DT_CTRL) + 2
 
 
 class FakeParams:
-  def __init__(self, enabled=True, step=1):
-    self.values = {PARAM_ENABLED: enabled, PARAM_STEP: step}
+  def __init__(self, enabled=True, step=1, right=None):
+    self.values = {PARAM_ENABLED: enabled, PARAM_STEP_LEFT: step, PARAM_STEP_RIGHT: step if right is None else right}
 
   def get_bool(self, key):
     return bool(self.values.get(key))
@@ -40,8 +40,8 @@ def curvature_for(wheel_deg, v):
   return -VM.calc_curvature(math.radians(wheel_deg), v, 0.0)
 
 
-def make(enabled=True, step=1, brand="rivian"):
-  return FmLowSpeedFF(SimpleNamespace(brand=brand), FakeParams(enabled, step))
+def make(enabled=True, step=1, brand="rivian", right=None):
+  return FmLowSpeedFF(SimpleNamespace(brand=brand), FakeParams(enabled, step, right))
 
 
 def counts(ff, wheel_deg, v, fm_scale=1.0):
@@ -53,19 +53,32 @@ def counts(ff, wheel_deg, v, fm_scale=1.0):
 def test_off_by_default_values():
   from openpilot.common.params import Params
   assert not Params().get_bool(PARAM_ENABLED)
-  assert int(Params().get(PARAM_STEP, return_default=True)) == 1
+  assert int(Params().get(PARAM_STEP_LEFT, return_default=True)) == 1
+  assert int(Params().get(PARAM_STEP_RIGHT, return_default=True)) == 1
 
 
 @pytest.mark.parametrize("step,frac", sorted(STEPS.items()))
-def test_steps(step, frac):
+def test_steps_both_sides(step, frac):
   ff = make(step=step)
-  assert counts(ff, 30.0, 3.0) == pytest.approx(70.0 * frac, rel=0.02)
+  assert counts(ff, 30.0, 3.0) == pytest.approx(70.0 * frac, rel=0.02)  # left
+  assert counts(ff, -30.0, 3.0) == pytest.approx(-70.0 * frac, rel=0.02)  # right
+
+
+def test_steps_are_off_gentle_medium_firm_full():
+  assert STEPS == {0: 0.0, 1: 0.4, 2: 0.6, 3: 0.8, 4: 1.0}
+
+
+@pytest.mark.parametrize("left,right", [(0, 1), (1, 0), (3, 1), (1, 4)])
+def test_each_side_on_its_own(left, right):
+  ff = make(step=left, right=right)
+  assert counts(ff, 60.0, 3.0) == pytest.approx(FmLowSpeedFF.counts(60.0, 3.0) * STEPS[left], rel=0.02)
+  assert counts(ff, -60.0, 3.0) == pytest.approx(-FmLowSpeedFF.counts(60.0, 3.0) * STEPS[right], rel=0.02)
 
 
 def test_gentle_is_the_default_step_and_bad_values_fall_back_to_it():
-  assert make(step=None).target == STEPS[1]
-  assert make(step=9).target == STEPS[1]
-  assert make(step="x").target == STEPS[1]
+  for bad in (None, 9, -1, "x"):
+    assert make(step=bad, right=bad).target == {"left": STEPS[1], "right": STEPS[1]}
+  assert make(step=0, right=0).target == {"left": 0.0, "right": 0.0}  # Off is a real choice, not a bad value
 
 
 def test_off_disabled_or_other_brand_is_zero():
@@ -109,15 +122,18 @@ def test_full_torque_mode_keeps_the_counts():
   assert counts(ff, 60.0, 3.0, fm_scale=1.5) == pytest.approx(counts(ff, 60.0, 3.0), rel=1e-6)
 
 
-def test_change_mid_drive_blends():
+def test_change_mid_drive_blends_each_side():
   ff = make(step=1)
-  ff.params.values[PARAM_STEP] = 4
+  ff.params.values[PARAM_STEP_LEFT] = 4
+  ff.params.values[PARAM_STEP_RIGHT] = 0
   ff.read_params()
   first = counts(ff, 60.0, 3.0)
+  assert counts(ff, -60.0, 3.0) < 0  # right fades out, not off at once
   for _ in range(BLEND_STEPS):
     ff.update(curvature_for(60.0, 3.0), 3.0, VM, LAF)
   assert first < counts(ff, 60.0, 3.0)
-  assert ff.strength == pytest.approx(1.0)
+  assert ff.strength == pytest.approx({"left": 1.0, "right": 0.0})
+  assert counts(ff, -60.0, 3.0) == 0.0
 
 
 # --- Controller level, both torque controllers ---

@@ -16,12 +16,15 @@ a table in CAN counts fitted so that at Full it never adds more than the gap mea
 minus the existing feedforward, with 00000061's Higher Torque Full mode (x1.5) taken out): 20-45 deg under 10 mph 65
 added vs 66 measured, 90-220 deg at 10-16 mph 55 vs 54, 8-20 deg under 10 mph 32 vs 52. Tight turns under 10 mph had no
 clean frames (always ramp-limited or hands on), so the table above 45 degrees rests on the 10-16 mph bins and is flat
-from 120 degrees. Under 20 degrees the logs split by side (left about 70-80 counts, right about 0: road crown helping
-right turns), and 20-45 degrees under 10 mph had right turns only, so the symmetric table leans low for left turns and a
-little high for gentle right curves at crawl (up to about 8 counts at Gentle). Full below 10 mph (4.5 m/s), fading out by about 16 mph (7 m/s), where the
-existing feedforward covers most of it. Strength in four steps: Gentle 40 % (default), Medium 60 %, Firm 80 %, Full 100 %
-of the table. Changes blend over a second. Same in both directions (the logs couldn't separate a left/right difference
-from road crown). The counts are what is sent, also in Higher Torque's Full mode. It only adds to the request: every
+from 120 degrees. Full below 10 mph (4.5 m/s), fading out by about 16 mph (7 m/s), where the existing feedforward
+covers most of it.
+
+Strength is set per side, each Off / Gentle 40 % (default) / Medium 60 % / Firm 80 % / Full 100 % of the table, so it
+can run on one side only. The table is the same both ways: the Nov 11 logs showed no reliable left/right difference
+(at small angles the side split reversed between under 10 mph and 12-16 mph; for tight turns left looked higher but
+from 5 vs 8 turns, partly at higher speed, within the turn-to-turn spread). The side is the asked curve's (right
+when desired_curvature > 0). Changes blend over a second, each side on its own. The counts are what is sent, also in
+Higher Torque's Full mode. It only adds to the request: every
 torque limit, the ramp and the panda's checks still apply.
 
 Not with sunnypilot's Lateral Jerk Torque Controller or NNLC: both rebuild the feedforward in torque space in
@@ -35,9 +38,10 @@ import numpy as np
 from openpilot.common.realtime import DT_CTRL
 
 PARAM_ENABLED = "FM_LowSpeedFFEnabled"
-PARAM_STEP = "FM_LowSpeedFFStep"
+PARAM_STEP_LEFT = "FM_LowSpeedFFStepLeft"
+PARAM_STEP_RIGHT = "FM_LowSpeedFFStepRight"
 REPLACES_FEEDFORWARD = ("LateralJerkTorqueController", "NeuralNetworkLateralControl")  # sunnypilot settings
-STEPS = {1: 0.4, 2: 0.6, 3: 0.8, 4: 1.0}  # Gentle, Medium, Firm, Full
+STEPS = {0: 0.0, 1: 0.4, 2: 0.6, 3: 0.8, 4: 1.0}  # Off, Gentle, Medium, Firm, Full
 STEP_DEFAULT = 1
 # |steering wheel angle| (deg) -> counts at Full: never more than the measured gap in any bin of the Nov 11 logs
 TABLE_DEG = [0.0, 10.0, 30.0, 65.0, 120.0, 180.0]
@@ -52,8 +56,8 @@ class FmLowSpeedFF:
   def __init__(self, CP, params=None):
     self.available = getattr(CP, "brand", None) == "rivian"
     self.params = params
-    self.target = 0.0
-    self.strength = 0.0
+    self.target = {"left": 0.0, "right": 0.0}
+    self.strength = {"left": 0.0, "right": 0.0}
     self.frame = -1
     if self.available:
       if self.params is None:
@@ -62,15 +66,20 @@ class FmLowSpeedFF:
       self.available = not any(self.params.get_bool(k) for k in REPLACES_FEEDFORWARD)
     if self.available:
       self.read_params()
-      self.strength = self.target  # the drive starts at the setting, no blend
+      self.strength = dict(self.target)  # the drive starts at the setting, no blend
+
+  def _step(self, key) -> float:
+    value = self.params.get(key, return_default=True)
+    try:
+      step = STEP_DEFAULT if value is None else int(value)
+    except (TypeError, ValueError):
+      step = STEP_DEFAULT
+    return STEPS.get(step, STEPS[STEP_DEFAULT])
 
   def read_params(self) -> None:
     enabled = self.params.get_bool(PARAM_ENABLED)
-    try:
-      step = int(self.params.get(PARAM_STEP, return_default=True) or STEP_DEFAULT)
-    except (TypeError, ValueError):
-      step = STEP_DEFAULT
-    self.target = STEPS.get(step, STEPS[STEP_DEFAULT]) if enabled else 0.0
+    self.target = {"left": self._step(PARAM_STEP_LEFT) if enabled else 0.0,
+                   "right": self._step(PARAM_STEP_RIGHT) if enabled else 0.0}
 
   @staticmethod
   def counts(wheel_deg: float, v_ego: float) -> float:
@@ -86,10 +95,12 @@ class FmLowSpeedFF:
     if self.frame % int(PARAMS_PERIOD / DT_CTRL) == 0:
       self.read_params()
     step = DT_CTRL / BLEND_S
-    self.strength = float(np.clip(self.target, self.strength - step, self.strength + step))
-    if self.strength <= 0.0 or v_ego >= SPEEDS[1] or desired_curvature == 0.0:
+    for side in self.strength:
+      self.strength[side] = float(np.clip(self.target[side], self.strength[side] - step, self.strength[side] + step))
+    strength = self.strength["right" if desired_curvature > 0.0 else "left"]
+    if strength <= 0.0 or v_ego >= SPEEDS[1] or desired_curvature == 0.0:
       return 0.0
     # controlsd's curvature is right-positive and -VM.calc_curvature(left-positive angle), so the VM curvature is -k
     wheel_deg = math.degrees(VM.get_steer_from_curvature(-desired_curvature, max(v_ego, 0.0), 0.0))
-    torque = self.counts(wheel_deg, v_ego) * self.strength / BASE_COUNTS / max(fm_scale, 1e-3)
+    torque = self.counts(wheel_deg, v_ego) * strength / BASE_COUNTS / max(fm_scale, 1e-3)
     return math.copysign(torque * lat_accel_factor, desired_curvature)
