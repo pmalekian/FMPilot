@@ -1,6 +1,6 @@
 # FM Pilot: handoff for new chats (short)
 
-State as of Nov 12, 2026 (early). This is the current state only. Background findings, past drive analyses and
+State as of Nov 12, 2026 (early; Release Guard added). This is the current state only. Background findings, past drive analyses and
 the ideas backlog are in `claude/FM_PILOT_FINDINGS.md`: read it only when a task needs that history. Features, settings
 and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 
@@ -75,6 +75,51 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
   (from the code, not yet seen on the device); leave it offroad for the warmup. **Check before driving:** DM works (face seen, no DM faults), model label/picker
   shows the selected model, no modeld errors. Then try Cheddar as its own drive.
 
+### 0h. Release Guard on `fm-dev-jet` (Nov 12): built, OFF by default, not driven
+
+- **Problem (his):** in a slow turn, holding the wheel tighter than openpilot wants makes the torque controller push back;
+  letting go, that torque is still being sent and swings the wheel past center. It is the **P term**: v0's integrator is
+  frozen while pressing or under 5 m/s, and KP is ~30 at 7 mph, so a 0.01 1/m gap already saturates it. The car's hand rule
+  (`apply_driver_steer_torque_limits`: -200 counts per Nm above 1 Nm) only trims what is sent, never the request.
+- **Logs:** `00000067--4e0a74a75c--0` +32.8-34.9 s (Rebel Legion, left, 8-11 mph, ~2 Nm into it, 30% tighter than
+  asked, Turn Hold off): up to 485 against him, let go at +34.9 s with 433 out of the turn, 396 at center, wheel to -39 deg
+  (about 75 deg past the model's target), push past center 0.78-0.80 s, he caught it at +35.1 s. `00000068--29f57c5eb1--1`
+  +0-1.7 s (TSFDOM, right, 12-15 mph): same, 306 at center, 0.64 s, wheel +12 deg; **Turn Hold + Hold Adds Your Steering
+  were on** and turn desire active until +1.05 s, but the request stayed below his curve: the hold had most likely
+  released at its 75 deg limit (guess; hold state isn't logged). So Hold Adds doesn't cover turn exits.
+  `00000061--10` (Cheddar, hands off, -580 -> +580 flip) is a different problem: no hands, the guard never acts; only
+  Calmer Correction or a faster ramp-down (panda, deferred) touch it.
+- **Built (`e2aa8b3`):** `fm_release_guard.py`, hooked after `pid.update` in v0 and v1. While he presses into the curve
+  the truck is already turning (> 0.003 1/m, hand torque toward it), under 15 mph and gone by 20, `pid.p`'s push against
+  him is limited to **Most Torque Against You** (`FM_ReleaseGuardMax` 150 default or 75 counts, converted like the
+  feedforward via latAccelFactor / fm_scale) and the clipped output recomputed. After release it fades over 0.5 s and ends
+  at once when P flips (wheel past openpilot's target) or his hand reverses. Feedforward, friction, integrator and all
+  limits after the controller unchanged. Off by default (`FM_ReleaseGuard`), Steering > Torque Control, live (read every
+  1 s, on/off blends 0.5 s), stands down with Lateral Jerk / NNLC. A percentage of P was rejected: P runs 10+ here, so
+  even 25% left ~300 counts.
+- **Logging (`fd3f1f0`):** `carControlSP.releaseGuard` (active, amount, cut, limit). **`turns.py` (`4497333`):** release
+  line per turn with a press into it of 0.3 s or more (press time, against-you max/avg, at release, at center, deg past
+  center, push past center, guard share/cut).
+- **Replay** (real module on logged P / I / FF, then the car's hand rule and ramp, seeded from the log; matches logged sent
+  within median 5-14 counts):
+
+  | | Rebel Legion: held avg / at release / at center / past center | TSFDOM 68--1: same |
+  |---|---|---|
+  | as driven | 197 / 445 / 400 / 0.80 s | 380 / 391 / 306 / 0.64 s |
+  | guard 150 | 58 / 125 / 80 / 0.16 s | 172 / 114 / 29 / 0.06 s |
+  | guard 75 | 14 / 55 / 10 / 0.02 s | 153 / 39 / -39 / 0 |
+  | Calmer 70% alone | 201 / 398 / 353 / 0.71 s | 373 / 328 / 243 / 0.50 s |
+  | Calmer 70% + guard 150 | 59 / 125 / 80 / 0.16 s | 172 / 113 / 28 / 0.06 s |
+
+  68--1's press began in `--0` with ~365 already built, so the guard could only bring it down at the ramp (held avg falls
+  less). Open loop: shows torque, not where the wheel would have stopped. With the guard on, Calmer changes nothing here
+  (the limit is absolute).
+- Tests: `test_fm_release_guard.py` 20 pass (incl. both controllers, every selectable controller has the hook, logging);
+  tools 44 pass; Sunnylink validator 10/10. Off-device suite: no new failures vs `06dbd26` (same 190 shim failures).
+- **Test:** after 0g has been driven, its own drive on the same corners: on at 150, hold the wheel into a few slow turns
+  and let go as usual. `turns.py` release line vs `00000067--0`. Try 75 if it still swings past center; if turn-in feels
+  like openpilot stopped helping while you steer, that's expected (it only limits push *against* you).
+
 ### 0g. Request-side turn fixes on `fm-dev-jet` (Nov 12): built, ON by default, not driven
 
 Frankie's choice after the faster-ramp discussion (below): fix the request first, no safety-limit changes. All five
@@ -147,8 +192,8 @@ built, all on by default (his call), to be tested together. One commit each:
   is what smooths it; also `00000061--10` +11.4–11.8 s sat at ~-390 vs -580 asked from the hands-on rule (1.8–2 Nm
   against: him or wheel reaction). Revisit after 0g is driven.
 - **Proposed, not built:** drive TSFDOM with Full Torque Past 90° on and Turn Lead on (min 2 mph); Turn Hold + Hold Adds
-  Your Steering as its own drive. Then maybe a release guard (limit torque built against him while he steers into a turn),
-  and lat smoothing 0.0 only during turn desires (0.1 otherwise, TSFDOM). A faster ramp up or down is a panda safety
+  Your Steering as its own drive. Release guard: built, item 0h.
+  Also lat smoothing 0.0 only during turn desires (0.1 otherwise, TSFDOM). A faster ramp up or down is a panda safety
   limit: **discuss with him first, no code until he agrees.**
 
 ### 0e. Turn desire fixes on `fm-dev-jet` (Nov 11): built, not driven
@@ -333,6 +378,7 @@ From `0000005e--e26703ace2--2` (Nov 9 build, Cheddar, Road Edge Turn Desire on):
 ## Next steps
 
 00. Drive the request-side turn fixes on `fm-dev-jet` (item 0g), all on, together; send rlogs; `turns.py` timing and torque lines.
+00a. Then Release Guard (item 0h) on at 150 as its own drive on the same corners; `turns.py` release line.
 0. Update the comma to `fm-dev-set` (v25), do the first-boot checks in item 00, re-select TSFDOM, then try Cheddar.
 0a. Drive TSFDOM with Full Torque Past 90° on and Turn Lead on (item 0f), then Turn Hold + Hold Adds Your Steering, each as its own drive.
 1. Torque test day on `fm-dev-set` (item 1 test plan). Then decide the Max Torque number and drop the slider.
