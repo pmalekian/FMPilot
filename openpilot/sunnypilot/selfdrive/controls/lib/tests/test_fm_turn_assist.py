@@ -9,7 +9,8 @@ from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_assist import (FmTurnAs
                                                                          PARAM_BOOST_RIGHT, PARAM_HOLD, HOLD_MAX_HEADING, FADE_TIME,
                                                                          PARAM_LEAD, PARAM_MIN_RADIUS, MIN_RADIUS_DEFAULT, PARAM_HOLD_PATH,
                                                                          PARAM_HOLD_DRIVER, PARAM_LEAD_MIN_SPEED, PARAM_HOLD_EARLY,
-                                                                         PARAM_PHASE_IN, PHASE_IN_TAU, PARAM_LEAD_ADAPTIVE, plan_circle_curvature)
+                                                                         PARAM_PHASE_IN, PHASE_IN_TAU, PARAM_LEAD_ADAPTIVE, PARAM_LEAD_GATE,
+                                                                         PARAM_LEAD_GATE_DIST, plan_circle_curvature)
 
 LEFT, RIGHT, NONE = TurnDirection.turnLeft, TurnDirection.turnRight, TurnDirection.none
 FADE_STEPS = int(FADE_TIME / DT_CTRL) + 2
@@ -20,7 +21,7 @@ class FakeParams:
     self.values = {PARAM_BOOST: False, PARAM_BOOST_LEFT: 1.1, PARAM_BOOST_RIGHT: 1.2, PARAM_HOLD: False, PARAM_LEAD: False,
                    PARAM_HOLD_PATH: False, PARAM_HOLD_DRIVER: False, PARAM_HOLD_EARLY: False, PARAM_LEAD_MIN_SPEED: 7.0,
                    PARAM_MIN_RADIUS: MIN_RADIUS_DEFAULT, PARAM_PHASE_IN: False,
-                   PARAM_LEAD_ADAPTIVE: False} | values
+                   PARAM_LEAD_ADAPTIVE: False, PARAM_LEAD_GATE: False, PARAM_LEAD_GATE_DIST: 5.0} | values
 
   def get_bool(self, key):
     return bool(self.values.get(key))
@@ -604,3 +605,35 @@ class TestAdaptiveLookAhead:
     model = path(12, start=1.0, side=side)
     adaptive = run(self._assist(True), 0.0, direction, mph=13, steps=FADE_STEPS, actual=0.0, model=model)
     assert side * adaptive > 0.03
+
+
+class TestLeadStartDistance:
+  """Start Distance gate: no Turn Lead until the path has turned 10 degrees toward the turn within the set distance."""
+
+  def _lead(self, model, direction, gate=None, mph=13):
+    values = {PARAM_LEAD: True, PARAM_LEAD_MIN_SPEED: 2.0}
+    if gate is not None:
+      values |= {PARAM_LEAD_GATE: True, PARAM_LEAD_GATE_DIST: gate}
+    return run(FmTurnAssist(FakeParams(**values)), 0.0, direction, mph=mph, steps=FADE_STEPS, actual=0.0, model=model)
+
+  @pytest.mark.parametrize("side,direction", [(1, RIGHT), (-1, LEFT)])
+  def test_corner_too_far_waits(self, side, direction):
+    model = path(12, start=5.5, side=side)  # 10 degree point at about 8.5 m
+    assert side * self._lead(model, direction) > 0.003  # gate off: the fixed 1.3 s reads into it
+    assert self._lead(model, direction, gate=5.0) == 0.0
+    assert side * self._lead(model, direction, gate=10.0) > 0.003
+
+  @pytest.mark.parametrize("side,direction", [(1, RIGHT), (-1, LEFT)])
+  def test_corner_close_leads(self, side, direction):
+    model = path(12, start=1.0, side=side)  # 10 degree point at about 4 m
+    assert self._lead(model, direction, gate=5.0) == pytest.approx(self._lead(model, direction))
+
+  def test_bend_the_other_way_does_not_open_it(self):
+    from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_assist import plan_turn_onset_toward
+    assert math.isinf(plan_turn_onset_toward(path(12, start=1.0, side=-1), 1))
+    assert 3.0 < plan_turn_onset_toward(path(12, start=1.0, side=1), 1) < 4.5  # 2-3 m into the corner
+    assert math.isinf(plan_turn_onset_toward(path(None), 1))
+
+  def test_gate_setting_is_clamped(self):
+    assert FmTurnAssist(FakeParams(**{PARAM_LEAD_GATE_DIST: 50.0})).lead_gate_dist == 10.0
+    assert FmTurnAssist(FakeParams(**{PARAM_LEAD_GATE_DIST: "x"})).lead_gate_dist == 5.0

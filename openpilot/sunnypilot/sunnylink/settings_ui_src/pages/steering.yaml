@@ -744,3 +744,29 @@ sections:
       - type: param
         key: FM_TurnLeadEnabled
         equals: true
+    - key: FM_TurnLeadGate
+      widget: toggle
+      title: Wait for the Corner
+      description: Turn Lead only starts once the corner is close, within Turn Lead Start Distance, instead of as soon
+        as the planned path shows a turn somewhere ahead. Stops it from turning toward the curb before you reach the
+        corner. On by default.
+      enablement:
+      - type: param
+        key: FM_TurnLeadEnabled
+        equals: true
+    - key: FM_TurnLeadGateDist
+      widget: option
+      title: Turn Lead Start Distance
+      description: How close the corner has to be (where the planned path has turned 10 degrees, a couple of meters into
+        it) before Turn Lead acts. Smaller starts later. Default 5 m, about 2 to 3 m before the corner.
+      min: 3
+      max: 10
+      step: 1
+      unit: m
+      enablement:
+      - type: param
+        key: FM_TurnLeadEnabled
+        equals: true
+      - type: param
+        key: FM_TurnLeadGate
+        equals: true

@@ -42,6 +42,10 @@ only change the requested curvature, so every steering limit after them still ap
     never closer than 3 m. That is about openpilot's 0.25 s steering delay plus the time the torque needs to build at
     the current ramp (about 4 counts per 10 ms). A fixed 1.3 s at 12 to 16 mph asks for the turn 7 to 9 m before it
     starts (it cut the curb on 0000003a--83).
+    Option Start Distance gate (on by default, 5 m; 3 to 10 m): Turn Lead only acts once the point where the planned path
+    has turned more than 10 degrees toward the turn is within that distance (fading in over the 2 m before it). That
+    point is 2 to 3 m into a 12 m corner, so at 5 m the lead starts about 2 to 3 m before the corner itself. Once the truck
+    is turning, the path ahead bends right away, so the gate stays open; once the turn straightens out it closes.
     Ported from StarPilot's Model Turn Assist "turn lead" (lateral/model_turn_assist.py, StarPilot Dom branch, Nov 2026,
     MIT), with FM Pilot changes: a smooth speed fade in place of StarPilot's hard cutoff at 7 m/s, the low end as a
     setting (StarPilot: fixed 3 m/s, about 6.7 mph) so it can reach turns pulling away from a stop, and the radius cap
@@ -79,6 +83,8 @@ PARAM_HOLD_EARLY = "FM_TurnHoldEarlyCorrection"
 PARAM_MIN_RADIUS = "FM_TurnPathMinRadius"
 PARAM_PHASE_IN = "FM_TurnPhaseIn"
 PARAM_LEAD_ADAPTIVE = "FM_TurnLeadAdaptive"
+PARAM_LEAD_GATE = "FM_TurnLeadGate"
+PARAM_LEAD_GATE_DIST = "FM_TurnLeadGateDist"  # m
 
 BOOST_LIMITS = (1.0, 1.5)
 FULL_SPEED = 15 * CV.MPH_TO_MS
@@ -109,6 +115,11 @@ LEAD_DECEL_GATE = -0.5  # m/s^2
 LEAD_ADAPTIVE_CURVATURE = (0.02, 0.08)  # 50 m and 12.5 m radius
 LEAD_ADAPTIVE_TIME = (0.5, 0.9)  # s
 LEAD_ADAPTIVE_DIST = (3.0, 14.0)  # m
+# Start Distance gate
+LEAD_GATE_HEADING = 10.0  # deg toward the turn: where the path counts as turning
+LEAD_GATE_DIST_LIMITS = (3.0, 10.0)  # m, setting
+LEAD_GATE_DIST_DEFAULT = 5.0
+LEAD_GATE_FADE = 2.0  # m: from no lead to full lead
 
 # Turn Hold path source (from StarPilot's CURVATURE_HOLD_PLAN_* / ONSET_* / REACH_*)
 HOLD_PATH_MAX_SPEED = 2.0 * CV.MPH_TO_MS
@@ -166,6 +177,22 @@ def plan_turn_onset(model_v2) -> float:
       continue
     if abs(math.degrees(math.atan2(dy, dx))) > HOLD_PATH_ONSET_HEADING:
       return math.hypot(xs[i], ys[i])
+  return math.inf
+
+
+def plan_turn_onset_toward(model_v2, sign: int, heading_deg: float = LEAD_GATE_HEADING) -> float:
+  """Distance to the first planned point where the path heads more than heading_deg toward the turn (right for sign +1:
+  the calibrated frame's y is to the right), or inf."""
+  try:
+    xs, ys = model_v2.position.x, model_v2.position.y
+    for i in range(1, min(len(xs), len(ys))):
+      dx, dy = float(xs[i]) - float(xs[i - 1]), float(ys[i]) - float(ys[i - 1])
+      if abs(dx) < 0.001 and abs(dy) < 0.001:
+        continue
+      if sign * math.degrees(math.atan2(dy, dx)) > heading_deg:
+        return math.hypot(float(xs[i]), float(ys[i]))
+  except (AttributeError, IndexError, TypeError, ValueError, OverflowError):
+    pass
   return math.inf
 
 
@@ -236,6 +263,8 @@ class FmTurnAssist:
     self.max_curvature = 1.0 / MIN_RADIUS_DEFAULT
     self.phase_in = False
     self.lead_adaptive = False
+    self.lead_gate = False
+    self.lead_gate_dist = LEAD_GATE_DIST_DEFAULT
     self.amount = 0.0  # 0..1 fade
     self._reset_turn(0)
     self.read_params()
@@ -265,6 +294,14 @@ class FmTurnAssist:
     self.nudge_enabled = self.params.get_bool(PARAM_TURN_NUDGE)
     self.phase_in = self.params.get_bool(PARAM_PHASE_IN)
     self.lead_adaptive = self.params.get_bool(PARAM_LEAD_ADAPTIVE)
+    self.lead_gate = self.params.get_bool(PARAM_LEAD_GATE)
+    try:
+      gate = float(self.params.get(PARAM_LEAD_GATE_DIST, return_default=True) or LEAD_GATE_DIST_DEFAULT)
+    except (TypeError, ValueError):
+      gate = LEAD_GATE_DIST_DEFAULT
+    if not math.isfinite(gate):
+      gate = LEAD_GATE_DIST_DEFAULT
+    self.lead_gate_dist = float(np.clip(gate, *LEAD_GATE_DIST_LIMITS))
     try:
       radius = float(self.params.get(PARAM_MIN_RADIUS, return_default=True) or MIN_RADIUS_DEFAULT)
     except (TypeError, ValueError):
@@ -306,7 +343,12 @@ class FmTurnAssist:
       return 0.0
     engaged = max(sign * actual_curvature, 0.0) / lead
     engage_w = float(np.clip((1.0 - engaged) / (1.0 - LEAD_ENGAGED_FRAC), 0.0, 1.0))
-    return lead * speed_w * engage_w
+    gate_w = 1.0
+    if self.lead_gate:
+      onset = plan_turn_onset_toward(model_v2, sign)
+      gate_w = float(np.interp(onset, [self.lead_gate_dist, self.lead_gate_dist + LEAD_GATE_FADE], [1.0, 0.0])) \
+        if math.isfinite(onset) else 0.0
+    return lead * speed_w * engage_w * gate_w
 
   def lead_distance(self, model_v2, sign: int, v_ego: float) -> float:
     """How far ahead Turn Lead reads the path: a fixed 1.3 s of travel, or with Adaptive Look-Ahead 0.5 to 0.9 s by how
