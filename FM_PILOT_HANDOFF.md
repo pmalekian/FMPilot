@@ -256,7 +256,8 @@ From `0000005e--e26703ace2--2` (Nov 9 build, Cheddar, Road Edge Turn Desire on):
 - From EVPilot (gerrylum's fork, `evpilotgo/openpilot` `dev`, through `c594381` Nov 10: the boost now shrinks in
   proportion to a model slow-down or a turn instead of cutting off, which fixed its every-4-s pulsing). Ported as
   **Accel Boost mode 3, "Set Speed"** (`FM_AccelBoostMode`, Sunnylink Cruise > Driving Personality Settings); exclusive
-  with Gas / Predictive, default still Gas. Logic and numbers unchanged; see FM_PILOT.md for the behavior and credits.
+  with Gas / Predictive, default still Gas. Logic and numbers unchanged except the end of the grace window (item 0i);
+  see FM_PILOT.md for the behavior and credits.
 - Only on `fm-dev-jet` (`2002100`), not `fm-dev-set`. Cherry-pick if wanted.
 - Test: its own drive in Experimental Mode on roads where the model creeps up to the set speed (20+ mph), boost bar on.
   In logs, `longitudinalPlanSP.fmAccelBoost` (what it added) with `fmAccelBoostMode` 3. Watch for: surging toward the
