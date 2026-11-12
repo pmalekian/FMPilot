@@ -9,7 +9,7 @@ from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_assist import (FmTurnAs
                                                                          PARAM_BOOST_RIGHT, PARAM_HOLD, HOLD_MAX_HEADING, FADE_TIME,
                                                                          PARAM_LEAD, PARAM_MIN_RADIUS, MIN_RADIUS_DEFAULT, PARAM_HOLD_PATH,
                                                                          PARAM_HOLD_DRIVER, PARAM_LEAD_MIN_SPEED, PARAM_HOLD_EARLY,
-                                                                         PARAM_PHASE_IN, PHASE_IN_TAU, plan_circle_curvature)
+                                                                         PARAM_PHASE_IN, PHASE_IN_TAU, PARAM_LEAD_ADAPTIVE, plan_circle_curvature)
 
 LEFT, RIGHT, NONE = TurnDirection.turnLeft, TurnDirection.turnRight, TurnDirection.none
 FADE_STEPS = int(FADE_TIME / DT_CTRL) + 2
@@ -19,7 +19,8 @@ class FakeParams:
   def __init__(self, **values):
     self.values = {PARAM_BOOST: False, PARAM_BOOST_LEFT: 1.1, PARAM_BOOST_RIGHT: 1.2, PARAM_HOLD: False, PARAM_LEAD: False,
                    PARAM_HOLD_PATH: False, PARAM_HOLD_DRIVER: False, PARAM_HOLD_EARLY: False, PARAM_LEAD_MIN_SPEED: 7.0,
-                   PARAM_MIN_RADIUS: MIN_RADIUS_DEFAULT, PARAM_PHASE_IN: False} | values
+                   PARAM_MIN_RADIUS: MIN_RADIUS_DEFAULT, PARAM_PHASE_IN: False,
+                   PARAM_LEAD_ADAPTIVE: False} | values
 
   def get_bool(self, key):
     return bool(self.values.get(key))
@@ -557,3 +558,49 @@ class TestSmoothTurnStart:
     applied = run(assist, 0.0, RIGHT)  # the model lets go: the hold's floor eases in
     assert 0.0 < applied < 0.06 * 0.9
     assert run(assist, 0.0, NONE) <= applied
+
+
+class TestAdaptiveLookAhead:
+  """Adaptive Look-Ahead: Turn Lead reads 0.5 s (gentle) to 0.9 s (tight) ahead instead of a fixed 1.3 s, at least 3 m."""
+
+  def _assist(self, adaptive):
+    return FmTurnAssist(FakeParams(**{PARAM_LEAD: True, PARAM_LEAD_MIN_SPEED: 2.0, PARAM_LEAD_ADAPTIVE: adaptive}))
+
+  def test_off_is_the_fixed_1_3_s(self):
+    a = self._assist(False)
+    v = 13 * CV.MPH_TO_MS
+    assert a.lead_distance(path(12, start=2.0), 1, v) == pytest.approx(1.3 * v)
+
+  @pytest.mark.parametrize("radius,seconds", [(60, 0.5), (10, 0.9)])
+  def test_on_reads_by_how_tight(self, radius, seconds):
+    a = self._assist(True)
+    v = 14 * CV.MPH_TO_MS
+    assert a.lead_distance(path(radius, start=0.0), 1, v) == pytest.approx(max(seconds * v, 3.0), rel=0.15)
+
+  @pytest.mark.parametrize("radius", [8, 12, 20, 50])
+  def test_plan_max_curvature_finds_the_corner(self, radius):
+    from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_assist import plan_max_curvature
+    for side in (1, -1):
+      assert plan_max_curvature(path(radius, start=6.0, side=side), side, 17.0) == pytest.approx(1 / radius, rel=0.2)
+      assert plan_max_curvature(path(radius, start=6.0, side=side), -side, 17.0) == 0.0
+    assert plan_max_curvature(path(None), 1, 17.0) == 0.0
+    assert plan_max_curvature(path(12, start=20.0), 1, 17.0) == 0.0  # past the window
+
+  def test_on_never_closer_than_3_m(self):
+    a = self._assist(True)
+    assert a.lead_distance(path(None), 1, 3 * CV.MPH_TO_MS) == pytest.approx(3.0)
+
+  @pytest.mark.parametrize("side,direction", [(1, RIGHT), (-1, LEFT)])
+  def test_corner_5_5_m_ahead_waits_with_adaptive(self, side, direction):
+    """At 13 mph a fixed 1.3 s (7.5 m) already reads into a corner 5.5 m ahead; 0.9 s (5.2 m) doesn't yet."""
+    model = path(12, start=5.5, side=side)
+    fixed = run(self._assist(False), 0.0, direction, mph=13, steps=FADE_STEPS, actual=0.0, model=model)
+    adaptive = run(self._assist(True), 0.0, direction, mph=13, steps=FADE_STEPS, actual=0.0, model=model)
+    assert side * fixed > 0.003
+    assert side * adaptive < 0.001  # its probe point is at most 0.5 m into the corner
+
+  @pytest.mark.parametrize("side,direction", [(1, RIGHT), (-1, LEFT)])
+  def test_corner_right_ahead_still_leads(self, side, direction):
+    model = path(12, start=1.0, side=side)
+    adaptive = run(self._assist(True), 0.0, direction, mph=13, steps=FADE_STEPS, actual=0.0, model=model)
+    assert side * adaptive > 0.03

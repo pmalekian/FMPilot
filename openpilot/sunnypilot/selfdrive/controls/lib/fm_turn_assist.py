@@ -37,6 +37,11 @@ only change the requested curvature, so every steering limit after them still ap
     as the truck's actual curve catches up (gone once the truck turns as tightly as the path asks), and stays out when
     the truck is about to stop short of that point or the model steers away from the turn. Its request never goes
     tighter than Turn Path Tightest Radius (8 m at the tightest).
+    Option Adaptive Look-Ahead (on by default): instead of a fixed 1.3 s, it reads the path as far ahead as the steering
+    actually lags: 0.5 s for a gentle curve (50 m radius or wider) up to 0.9 s for a tight one (12.5 m or tighter),
+    never closer than 3 m. That is about openpilot's 0.25 s steering delay plus the time the torque needs to build at
+    the current ramp (about 4 counts per 10 ms). A fixed 1.3 s at 12 to 16 mph asks for the turn 7 to 9 m before it
+    starts (it cut the curb on 0000003a--83).
     Ported from StarPilot's Model Turn Assist "turn lead" (lateral/model_turn_assist.py, StarPilot Dom branch, Nov 2026,
     MIT), with FM Pilot changes: a smooth speed fade in place of StarPilot's hard cutoff at 7 m/s, the low end as a
     setting (StarPilot: fixed 3 m/s, about 6.7 mph) so it can reach turns pulling away from a stop, and the radius cap
@@ -73,6 +78,7 @@ PARAM_HOLD_DRIVER = "FM_TurnHoldDriverAdds"
 PARAM_HOLD_EARLY = "FM_TurnHoldEarlyCorrection"
 PARAM_MIN_RADIUS = "FM_TurnPathMinRadius"
 PARAM_PHASE_IN = "FM_TurnPhaseIn"
+PARAM_LEAD_ADAPTIVE = "FM_TurnLeadAdaptive"
 
 BOOST_LIMITS = (1.0, 1.5)
 FULL_SPEED = 15 * CV.MPH_TO_MS
@@ -99,6 +105,10 @@ LEAD_ENGAGED_FRAC = 0.5  # full until the truck turns half as tightly as the pat
 LEAD_MODEL_OPPOSE = 0.003  # 1/m: no Lead while the model steers away from the turn by more than this
 LEAD_STOP_MARGIN = 1.5
 LEAD_DECEL_GATE = -0.5  # m/s^2
+# Adaptive Look-Ahead: seconds of travel to read ahead, by how tight the path bends there (1/m)
+LEAD_ADAPTIVE_CURVATURE = (0.02, 0.08)  # 50 m and 12.5 m radius
+LEAD_ADAPTIVE_TIME = (0.5, 0.9)  # s
+LEAD_ADAPTIVE_DIST = (3.0, 14.0)  # m
 
 # Turn Hold path source (from StarPilot's CURVATURE_HOLD_PLAN_* / ONSET_* / REACH_*)
 HOLD_PATH_MAX_SPEED = 2.0 * CV.MPH_TO_MS
@@ -159,6 +169,35 @@ def plan_turn_onset(model_v2) -> float:
   return math.inf
 
 
+def plan_max_curvature(model_v2, sign: int, max_dist: float, spacing: float = 1.5) -> float:
+  """Tightest bend toward the turn (>= 0, 1/m) along the planned path within max_dist: heading change between points
+  at least `spacing` m apart, over the distance between their segment midpoints."""
+  try:
+    xs, ys = model_v2.position.x, model_v2.position.y
+  except AttributeError:
+    return 0.0
+  pts = [(0.0, 0.0)]
+  for x, y in zip(xs, ys, strict=False):
+    try:
+      x, y = float(x), float(y)
+    except (TypeError, ValueError, OverflowError):
+      return 0.0
+    if not (math.isfinite(x) and math.isfinite(y)):
+      return 0.0
+    if math.hypot(x - pts[-1][0], y - pts[-1][1]) >= spacing:
+      pts.append((x, y))
+    if math.hypot(x, y) > max_dist:
+      break
+  best, prev, s = 0.0, None, 0.0
+  for (x0, y0), (x1, y1) in zip(pts, pts[1:], strict=False):
+    seg = math.hypot(x1 - x0, y1 - y0)
+    heading, mid = math.atan2(y1 - y0, x1 - x0), s + seg / 2.0
+    if prev is not None:
+      best = max(best, sign * (heading - prev[0]) / (mid - prev[1]))
+    prev, s = (heading, mid), s + seg
+  return best
+
+
 def plan_dual_probe(model_v2, d_near: float, d_far: float) -> float:
   """The gentler of the path's curvature at two distances, 0 if they disagree on direction. From StarPilot."""
   try:
@@ -196,6 +235,7 @@ class FmTurnAssist:
     self.hold_early = False
     self.max_curvature = 1.0 / MIN_RADIUS_DEFAULT
     self.phase_in = False
+    self.lead_adaptive = False
     self.amount = 0.0  # 0..1 fade
     self._reset_turn(0)
     self.read_params()
@@ -224,6 +264,7 @@ class FmTurnAssist:
     self.hold_early = self.params.get_bool(PARAM_HOLD_EARLY)
     self.nudge_enabled = self.params.get_bool(PARAM_TURN_NUDGE)
     self.phase_in = self.params.get_bool(PARAM_PHASE_IN)
+    self.lead_adaptive = self.params.get_bool(PARAM_LEAD_ADAPTIVE)
     try:
       radius = float(self.params.get(PARAM_MIN_RADIUS, return_default=True) or MIN_RADIUS_DEFAULT)
     except (TypeError, ValueError):
@@ -256,7 +297,7 @@ class FmTurnAssist:
     speed_w = float(np.interp(v_ego, [lo, lo + LEAD_FADE_IN, LEAD_FULL_TO, LEAD_MAX_SPEED], [0.0, 1.0, 1.0, 0.0]))
     if model_v2 is None or speed_w <= 0.0:
       return 0.0
-    d_near = float(np.clip(LEAD_TIME * v_ego, *LEAD_DIST))
+    d_near = self.lead_distance(model_v2, sign, v_ego)
     if a_ego < LEAD_DECEL_GATE and v_ego ** 2 / (2.0 * -a_ego) < LEAD_STOP_MARGIN * d_near:
       return 0.0  # stopping short of the point it reads
     lead = sign * plan_dual_probe(model_v2, d_near, d_near + LEAD_PROBE_SPAN) * LEAD_SCALE
@@ -266,6 +307,15 @@ class FmTurnAssist:
     engaged = max(sign * actual_curvature, 0.0) / lead
     engage_w = float(np.clip((1.0 - engaged) / (1.0 - LEAD_ENGAGED_FRAC), 0.0, 1.0))
     return lead * speed_w * engage_w
+
+  def lead_distance(self, model_v2, sign: int, v_ego: float) -> float:
+    """How far ahead Turn Lead reads the path: a fixed 1.3 s of travel, or with Adaptive Look-Ahead 0.5 to 0.9 s by how
+    tightly the planned path bends toward the turn anywhere in the next 17 m."""
+    if not self.lead_adaptive:
+      return float(np.clip(LEAD_TIME * v_ego, *LEAD_DIST))
+    bend = plan_max_curvature(model_v2, sign, LEAD_DIST[1] + LEAD_PROBE_SPAN)
+    lead_time = float(np.interp(bend, LEAD_ADAPTIVE_CURVATURE, LEAD_ADAPTIVE_TIME))
+    return float(np.clip(lead_time * v_ego, *LEAD_ADAPTIVE_DIST))
 
   def hold_path_curvature(self, model_v2, sign: int) -> float:
     """Turn Hold's path source toward the turn (>= 0, before the fade), or 0."""
