@@ -101,9 +101,12 @@ built, all on by default (his call), to be tested together. One commit each:
   `00000069` --3/4/7/9/10/11/12, `0000006a` --10/11/12/14/15; 3300 openpilot-steered hands-off frames following the
   request): below 10 mph existing feedforward ~0 (-4..+5 counts), correction gave 50-70 at 15-45 deg, truck 15-19% wide;
   10-20 mph existing feedforward 75-85% of torque, truck 2-8% wide. Table counts at Full [0,10,30,65,120,180 deg] ->
-  [0,25,70,105,140,150]: measured to 45 deg, above that half the 10-20 mph holding torque (**estimate**: tight crawl
-  turns had no clean frames, always ramp-limited or hands on). Under 20 deg left/right disagreed (+72 vs -2): road crown,
-  so symmetric. Test: turn it on at Gentle with 0g, step up one level per drive if turns still run wide.
+  [0,20,70,95,105,110] (`e783540`, refit in review: 00000061's Full-mode x1.5 had inflated the tight-turn gap to 79,
+  really 54): Full never exceeds the measured gap in any bin. Tight crawl turns had no clean frames (always
+  ramp-limited or hands on): estimated from 10-16 mph. Under 20 deg left ~70-80 vs right ~0 (road crown); 20-45 deg
+  crawl data is right turns only; table symmetric. Stands down with Lateral Jerk or NNLC (`7a35e09`). Over 266 s of
+  openpilot steering under 16 mph, Gentle adds median 18 / max 44 counts and changes <= 2 counts per step (99th pct)
+  vs the P term's 140, so it adds no twitch. Test: turn it on at Gentle with 0g, step up one level per drive if turns still run wide.
 - **Watch for:** turn-in feeling softer or later (Calmer Correction 70% builds less torque early; try 80–90% if so);
   Turn Lead starting too late at a tight corner (raise Start Distance to 6–7 m, or Adaptive off); wheel still grabbing
   then swinging (lower Strength to 60%). Note his drives have Turn Lead **and** Turn Hold on.
