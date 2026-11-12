@@ -413,8 +413,8 @@ sections:
     widget: multiple_button
     title: Low-Speed Feedforward Strength
     description: 'Gentle (40%) is the place to start. Step up one at a time if slow turns still start late or run wide;
-      step down if the wheel turns in further than the path or feels like it pulls into turns. Full is what the Nov 11
-      logs measured; tight crawl turns are an estimate.'
+      step down if the wheel turns in further than the path or feels like it pulls into turns. Full matches what the
+      Nov 11 logs measured and never goes past it; tight turns under 10 mph are estimated from slightly faster ones.'
     options:
     - value: 1
       label: Gentle

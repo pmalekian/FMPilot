@@ -12,9 +12,13 @@ while 50-70 counts were sent at 15-45 degrees of wheel, all of it from the corre
 than asked. At 10-20 mph the existing feedforward already gave 75-85% of the torque and the truck was within 2-8%.
 
 This adds torque straight from the steering-wheel angle the asked curvature needs (vehicle model, no road roll), from
-a table in CAN counts: measured to 45 degrees, extrapolated above it at about half the holding torque measured at 10-20
-mph (the crawl/moving ratio in the measured range); tight crawl turns had no clean frames (always ramp-limited or hands
-on), so that part is a conservative guess. Full below 10 mph (4.5 m/s), fading out by about 16 mph (7 m/s), where the
+a table in CAN counts fitted so that at Full it never adds more than the gap measured in any bin (gap = sent torque
+minus the existing feedforward, with 00000061's Higher Torque Full mode (x1.5) taken out): 20-45 deg under 10 mph 65
+added vs 66 measured, 90-220 deg at 10-16 mph 55 vs 54, 8-20 deg under 10 mph 32 vs 52. Tight turns under 10 mph had no
+clean frames (always ramp-limited or hands on), so the table above 45 degrees rests on the 10-16 mph bins and is flat
+from 120 degrees. Under 20 degrees the logs split by side (left about 70-80 counts, right about 0: road crown helping
+right turns), and 20-45 degrees under 10 mph had right turns only, so the symmetric table leans low for left turns and a
+little high for gentle right curves at crawl (up to about 8 counts at Gentle). Full below 10 mph (4.5 m/s), fading out by about 16 mph (7 m/s), where the
 existing feedforward covers most of it. Strength in four steps: Gentle 40 % (default), Medium 60 %, Firm 80 %, Full 100 %
 of the table. Changes blend over a second. Same in both directions (the logs couldn't separate a left/right difference
 from road crown). The counts are what is sent, also in Higher Torque's Full mode. It only adds to the request: every
@@ -30,9 +34,9 @@ PARAM_ENABLED = "FM_LowSpeedFFEnabled"
 PARAM_STEP = "FM_LowSpeedFFStep"
 STEPS = {1: 0.4, 2: 0.6, 3: 0.8, 4: 1.0}  # Gentle, Medium, Firm, Full
 STEP_DEFAULT = 1
-# |steering wheel angle| (deg) -> counts at Full. To 45 deg measured below 10 mph; above, half the 10-20 mph holding torque
+# |steering wheel angle| (deg) -> counts at Full: never more than the measured gap in any bin of the Nov 11 logs
 TABLE_DEG = [0.0, 10.0, 30.0, 65.0, 120.0, 180.0]
-TABLE_COUNTS = [0.0, 25.0, 70.0, 105.0, 140.0, 150.0]
+TABLE_COUNTS = [0.0, 20.0, 70.0, 95.0, 105.0, 110.0]
 SPEEDS = (4.5, 7.0)  # m/s: full below, gone above (about 10 and 16 mph)
 BASE_COUNTS = 385  # counts per 1.0 of torque request below 9 m/s (CarControllerParams.STEER_MAX_LOOKUP)
 BLEND_S = 1.0

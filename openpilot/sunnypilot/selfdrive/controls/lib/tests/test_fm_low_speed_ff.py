@@ -91,8 +91,8 @@ def test_speed_fade():
 
 def test_table_flattens_for_tight_turns():
   ff = make(step=4)
-  assert counts(ff, 180.0, 2.0) == pytest.approx(150.0, rel=0.02)
-  assert counts(ff, 400.0, 2.0) == pytest.approx(150.0, rel=0.02)
+  assert counts(ff, 180.0, 2.0) == pytest.approx(110.0, rel=0.02)
+  assert counts(ff, 400.0, 2.0) == pytest.approx(110.0, rel=0.02)
 
 
 def test_full_torque_mode_keeps_the_counts():
@@ -130,7 +130,7 @@ def _controllers():
 
 
 def _first_output(version, enabled, v, wheel_deg):
-  """Output on the first frame of a request (no error built up yet), with the truck already at the asked angle."""
+  """Output with the truck already at the asked angle (no error), after the controller's 0.2 s request delay has passed."""
   from opendbc.car.structs import car
   from openpilot.sunnypilot.selfdrive.controls.lib.fm_low_speed_gain import FmLowSpeedGain
   CP, CP_SP, CI = _rivian()
