@@ -400,6 +400,33 @@ sections:
     enablement:
     - {type: capability, field: brand, equals: rivian}
     - {type: param, key: FM_LowSpeedGainEnabled, equals: true}
+  - key: FM_LowSpeedFFEnabled
+    widget: toggle
+    title: Low-Speed Steering Feedforward
+    description: 'Under about 10 mph openpilot only starts adding steering torque once the truck is already turning too
+      little, so slow turns start late and run wide (about 15-19% wider than asked in the Nov 11 logs). This sends torque
+      for the wheel angle the turn needs right away, fading out by about 16 mph. Pick how strong with Low-Speed
+      Feedforward Strength: start at Gentle and step up if turns still run wide. Changes take effect while driving.'
+    enablement:
+    - {type: capability, field: brand, equals: rivian}
+  - key: FM_LowSpeedFFStep
+    widget: multiple_button
+    title: Low-Speed Feedforward Strength
+    description: 'Gentle (40%) is the place to start. Step up one at a time if slow turns still start late or run wide;
+      step down if the wheel turns in further than the path or feels like it pulls into turns. Full is what the Nov 11
+      logs measured; tight crawl turns are an estimate.'
+    options:
+    - value: 1
+      label: Gentle
+    - value: 2
+      label: Medium
+    - value: 3
+      label: Firm
+    - value: 4
+      label: Full
+    enablement:
+    - {type: capability, field: brand, equals: rivian}
+    - {type: param, key: FM_LowSpeedFFEnabled, equals: true}
   sub_panels:
   - id: torque_settings
     label: Torque Settings
