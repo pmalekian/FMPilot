@@ -95,6 +95,15 @@ built, all on by default (his call), to be tested together. One commit each:
   (0.052 at once) arrives over ~0.2 s; the peak is unchanged. Calmer Correction can't be replayed (closed loop); open
   loop it scales P by 0.7 (the +25.4 s reversal would be ~30% smaller, a guess).
 - Tests: 564 pass off-device (was 516), no new failures; Sunnylink compiled and validated.
+- **Low-Speed Steering Feedforward** (Nov 12, `FM_LowSpeedFFEnabled` **off** by default, `FM_LowSpeedFFStep` Gentle 40 /
+  Medium 60 / Firm 80 / Full 100): torque for the asked wheel angle (vehicle model), full below 4.5 m/s, gone by 7 m/s,
+  both v0 and v1 (`fm_low_speed_ff.py`). Fitted on 18 Nov 11 segments (`00000061` --10/14/15, `00000068` --1/2/5,
+  `00000069` --3/4/7/9/10/11/12, `0000006a` --10/11/12/14/15; 3300 openpilot-steered hands-off frames following the
+  request): below 10 mph existing feedforward ~0 (-4..+5 counts), correction gave 50-70 at 15-45 deg, truck 15-19% wide;
+  10-20 mph existing feedforward 75-85% of torque, truck 2-8% wide. Table counts at Full [0,10,30,65,120,180 deg] ->
+  [0,25,70,105,140,150]: measured to 45 deg, above that half the 10-20 mph holding torque (**estimate**: tight crawl
+  turns had no clean frames, always ramp-limited or hands on). Under 20 deg left/right disagreed (+72 vs -2): road crown,
+  so symmetric. Test: turn it on at Gentle with 0g, step up one level per drive if turns still run wide.
 - **Watch for:** turn-in feeling softer or later (Calmer Correction 70% builds less torque early; try 80–90% if so);
   Turn Lead starting too late at a tight corner (raise Start Distance to 6–7 m, or Adaptive off); wheel still grabbing
   then swinging (lower Strength to 60%). Note his drives have Turn Lead **and** Turn Hold on.
