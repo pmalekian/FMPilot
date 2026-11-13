@@ -11,7 +11,7 @@ from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_assist import (FmTurnAs
                                                                          PARAM_HOLD_DRIVER, PARAM_LEAD_MIN_SPEED, PARAM_HOLD_EARLY,
                                                                          PARAM_PHASE_IN, PHASE_IN_TAU, PARAM_LEAD_ADAPTIVE, PARAM_LEAD_GATE,
                                                                          PARAM_LEAD_GATE_DIST, plan_circle_curvature, PARAM_HOLD_DEBOUNCE,
-                                                                         HOLD_AGAINST_TIME)
+                                                                         PARAM_CARRY, HOLD_AGAINST_TIME, CARRY_MAX_TIME)
 
 LEFT, RIGHT, NONE = TurnDirection.turnLeft, TurnDirection.turnRight, TurnDirection.none
 FADE_STEPS = int(FADE_TIME / DT_CTRL) + 2
@@ -23,7 +23,7 @@ class FakeParams:
                    PARAM_HOLD_PATH: False, PARAM_HOLD_DRIVER: False, PARAM_HOLD_EARLY: False, PARAM_LEAD_MIN_SPEED: 7.0,
                    PARAM_MIN_RADIUS: MIN_RADIUS_DEFAULT, PARAM_PHASE_IN: False,
                    PARAM_LEAD_ADAPTIVE: False, PARAM_LEAD_GATE: False, PARAM_LEAD_GATE_DIST: 5.0,
-                   PARAM_HOLD_DEBOUNCE: False} | values
+                   PARAM_HOLD_DEBOUNCE: False, PARAM_CARRY: False} | values
 
   def get_bool(self, key):
     return bool(self.values.get(key))
@@ -690,3 +690,77 @@ class TestHoldReleaseDebounce:
     assert run(a, 0.03, RIGHT, steps=50, pressed=True, torque=-1.5, actual=0.12) == pytest.approx(0.12)
     assert not a.hold_released
 
+
+class TestCarryThrough:
+  """Finish Turn After Signal Cancels: the turn goes on for Turn Assist while the truck is still turning that way."""
+
+  def assist(self, carry=True, **values):
+    return FmTurnAssist(FakeParams(**({PARAM_HOLD: True, PARAM_CARRY: carry} | values)))
+
+  @pytest.mark.parametrize("direction, sign", [(RIGHT, 1), (LEFT, -1)])
+  def test_hold_carries_while_turning(self, direction, sign):
+    a = self.assist()
+    run(a, sign * 0.09, direction, steps=FADE_STEPS, actual=sign * 0.001)
+    out = run(a, sign * 0.01, NONE, steps=50, actual=sign * 0.08)  # blinker off, truck still turning
+    assert a.carry_sign == sign
+    assert sign * out > 0.06
+
+  def test_off_fades_as_before(self):
+    a = self.assist(carry=False)
+    run(a, 0.09, RIGHT, steps=FADE_STEPS, actual=0.001)
+    assert run(a, 0.01, NONE, steps=FADE_STEPS, actual=0.08) == 0.01
+
+  def test_not_turning_does_not_carry(self):
+    a = self.assist()
+    run(a, 0.09, RIGHT, steps=FADE_STEPS, actual=0.001)
+    run(a, 0.01, NONE, actual=0.005)
+    assert a.carry_sign == 0
+    run(a, 0.01, NONE, actual=0.08)  # turning later doesn't start it: needs a new turn desire
+    assert a.carry_sign == 0
+
+  def test_ends_when_straight_then_fades(self):
+    a = self.assist()
+    run(a, 0.09, RIGHT, steps=FADE_STEPS, actual=0.001)
+    run(a, 0.01, NONE, steps=20, actual=0.08)
+    first = run(a, 0.01, NONE, actual=0.005)
+    assert a.carry_sign == 0
+    assert 0.01 < first  # the usual cancel fade
+    assert run(a, 0.01, NONE, steps=FADE_STEPS, actual=0.005) == 0.01
+    run(a, 0.01, NONE, actual=0.08)
+    assert a.carry_sign == 0  # never restarts without a new turn desire
+
+  @pytest.mark.parametrize("opts", [{"lat": False}, {"lane_changing": True}, {"mph": 21}, {"pressed": True, "torque": 0.6}])
+  def test_ends_at_once(self, opts):
+    a = self.assist()
+    run(a, 0.09, RIGHT, steps=FADE_STEPS, actual=0.001)
+    run(a, 0.01, NONE, steps=5, actual=0.08)
+    run(a, 0.01, NONE, actual=0.08, **opts)
+    assert a.carry_sign == 0
+
+  def test_brief_blip_against_does_not_end_it(self):
+    a = self.assist()
+    run(a, 0.09, RIGHT, steps=FADE_STEPS, actual=0.001)
+    run(a, 0.01, NONE, steps=5, actual=0.08)
+    run(a, 0.01, NONE, pressed=True, torque=0.14, actual=0.08)
+    assert a.carry_sign == 1
+    run(a, 0.01, NONE, steps=int(HOLD_AGAINST_TIME / DT_CTRL) + 1, pressed=True, torque=0.14, actual=0.08)
+    assert a.carry_sign == 0
+
+  def test_max_time(self):
+    a = self.assist()
+    run(a, 0.09, RIGHT, steps=FADE_STEPS, actual=0.001)
+    run(a, 0.01, NONE, steps=int(CARRY_MAX_TIME / DT_CTRL) + 2, actual=0.08, mph=3)
+    assert a.carry_sign == 0
+
+  def test_lead_keeps_working(self):
+    a = FmTurnAssist(FakeParams(**{PARAM_LEAD: True, PARAM_LEAD_MIN_SPEED: 2.0, PARAM_CARRY: True}))
+    model = path(10, start=0.0)
+    run(a, 0.0, RIGHT, mph=5, steps=FADE_STEPS, actual=0.012, model=model)
+    assert run(a, 0.0, NONE, mph=5, steps=10, actual=0.015, model=model) > 0.05
+
+  def test_other_side_turn_is_a_new_turn(self):
+    a = self.assist()
+    run(a, 0.09, RIGHT, steps=FADE_STEPS, actual=0.001)
+    run(a, 0.01, NONE, steps=5, actual=0.08)
+    run(a, -0.01, LEFT, actual=0.08)
+    assert a.carry_sign == 0 and a.sign == -1

@@ -681,6 +681,25 @@ sections:
       - type: param
         key: FM_TurnLeadEnabled
         equals: true
+  - key: FM_TurnCarryThrough
+    widget: toggle
+    title: Finish Turn After Signal Cancels
+    description: If the blinker goes off (or cancels itself) while the truck is still turning, Turn Boost, Lead and Hold keep
+      helping until the truck straightens out, for up to 6 seconds, instead of dropping back to the model at once. Ends
+      right away if you steer against the turn, openpilot stops steering or you reach 20 mph. The model, the Turning alert
+      and lane changes still follow the blinker. On by default.
+    enablement:
+    - type: any
+      conditions:
+      - type: param
+        key: FM_TurnBoostEnabled
+        equals: true
+      - type: param
+        key: FM_TurnHoldEnabled
+        equals: true
+      - type: param
+        key: FM_TurnLeadEnabled
+        equals: true
   - key: FM_TurnPathMinRadius
     widget: option
     title: Turn Path Tightest Radius
