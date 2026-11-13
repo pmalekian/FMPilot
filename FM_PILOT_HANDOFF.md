@@ -1,6 +1,6 @@
 # FM Pilot: handoff for new chats (short)
 
-State as of Nov 12, 2026 (early; Release Guard added). This is the current state only. Background findings, past drive analyses and
+State as of Nov 12, 2026 (evening; garage-turn fixes and boost bar fix added). This is the current state only. Background findings, past drive analyses and
 the ideas backlog are in `claude/FM_PILOT_FINDINGS.md`: read it only when a task needs that history. Features, settings
 and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 
@@ -74,6 +74,33 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
   parses, so modeld most likely runs the default model until TSFDOM (same ref) is selected again and re-downloads
   (from the code, not yet seen on the device); leave it offroad for the warmup. **Check before driving:** DM works (face seen, no DM faults), model label/picker
   shows the selected model, no modeld errors. Then try Cheddar as its own drive.
+
+### 0j. Garage turns (Nov 12 logs `00000070--77/78`): carry-through, hand-blip debounce, boost bar fix; built, ON, not driven
+
+- **Question (his):** was Turn Lead's Start Distance gate why turns didn't start? **No.** Replayed `fm_turn_assist.py` with and
+  without the gate (matches the logged request except where noted): the most it held back was 0.016 1/m for ~1 s on the
+  --77 +35 s approach, 8-10 m before the corner; it opened at 5 m as designed. There Turn Lead's stopping check (braking
+  ~-1.8 m/s²) kept it out until he had already turned in.
+- **What did happen:** 6 of 9 sharp turns (the ramp) had no blinker, so no turn desire and no Turn Assist; the model asked
+  at most ~7 m vs lock ~5 m. On --77 +25.8 s and --78 +56.7 s the blinker went off as the truck turned in, the turn desire
+  ended and the request fell back to the model's 0.001-0.005 (the cancel fade only covers what Turn Hold added, 0.5 s).
+  On --77 +33.78 s one 10 ms carState frame read pressed at +0.14 Nm (12.7 mph) and released Turn Hold for the turn, so
+  Hold Adds Your Steering never took his curve (Hold Through Early Correction only covers under 5 mph / 20 deg).
+- **Built on `fm-dev-jet`, all on by default (his call):**
+  - `50625cf` **Ignore Brief Hand Blips** (`FM_TurnHoldReleaseDebounce`, Turn Hold Settings): against-turn press releases
+    Turn Hold only after 0.25 s or from 0.5 Nm. Replay --77 +35 s: hold follows him to ~0.15 1/m.
+  - `5a5ab9e` **Finish Turn After Signal Cancels** (`FM_TurnCarryThrough`, Turn Tweaks): turn desire ends while the truck
+    turns that way (>= 0.01 1/m) -> Turn Assist keeps the turn until < 0.008 1/m, max 6 s; ends on against-turn steering
+    (0.25 s / 0.5 Nm), lat off, lane change, 20 mph; then the usual hold cancel fade. Model desire / alert unchanged.
+    Replay: --77 Lead carries 0.10-0.12 through turn-in; --78 Hold keeps 0.09-0.19 until he unwinds (+1.95 Nm).
+  - `879f106` **Boost bar in Set Speed:** Set Speed lifts e2e exactly to the cruise ramp; the planner min() tie reports
+    `cruise`, and the bar only counted `e2e`, so it read empty ~97% of boosting frames (steady sim). Set Speed mode now
+    counts `cruise` too; lead still empties it.
+- Tests: turn assist 130 pass (110 before, +20), boost bar 11 pass (+4); same 7 known NNLC failures in the controls suite; Sunnylink
+  compiled and validated.
+- **Test:** same garage with the blinker on through the ramp turns; watch that the turn keeps going after the blinker
+  clicks off and stops when you straighten. Set Speed drive with the bar on. Ramp turns without a blinker still get
+  nothing (a no-blinker curve hold would be new work).
 
 ### 0i. Following feels harsh in traffic (Nov 12 logs `00000070--11/12/17`); Set Speed grace fade built, not driven
 
@@ -397,7 +424,8 @@ From `0000005e--e26703ace2--2` (Nov 9 build, Cheddar, Road Edge Turn Desire on):
 
 ## Next steps
 
-00. Drive the request-side turn fixes on `fm-dev-jet` (item 0g), all on, together; send rlogs; `turns.py` timing and torque lines.
+00. Drive the request-side turn fixes on `fm-dev-jet` (item 0g), all on, together, now with item 0j (carry-through,
+   hand-blip debounce) also on; send rlogs; `turns.py` timing and torque lines.
 00a0. Set Speed grace fade (item 0i): one drive in Set Speed mode with traffic; plus more cold-morning segments with
    braking behind a lead to confirm the extra over-braking.
 00a. Then Release Guard (item 0h) on at 150 as its own drive on the same corners; `turns.py` release line.
