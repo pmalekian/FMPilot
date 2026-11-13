@@ -12,7 +12,8 @@ from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_assist import (FmTurnAs
                                                                          PARAM_PHASE_IN, PHASE_IN_TAU, PARAM_LEAD_ADAPTIVE, PARAM_LEAD_GATE,
                                                                          PARAM_LEAD_GATE_DIST, plan_circle_curvature, PARAM_HOLD_DEBOUNCE,
                                                                          PARAM_CARRY, HOLD_AGAINST_TIME, CARRY_MAX_TIME,
-                                                                         PARAM_CARRY_TURN_IN, PARAM_HOLD_FOLLOW_EXIT)
+                                                                         PARAM_CARRY_TURN_IN, PARAM_HOLD_FOLLOW_EXIT,
+                                                                         PARAM_HOLD_AT_TURN_IN)
 
 LEFT, RIGHT, NONE = TurnDirection.turnLeft, TurnDirection.turnRight, TurnDirection.none
 FADE_STEPS = int(FADE_TIME / DT_CTRL) + 2
@@ -878,6 +879,75 @@ class TestHoldFollowsModelExit:
     m = custom.CarControlSP.new_message().turnAssist
     a.fill_log(m)
     assert str(m.releaseReason) == "modelExit" and m.exitFade > 0.0 and not m.holdActive
+
+
+class TestHoldStartsAtTurnIn:
+  """Hold Starts at Turn-In: Turn Hold isn't used up before the truck turns."""
+
+  @staticmethod
+  def assist(on=True, **extra):
+    return FmTurnAssist(FakeParams(**({PARAM_HOLD: True, PARAM_HOLD_DEBOUNCE: True, PARAM_HOLD_AT_TURN_IN: on} | extra)))
+
+  def test_clock_waits_for_the_turn(self):
+    a = self.assist()
+    run(a, 0.0, RIGHT, steps=int(10.0 / DT_CTRL), actual=0.0)  # 10 s of approach with the blinker on
+    assert not a.hold_released and a.turn_time == 0.0
+    run(a, 0.09, RIGHT, steps=FADE_STEPS, actual=0.02)
+    assert run(a, 0.03, RIGHT, actual=0.02) > 0.07  # the hold is there for the turn
+    b = self.assist(on=False)
+    run(b, 0.0, RIGHT, steps=int(10.0 / DT_CTRL), actual=0.0)
+    assert b.hold_released and b.release_reason == 3  # maxTime, as before
+
+  @pytest.mark.parametrize("torque,steps", [(0.62, 5), (1.01, 1), (2.0, 100)])
+  def test_press_against_before_10_deg_passes_through(self, torque, steps):
+    a = self.assist()
+    run(a, 0.09, RIGHT, mph=15, steps=FADE_STEPS, actual=0.001)
+    out = run(a, 0.03, RIGHT, mph=15, steps=steps, actual=0.001, pressed=True, torque=torque)  # left: against a right turn
+    assert not a.hold_released
+    assert out == pytest.approx(0.03)  # your steering passes through
+    assert run(a, 0.03, RIGHT, mph=15, actual=0.001) > 0.07  # and the hold carries on
+
+  def test_long_press_against_before_10_deg_still_releases(self):
+    a = self.assist()
+    run(a, 0.09, RIGHT, mph=15, steps=FADE_STEPS, actual=0.001)
+    run(a, 0.03, RIGHT, mph=15, steps=int(1.5 / DT_CTRL) + 2, actual=0.001, pressed=True, torque=1.0)
+    assert a.hold_released and a.release_reason == 1  # not turning after all
+
+  def test_press_against_before_10_deg_off_releases(self):
+    a = self.assist(on=False)
+    run(a, 0.09, RIGHT, mph=15, steps=FADE_STEPS, actual=0.001)
+    run(a, 0.03, RIGHT, mph=15, actual=0.001, pressed=True, torque=0.62)
+    assert a.hold_released
+
+  def into_turn(self, a):
+    # 0.1 1/m at 10 mph for 0.5 s: about 13 deg turned
+    run(a, 0.1, RIGHT, steps=50, actual=0.1)
+    assert math.degrees(a.turned) > 10
+
+  def test_after_10_deg_brief_press_under_firm_line_ignored(self):
+    a = self.assist()
+    self.into_turn(a)
+    run(a, 0.03, RIGHT, actual=0.1, pressed=True, torque=1.0)
+    assert not a.hold_released
+
+  def test_after_10_deg_firm_press_releases_at_once(self):
+    a = self.assist()
+    self.into_turn(a)
+    run(a, 0.03, RIGHT, actual=0.1, pressed=True, torque=1.6)
+    assert a.hold_released and a.release_reason == 1
+
+  def test_after_10_deg_lasting_press_releases(self):
+    a = self.assist()
+    self.into_turn(a)
+    run(a, 0.03, RIGHT, steps=int(HOLD_AGAINST_TIME / DT_CTRL) + 1, actual=0.1, pressed=True, torque=0.6)
+    assert a.hold_released
+
+  def test_00000073_8_right_blinker_with_hand_on_wheel(self):
+    """--8 +13.44 s: the right blinker's desire arrived while he still pressed 0.62 Nm left at 9 mph."""
+    a = self.assist(**{PARAM_HOLD_DRIVER: True, PARAM_HOLD_EARLY: True})
+    run(a, 0.005, RIGHT, mph=9, steps=2, actual=0.004, pressed=True, torque=0.62)
+    run(a, 0.005, RIGHT, mph=9, steps=60, actual=0.004)
+    assert not a.hold_released
 
 
 class TestTurnAssistLog:

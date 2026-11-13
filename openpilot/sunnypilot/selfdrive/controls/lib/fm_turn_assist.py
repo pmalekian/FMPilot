@@ -34,6 +34,13 @@ only change the requested curvature, so every steering limit after them still ap
     Option Ignore Brief Hand Blips (on by default): steering against the turn releases Turn Hold only once it has lasted
     0.25 s, or at once with 0.5 Nm or more against the turn. A single frame read as pressed while your hand relaxes
     (00000070--77 +33.78 s: +0.14 Nm at 12.7 mph) released the hold for the rest of that turn.
+    Option Hold Starts at Turn-In (on by default): Turn Hold isn't used up before the turn. Its 8 s only count once the
+    truck has turned 5 degrees; until it has turned 10 degrees, steering against the turn (a hand resting on the wheel, or
+    the wheel's own reaction as the blinker comes on) passes through like Hold Through Early Correction, at any speed Turn
+    Assist works at, instead of releasing it; with Ignore Brief Hand Blips the "firm" press that releases at once is
+    1.5 Nm instead of 0.5. Before 10 degrees only a press against the turn lasting 1.5 s releases it (you aren't
+    turning after all; 00000073's pre-turn presses lasted up to 0.97 s). Later in the turn, a press against it lasting
+    0.25 s, or a 1.5 Nm push, still releases it.
     Option Hold Follows the Model's Exit (on by default): once the truck has turned 45 degrees, when the model asks for
     less than half of the hold's peak (it is letting go of the turn) and you aren't pressing into the turn, Turn Hold
     fades out over half a second instead of keeping its floor until 75 degrees. In 00000073 (--8 +34.8 s, --8 +46.5 s,
@@ -107,6 +114,7 @@ PARAM_CARRY = "FM_TurnCarryThrough"
 PARAM_LEAD_GATE_DIST = "FM_TurnLeadGateDist"  # m
 PARAM_CARRY_TURN_IN = "FM_TurnCarryTurnInOnly"
 PARAM_HOLD_FOLLOW_EXIT = "FM_TurnHoldFollowExit"
+PARAM_HOLD_AT_TURN_IN = "FM_TurnHoldStartsAtTurnIn"
 
 BOOST_LIMITS = (1.0, 1.5)
 FULL_SPEED = 15 * CV.MPH_TO_MS
@@ -128,6 +136,14 @@ HOLD_AGAINST_TORQUE = 0.5  # Nm
 # --2 +45.8 s the model let go and the floor kept the request 1-2.5 s tighter until he steered out.
 HOLD_EXIT_TURNED = math.radians(45.)
 HOLD_EXIT_FRAC = 0.5
+# Hold Starts at Turn-In: Turn Hold isn't spent before the turn. 00000073: --3 +13.4 s the 8 s ran out on the approach
+# (blinker on at 20 mph), --8 +13.44 s a 0.62 Nm press as the blinker came on, --5 +8.64 s one 10 ms frame at 1.01 Nm
+# (most likely the wheel's reaction to openpilot's torque) each released it before the truck had turned.
+HOLD_CLOCK_TURNED = math.radians(5.)   # the 8 s only counts once the truck has turned this much
+HOLD_START_TURNED = math.radians(10.)  # before this, a press against the turn passes through without releasing
+HOLD_AGAINST_TORQUE_FIRM = 1.5  # Nm: with it on, a press against the turn this firm releases at once (else 0.25 s)
+HOLD_START_RELEASE_TIME = 1.5  # s: before HOLD_START_TURNED, a press against the turn this long still releases (you
+                               # aren't turning after all); 00000073's pre-turn presses lasted up to 0.97 s
 
 # Finish Turn After Signal Cancels: keep the turn going while the truck is still turning that way
 CARRY_START_CURVATURE = 0.01  # 1/m (100 m): the truck must be turning at least this tightly when the turn desire ends
@@ -318,6 +334,7 @@ class FmTurnAssist:
     self.carry_against = 0.0
     self.carry_turn_in_only = False
     self.hold_follow_exit = False
+    self.hold_at_turn_in = False
     self.amount = 0.0  # 0..1 fade
     self._reset_turn(0)
     self._clear_log(0.0)
@@ -353,6 +370,7 @@ class FmTurnAssist:
     self.carry_enabled = self.params.get_bool(PARAM_CARRY)
     self.carry_turn_in_only = self.params.get_bool(PARAM_CARRY_TURN_IN)
     self.hold_follow_exit = self.params.get_bool(PARAM_HOLD_FOLLOW_EXIT)
+    self.hold_at_turn_in = self.params.get_bool(PARAM_HOLD_AT_TURN_IN)
     try:
       gate = float(self.params.get(PARAM_LEAD_GATE_DIST, return_default=True) or LEAD_GATE_DIST_DEFAULT)
     except (TypeError, ValueError):
@@ -530,7 +548,8 @@ class FmTurnAssist:
     before_hold = out
     model_toward = sign * desired_curvature
     if self.hold_enabled and not self.hold_released:
-      if v_ego >= HOLD_MOVING_SPEED:
+      clock_runs = not self.hold_at_turn_in or self.turned >= HOLD_CLOCK_TURNED
+      if v_ego >= HOLD_MOVING_SPEED and clock_runs:
         self.turn_time += DT_CTRL  # time stopped (waiting to turn) doesn't count toward the 8 s
       self.heading += sign * actual_curvature * v_ego * DT_CTRL
       # Hand torque is positive to the LEFT and curvature positive to the RIGHT, so torque into the turn is sign * torque < 0
@@ -542,9 +561,13 @@ class FmTurnAssist:
       self.against_time = self.against_time + DT_CTRL if against else 0.0
       if against and self.hold_debounce:
         # Ignore Brief Hand Blips: a press against the turn only counts once it lasts or is firm
-        against = self.against_time >= HOLD_AGAINST_TIME - 1e-6 or sign * steering_torque >= HOLD_AGAINST_TORQUE
-      early_correction = (steering_pressed and sign * steering_torque > 0.0 and self.hold_early and v_ego < HOLD_EARLY_MAX_SPEED
-                          and self.heading < HOLD_EARLY_MAX_HEADING and self.turn_time < HOLD_MAX_TIME)
+        firm = HOLD_AGAINST_TORQUE_FIRM if self.hold_at_turn_in else HOLD_AGAINST_TORQUE
+        against = self.against_time >= HOLD_AGAINST_TIME - 1e-6 or sign * steering_torque >= firm
+      pressing_against = steering_pressed and sign * steering_torque > 0.0
+      early_correction = pressing_against and (
+        (self.hold_early and v_ego < HOLD_EARLY_MAX_SPEED and self.heading < HOLD_EARLY_MAX_HEADING
+         and self.turn_time < HOLD_MAX_TIME)
+        or (self.hold_at_turn_in and self.turned < HOLD_START_TURNED and self.against_time < HOLD_START_RELEASE_TIME))
       if early_correction:
         # Straightening before the turn: pass the request through, pause the fade, keep the peak; don't release
         self.heading = max(self.heading, 0.0)

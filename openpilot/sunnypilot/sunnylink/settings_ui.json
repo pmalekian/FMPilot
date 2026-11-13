@@ -1432,6 +1432,19 @@
                   ]
                 },
                 {
+                  "key": "FM_TurnHoldStartsAtTurnIn",
+                  "widget": "toggle",
+                  "title": "Hold Starts at Turn-In",
+                  "description": "Keeps Turn Hold from being used up before the turn. Its 8 seconds only start once the truck is turning, and until the truck has turned 10 degrees, steering against the turn (a hand resting on the wheel as you signal) doesn't end the hold unless you keep it up for 1.5 seconds. Later in the turn, steering against it for a quarter second, or a firm push of 1.5 Nm, still ends it. On by default.",
+                  "enablement": [
+                    {
+                      "type": "param",
+                      "key": "FM_TurnHoldEnabled",
+                      "equals": true
+                    }
+                  ]
+                },
+                {
                   "key": "FM_TurnHoldFollowExit",
                   "widget": "toggle",
                   "title": "Hold Follows the Model's Exit",
