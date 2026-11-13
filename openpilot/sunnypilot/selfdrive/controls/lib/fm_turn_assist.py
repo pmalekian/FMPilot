@@ -34,6 +34,10 @@ only change the requested curvature, so every steering limit after them still ap
     Option Ignore Brief Hand Blips (on by default): steering against the turn releases Turn Hold only once it has lasted
     0.25 s, or at once with 0.5 Nm or more against the turn. A single frame read as pressed while your hand relaxes
     (00000070--77 +33.78 s: +0.14 Nm at 12.7 mph) released the hold for the rest of that turn.
+    Option Hold Follows the Model's Exit (on by default): once the truck has turned 45 degrees, when the model asks for
+    less than half of the hold's peak (it is letting go of the turn) and you aren't pressing into the turn, Turn Hold
+    fades out over half a second instead of keeping its floor until 75 degrees. In 00000073 (--8 +34.8 s, --8 +46.5 s,
+    --2 +45.8 s) the floor kept the request 1 to 2.5 s tighter than the model until he steered out.
   - Turn Lead starts the turn on time when a model turns in late. Between Turn Lead Min Speed (2 to 7 mph, default 7;
     full strength about 2.2 mph above it) and about 16 mph it reads the curve of the planned path 1.3 s ahead (4 to
     14 m) and, if that bends harder toward the turn than the model's request, asks for 85% of it instead. It fades out
@@ -102,6 +106,7 @@ PARAM_HOLD_DEBOUNCE = "FM_TurnHoldReleaseDebounce"
 PARAM_CARRY = "FM_TurnCarryThrough"
 PARAM_LEAD_GATE_DIST = "FM_TurnLeadGateDist"  # m
 PARAM_CARRY_TURN_IN = "FM_TurnCarryTurnInOnly"
+PARAM_HOLD_FOLLOW_EXIT = "FM_TurnHoldFollowExit"
 
 BOOST_LIMITS = (1.0, 1.5)
 FULL_SPEED = 15 * CV.MPH_TO_MS
@@ -118,6 +123,11 @@ HOLD_EARLY_MAX_HEADING = math.radians(20.)  # and before the truck has turned th
 # this much hand torque against the turn (00000070--77 +33.78 s: one 10 ms frame read pressed at +0.14 Nm, 12.7 mph)
 HOLD_AGAINST_TIME = 0.25  # s
 HOLD_AGAINST_TORQUE = 0.5  # Nm
+# Hold Follows the Model's Exit: past this much turned, once the model asks less than this share of the hold's peak (and
+# you aren't pressing into the turn), Turn Hold fades out over FADE_TIME. 00000073: --8 +34.8 s, --8 +46.5 s and
+# --2 +45.8 s the model let go and the floor kept the request 1-2.5 s tighter until he steered out.
+HOLD_EXIT_TURNED = math.radians(45.)
+HOLD_EXIT_FRAC = 0.5
 
 # Finish Turn After Signal Cancels: keep the turn going while the truck is still turning that way
 CARRY_START_CURVATURE = 0.01  # 1/m (100 m): the truck must be turning at least this tightly when the turn desire ends
@@ -180,7 +190,7 @@ MIN_RADIUS_DEFAULT = 12.0
 
 # Logged in carControlSP.turnAssist: where the turn came from and why Turn Hold let go (same numbers as the log enums)
 SOURCE_NONE, SOURCE_DESIRE, SOURCE_CARRY = 0, 1, 2
-RELEASE_NONE, RELEASE_DRIVER, RELEASE_TURNED, RELEASE_TIME = 0, 1, 2, 3
+RELEASE_NONE, RELEASE_DRIVER, RELEASE_TURNED, RELEASE_TIME, RELEASE_MODEL_EXIT = 0, 1, 2, 3, 4
 
 
 def plan_circle_curvature(xs, ys, lookahead: float) -> float:
@@ -307,6 +317,7 @@ class FmTurnAssist:
     self.carry_done = False  # the carry for this turn has ended; wait for a new turn desire
     self.carry_against = 0.0
     self.carry_turn_in_only = False
+    self.hold_follow_exit = False
     self.amount = 0.0  # 0..1 fade
     self._reset_turn(0)
     self._clear_log(0.0)
@@ -341,6 +352,7 @@ class FmTurnAssist:
     self.hold_debounce = self.params.get_bool(PARAM_HOLD_DEBOUNCE)
     self.carry_enabled = self.params.get_bool(PARAM_CARRY)
     self.carry_turn_in_only = self.params.get_bool(PARAM_CARRY_TURN_IN)
+    self.hold_follow_exit = self.params.get_bool(PARAM_HOLD_FOLLOW_EXIT)
     try:
       gate = float(self.params.get(PARAM_LEAD_GATE_DIST, return_default=True) or LEAD_GATE_DIST_DEFAULT)
     except (TypeError, ValueError):
@@ -373,6 +385,9 @@ class FmTurnAssist:
     self.turned = 0.0  # rad the truck has turned toward the turn since it started (every turn, hold or not)
     self.peak_actual = 0.0  # 1/m: the truck's tightest curve toward the turn so far
     self.release_reason = RELEASE_NONE
+    self.exit_fade = 0.0  # Hold Follows the Model's Exit: 1 -> 0 while the released hold fades out
+    self.exit_fade_curvature = 0.0  # toward: what was applied when it started
+    self.applied = 0.0  # toward: what the last frame applied (after Smooth Turn Start)
 
   def _clear_log(self, desired_curvature: float) -> None:
     """Per-frame record of what Turn Assist did, for carControlSP.turnAssist. Nothing here feeds back into control."""
@@ -513,6 +528,7 @@ class FmTurnAssist:
         toward = sign * out
 
     before_hold = out
+    model_toward = sign * desired_curvature
     if self.hold_enabled and not self.hold_released:
       if v_ego >= HOLD_MOVING_SPEED:
         self.turn_time += DT_CTRL  # time stopped (waiting to turn) doesn't count toward the 8 s
@@ -537,6 +553,12 @@ class FmTurnAssist:
         self.hold_released = True
         self.release_reason = (RELEASE_DRIVER if against else
                                RELEASE_TURNED if self.heading >= HOLD_MAX_HEADING else RELEASE_TIME)
+      elif (self.hold_follow_exit and self.turned >= HOLD_EXIT_TURNED and not into_turn and self.peak > 0.0
+            and model_toward < HOLD_EXIT_FRAC * self.peak):
+        # the model is letting go of the turn: fade the hold out from what was applied, instead of keeping the floor
+        self.hold_released = True
+        self.release_reason = RELEASE_MODEL_EXIT
+        self.exit_fade, self.exit_fade_curvature = 1.0, self.applied
       else:
         if driver_adds:
           wound = min(sign * actual_curvature, HOLD_DRIVER_MAX_CURVATURE)  # your curve, not the slider's
@@ -560,9 +582,17 @@ class FmTurnAssist:
           out = sign * (toward + (floor - toward) * self.amount)
           self.log_floor = sign * out - toward
 
+    if self.exit_fade > 0.0:
+      self.exit_fade = max(self.exit_fade - step, 0.0)
+      correction = max(self.exit_fade_curvature - toward, 0.0) * self.exit_fade
+      if lat_active and correction > 0.0:
+        out = sign * (toward + correction)
+        self.log_exit = correction
+        toward = sign * out
+
     if lat_active and sign * (out - before_hold) > 0.0:
       self.hold_exit_curvature = sign * out
-      self.hold_exit_amount = 1.0
+      self.hold_exit_amount = 1.0 if self.exit_fade <= 0.0 else self.exit_fade  # a signal cancel continues this fade
     # The timing nudge never feeds the hold peak or its signal-cancel fade.
     before_nudge = out
     out = self.turn_nudge(out, sign, v_ego, a_ego, model_v2, steering_pressed, steering_torque, lat_active, lane_changing)
@@ -636,6 +666,7 @@ class FmTurnAssist:
     else:
       self.extra = target
     self.log_smooth_cut = max(target - self.extra, 0.0)
+    self.applied = sign * desired_curvature + self.extra
     if self.hold_exit_amount > 0.0:
       # a blinker cancel fades out from what was actually applied, never from more
       self.hold_exit_curvature = min(self.hold_exit_curvature, sign * desired_curvature + self.extra)

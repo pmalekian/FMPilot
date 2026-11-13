@@ -436,7 +436,7 @@ struct CarControlSP @0xa5cd762cd951a455 {
     holdFloor @9 :Float32;      # toward: added by Turn Hold's floor
     nudge @10 :Float32;         # toward: added by Turn Nudge
     smoothCut @11 :Float32;     # toward: held back by Smooth Turn Start this frame
-    exitFade @12 :Float32;      # toward: added by a hold fading out after the signal cancels
+    exitFade @12 :Float32;      # toward: added by a hold fading out (after the signal cancels, or Hold Follows the Model's Exit)
     holdActive @13 :Bool;       # Turn Hold is holding this turn (enabled, not released)
     holdPeak @14 :Float32;      # toward: the turn's peak request Turn Hold keeps a floor under
     holdFloorLevel @15 :Float32;  # toward: the floor this frame
@@ -458,6 +458,7 @@ struct CarControlSP @0xa5cd762cd951a455 {
       driverAgainst @1;  # you steered against the turn
       maxTurned @2;      # the truck turned 75 deg
       maxTime @3;        # 8 s
+      modelExit @4;      # Hold Follows the Model's Exit: past 45 deg the model asked under half the hold's peak
     }
   }
 

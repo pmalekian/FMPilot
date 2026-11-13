@@ -70,7 +70,8 @@ ASSIST_MIN = 0.003  # 1/m: an assist part adding less than this doesn't count as
 ASSIST_PARTS = (("lead", "Turn Lead"), ("driverAdds", "your steering (Hold Adds)"), ("holdPath", "Hold Path Source"),
                 ("holdFloor", "Turn Hold floor"), ("boost", "Turn Boost"), ("nudge", "Turn Nudge"),
                 ("exitFade", "hold fading out"))
-RELEASE_NAMES = {"driverAgainst": "you steered against the turn", "maxTurned": "75 deg limit", "maxTime": "8 s limit"}
+RELEASE_NAMES = {"driverAgainst": "you steered against the turn", "maxTurned": "75 deg limit", "maxTime": "8 s limit",
+                 "modelExit": "the model let go"}
 AMBIGUOUS_NOTE = ("* against openpilot = you resisting OR the loose wheel's reaction to openpilot's torque; the column "
                   "sensor can't tell them apart")
 

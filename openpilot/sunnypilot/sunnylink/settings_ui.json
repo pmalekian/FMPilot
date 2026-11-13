@@ -1430,6 +1430,19 @@
                       "equals": true
                     }
                   ]
+                },
+                {
+                  "key": "FM_TurnHoldFollowExit",
+                  "widget": "toggle",
+                  "title": "Hold Follows the Model's Exit",
+                  "description": "Once the truck has turned 45 degrees, when the model starts letting go of the turn (asking for less than half of the hold's tightest), Turn Hold fades out over half a second so the truck straightens out with the model, instead of holding the turn until 75 degrees. While you press the wheel into the turn it waits until you ease off. On by default.",
+                  "enablement": [
+                    {
+                      "type": "param",
+                      "key": "FM_TurnHoldEnabled",
+                      "equals": true
+                    }
+                  ]
                 }
               ]
             },

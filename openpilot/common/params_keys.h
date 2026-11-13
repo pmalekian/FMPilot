@@ -308,6 +308,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"FM_TurnHoldDriverAdds", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"FM_TurnHoldEarlyCorrection", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"FM_TurnHoldEnabled", {PERSISTENT | BACKUP, BOOL, "0"}},
+    {"FM_TurnHoldFollowExit", {PERSISTENT | BACKUP, BOOL, "1"}},
     {"FM_TurnHoldPathSource", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"FM_TurnHoldReleaseDebounce", {PERSISTENT | BACKUP, BOOL, "1"}},
     {"FM_TurnLeadAdaptive", {PERSISTENT | BACKUP, BOOL, "1"}},

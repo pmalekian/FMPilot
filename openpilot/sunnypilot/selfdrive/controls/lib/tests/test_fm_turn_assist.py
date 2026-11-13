@@ -12,7 +12,7 @@ from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_assist import (FmTurnAs
                                                                          PARAM_PHASE_IN, PHASE_IN_TAU, PARAM_LEAD_ADAPTIVE, PARAM_LEAD_GATE,
                                                                          PARAM_LEAD_GATE_DIST, plan_circle_curvature, PARAM_HOLD_DEBOUNCE,
                                                                          PARAM_CARRY, HOLD_AGAINST_TIME, CARRY_MAX_TIME,
-                                                                         PARAM_CARRY_TURN_IN)
+                                                                         PARAM_CARRY_TURN_IN, PARAM_HOLD_FOLLOW_EXIT)
 
 LEFT, RIGHT, NONE = TurnDirection.turnLeft, TurnDirection.turnRight, TurnDirection.none
 FADE_STEPS = int(FADE_TIME / DT_CTRL) + 2
@@ -811,6 +811,73 @@ class TestCarryTurnInOnly:
     run(a, -0.04, LEFT, mph=10, steps=20, actual=-0.0625)
     run(a, -0.016, NONE, mph=10, actual=-0.0625)
     assert a.carry_sign == 0
+
+
+class TestHoldFollowsModelExit:
+  """Hold Follows the Model's Exit: past 45 deg, a model asking under half the hold's peak fades the hold out."""
+
+  @staticmethod
+  def assist(on=True, **extra):
+    return FmTurnAssist(FakeParams(**({PARAM_HOLD: True, PARAM_HOLD_FOLLOW_EXIT: on} | extra)))
+
+  def turn(self, a, deg):
+    # 0.1 1/m at 10 mph: 0.0045 rad per frame
+    steps = int(math.radians(deg) / (0.1 * 10 * CV.MPH_TO_MS * DT_CTRL))
+    run(a, 0.1, RIGHT, steps=steps, actual=0.1)
+
+  def test_model_lets_go_past_45_deg_fades_out(self):
+    a = self.assist()
+    self.turn(a, 50)
+    first = run(a, 0.03, RIGHT, actual=0.1)
+    assert a.hold_released and a.release_reason == 4  # modelExit
+    assert 0.03 < first <= 0.1
+    outs = [run(a, 0.03, RIGHT, actual=0.1) for _ in range(FADE_STEPS)]
+    assert all(x >= y for x, y in zip(outs, outs[1:], strict=False))  # only fades, never steps up
+    assert outs[-1] == pytest.approx(0.03)
+
+  def test_before_45_deg_keeps_the_floor(self):
+    a = self.assist()
+    self.turn(a, 30)
+    out = run(a, 0.03, RIGHT, actual=0.1)
+    assert not a.hold_released and out == pytest.approx(0.1 * 0.9, rel=1e-2)
+
+  def test_model_still_turning_keeps_the_floor(self):
+    a = self.assist()
+    self.turn(a, 50)
+    out = run(a, 0.06, RIGHT, actual=0.1)  # 60% of the peak: not letting go yet
+    assert not a.hold_released and out > 0.06
+
+  def test_waits_while_you_press_into_the_turn(self):
+    a = self.assist(**{PARAM_HOLD_DRIVER: True})
+    self.turn(a, 50)
+    out = run(a, 0.03, RIGHT, steps=20, actual=0.1, pressed=True, torque=-1.5)  # into a right turn is negative torque
+    assert not a.hold_released and out == pytest.approx(0.1, rel=1e-3)  # your curve, held
+    run(a, 0.03, RIGHT, actual=0.1)  # you ease off
+    assert a.hold_released and a.release_reason == 4
+
+  def test_off_holds_to_75_deg(self):
+    a = self.assist(on=False)
+    self.turn(a, 50)
+    out = run(a, 0.03, RIGHT, steps=FADE_STEPS, actual=0.1)
+    assert not a.hold_released and out > 0.05
+
+  def test_signal_cancel_mid_fade_does_not_restart_it(self):
+    a = self.assist()
+    self.turn(a, 50)
+    run(a, 0.03, RIGHT, steps=FADE_STEPS // 2, actual=0.1)
+    mid = run(a, 0.03, RIGHT, actual=0.1)
+    after = run(a, 0.03, NONE, actual=0.1)
+    assert after <= mid + 1e-9
+    assert run(a, 0.03, NONE, steps=FADE_STEPS, actual=0.1) == pytest.approx(0.03)
+
+  def test_logged(self):
+    from openpilot.cereal import custom
+    a = self.assist()
+    self.turn(a, 50)
+    run(a, 0.03, RIGHT, steps=3, actual=0.1)
+    m = custom.CarControlSP.new_message().turnAssist
+    a.fill_log(m)
+    assert str(m.releaseReason) == "modelExit" and m.exitFade > 0.0 and not m.holdActive
 
 
 class TestTurnAssistLog:
