@@ -382,7 +382,7 @@ def print_assist(drive, ta, t, a, b, turn_lp, truck_in_t, peak_t):
   if q["release"]:
     rt, why, deg = q["release"]
     line += f" | hold released {drive.where(rt)} ({RELEASE_NAMES.get(why, why)}, {deg:.0f} deg turned)"
-  if q["early_s"] > 0:
+  if q["early_s"] >= 0.05:
     line += f" | early correction {q['early_s']:.1f} s"
   line += f" | kept past the model {q['kept_past_s']:.1f} s"
   print(line)
