@@ -11,6 +11,8 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
   (Higher Torque + radar settings) and adding the settings reorganization, Blendful and the boost bar; `fm-dev-torque`
   stays at `bece23e` as the fallback. `fm-dev-max` (`d189ccc`) is the everyday branch, installer `pmalekian/fm-dev-max`. Own fork of AdventurePilot `dev` (last synced `980dd5c`, Oct 31).
   **No more AP syncs**; borrow single pieces only if wanted.
+- **Keeping this file current:** whenever this handoff is updated, also write the updated copy into the Project with
+  `project_write` (path `FM_PILOT_HANDOFF (3).md`, replacing the old one) in the same turn, so Frankie doesn't have to re-upload it.
 - **Code work:** attach the repo (push access), clone the branch. Commit as
   `Frankie Malekian <107580415+pmalekian@users.noreply.github.com>`, messages start "FM Pilot", one change per commit.
   Push with `--no-verify` (LFS hook 403s). Tests run off-device with a shim stubbing `Params` from `params_keys.h` (and
