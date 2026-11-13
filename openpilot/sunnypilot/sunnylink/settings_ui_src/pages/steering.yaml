@@ -700,6 +700,16 @@ sections:
       - type: param
         key: FM_TurnLeadEnabled
         equals: true
+  - key: FM_TurnCarryTurnInOnly
+    widget: toggle
+    title: Carry Only at Turn-In
+    description: Finish Turn After Signal Cancels only keeps the turn going when the blinker goes off early in the turn.
+      If it goes off after the truck has turned 45 degrees, or once the truck is already straightening out, the turn is
+      ending, so Turn Assist lets go over half a second as usual instead of holding the turn. On by default.
+    enablement:
+    - type: param
+      key: FM_TurnCarryThrough
+      equals: true
   - key: FM_TurnPathMinRadius
     widget: option
     title: Turn Path Tightest Radius

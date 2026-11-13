@@ -61,6 +61,9 @@ the turn (0.25 s, or 0.5 Nm), openpilot not steering, a lane change or 20 mph. O
 is kept: the model's desire, the "Turning" alert and lane changes follow the blinker as before. When it ends, an active
 hold fades over 0.5 s as for a cancel. In 00000070--77 +25.8 s and --78 +56.7 s the blinker went off just as the truck
 turned in and the request fell back to the model's nearly straight one.
+Option Carry Only at Turn-In (on by default): no carry when the turn desire ends after the truck has turned 45 degrees,
+or once it is already straightening out (turning less than 70% as tightly as at the turn's tightest): that blinker
+cancel is the end of the turn, so an active hold fades out over 0.5 s as before Finish Turn After Signal Cancels.
 
 Turn Lead and Turn Hold can both be on, though one at a time makes a turn easier to judge. Turn Lead runs before Turn
 Hold, so Turn Hold holds whatever Turn Lead asked for.
@@ -98,6 +101,7 @@ PARAM_LEAD_GATE = "FM_TurnLeadGate"
 PARAM_HOLD_DEBOUNCE = "FM_TurnHoldReleaseDebounce"
 PARAM_CARRY = "FM_TurnCarryThrough"
 PARAM_LEAD_GATE_DIST = "FM_TurnLeadGateDist"  # m
+PARAM_CARRY_TURN_IN = "FM_TurnCarryTurnInOnly"
 
 BOOST_LIMITS = (1.0, 1.5)
 FULL_SPEED = 15 * CV.MPH_TO_MS
@@ -119,6 +123,11 @@ HOLD_AGAINST_TORQUE = 0.5  # Nm
 CARRY_START_CURVATURE = 0.01  # 1/m (100 m): the truck must be turning at least this tightly when the turn desire ends
 CARRY_END_CURVATURE = 0.008  # 1/m (125 m): the turn is done once the truck straightens past this
 CARRY_MAX_TIME = 6.0  # s
+# Carry Only at Turn-In: no carry once the truck has turned this far, or is already straightening out (its curve below
+# this share of the turn's tightest) when the turn desire ends. 00000073--8 +35.2 s: the blinker self-cancelled 51 deg
+# into a left, as the wheel unwound (16 m vs 9 m at the tightest), and the carry kept Turn Hold's floor 2 s past the model.
+CARRY_TURN_IN_MAX = math.radians(45.)
+CARRY_UNWIND_FRAC = 0.7
 
 # Turn Lead (from StarPilot's TURN_LEAD_*)
 LEAD_TIME = 1.3  # s of travel to the path point it reads
@@ -297,6 +306,7 @@ class FmTurnAssist:
     self.carry_time = 0.0
     self.carry_done = False  # the carry for this turn has ended; wait for a new turn desire
     self.carry_against = 0.0
+    self.carry_turn_in_only = False
     self.amount = 0.0  # 0..1 fade
     self._reset_turn(0)
     self._clear_log(0.0)
@@ -330,6 +340,7 @@ class FmTurnAssist:
     self.lead_gate = self.params.get_bool(PARAM_LEAD_GATE)
     self.hold_debounce = self.params.get_bool(PARAM_HOLD_DEBOUNCE)
     self.carry_enabled = self.params.get_bool(PARAM_CARRY)
+    self.carry_turn_in_only = self.params.get_bool(PARAM_CARRY_TURN_IN)
     try:
       gate = float(self.params.get(PARAM_LEAD_GATE_DIST, return_default=True) or LEAD_GATE_DIST_DEFAULT)
     except (TypeError, ValueError):
@@ -360,6 +371,7 @@ class FmTurnAssist:
     self.against_time = 0.0
     self.extra = 0.0  # Smooth Turn Start: what is applied on top of the model's request, toward the turn
     self.turned = 0.0  # rad the truck has turned toward the turn since it started (every turn, hold or not)
+    self.peak_actual = 0.0  # 1/m: the truck's tightest curve toward the turn so far
     self.release_reason = RELEASE_NONE
 
   def _clear_log(self, desired_curvature: float) -> None:
@@ -474,6 +486,7 @@ class FmTurnAssist:
       self._reset_turn(sign)
     if sign != 0:
       self.turned += sign * actual_curvature * v_ego * DT_CTRL
+      self.peak_actual = max(self.peak_actual, sign * actual_curvature)
 
     speed_scale = float(np.interp(v_ego, [FULL_SPEED, MAX_SPEED], [1.0, 0.0]))
     target = speed_scale if (sign != 0 and lat_active) else 0.0
@@ -597,6 +610,10 @@ class FmTurnAssist:
       if (self.carry_done or self.sign == 0 or self.turn_ended
           or self.sign * actual_curvature < CARRY_START_CURVATURE):
         self.carry_done = True
+        return 0
+      if self.carry_turn_in_only and (self.turned >= CARRY_TURN_IN_MAX or
+                                      self.sign * actual_curvature < CARRY_UNWIND_FRAC * self.peak_actual):
+        self.carry_done = True  # the turn is already ending: the usual cancel fade
         return 0
       self.carry_sign, self.carry_time, self.carry_against = self.sign, 0.0, 0.0
 

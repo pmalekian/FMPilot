@@ -11,7 +11,8 @@ from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_assist import (FmTurnAs
                                                                          PARAM_HOLD_DRIVER, PARAM_LEAD_MIN_SPEED, PARAM_HOLD_EARLY,
                                                                          PARAM_PHASE_IN, PHASE_IN_TAU, PARAM_LEAD_ADAPTIVE, PARAM_LEAD_GATE,
                                                                          PARAM_LEAD_GATE_DIST, plan_circle_curvature, PARAM_HOLD_DEBOUNCE,
-                                                                         PARAM_CARRY, HOLD_AGAINST_TIME, CARRY_MAX_TIME)
+                                                                         PARAM_CARRY, HOLD_AGAINST_TIME, CARRY_MAX_TIME,
+                                                                         PARAM_CARRY_TURN_IN)
 
 LEFT, RIGHT, NONE = TurnDirection.turnLeft, TurnDirection.turnRight, TurnDirection.none
 FADE_STEPS = int(FADE_TIME / DT_CTRL) + 2
@@ -764,6 +765,52 @@ class TestCarryThrough:
     run(a, 0.01, NONE, steps=5, actual=0.08)
     run(a, -0.01, LEFT, actual=0.08)
     assert a.carry_sign == 0 and a.sign == -1
+
+
+class TestCarryTurnInOnly:
+  """Carry Only at Turn-In: a blinker cancel late in the turn, or once the truck is straightening out, ends the turn."""
+
+  @staticmethod
+  def assist(turn_in_only=True):
+    return FmTurnAssist(FakeParams(**{PARAM_HOLD: True, PARAM_CARRY: True, PARAM_CARRY_TURN_IN: turn_in_only}))
+
+  def test_cancel_at_turn_in_still_carries(self):
+    a = self.assist()
+    run(a, 0.09, RIGHT, steps=FADE_STEPS, actual=0.02)  # ~6 deg turned
+    run(a, 0.01, NONE, actual=0.08)
+    assert a.carry_sign == 1
+
+  def test_cancel_late_in_turn_fades_instead(self):
+    a = self.assist()
+    run(a, 0.09, RIGHT, steps=150, actual=0.1)  # 0.1 1/m at 10 mph: about 38 deg
+    run(a, 0.03, RIGHT, steps=50, actual=0.1)  # the model eases, Turn Hold's floor holds it: about 51 deg
+    assert 45 < math.degrees(a.turned) < 75
+    first = run(a, 0.01, NONE, actual=0.1)
+    assert a.carry_sign == 0
+    assert 0.01 < first < 0.09  # the usual cancel fade, not a carry
+    assert run(a, 0.01, NONE, steps=FADE_STEPS, actual=0.1) == 0.01
+    assert a.carry_sign == 0
+
+  def test_cancel_while_straightening_fades_instead(self):
+    a = self.assist()
+    run(a, 0.09, RIGHT, steps=50, actual=0.1)  # tightest 0.1, ~13 deg turned
+    run(a, 0.05, RIGHT, steps=5, actual=0.05)  # unwinding to half
+    run(a, 0.01, NONE, actual=0.05)
+    assert a.carry_sign == 0
+
+  def test_off_carries_as_before(self):
+    a = self.assist(turn_in_only=False)
+    run(a, 0.09, RIGHT, steps=200, actual=0.1)
+    run(a, 0.01, NONE, actual=0.05)
+    assert a.carry_sign == 1
+
+  def test_00000073_8_left_exit(self):
+    """--8 +35.2 s: blinker self-cancelled 51 deg into a left at 10 mph, truck at 16 m after 9 m at the tightest."""
+    a = self.assist()
+    run(a, -0.11, LEFT, mph=10, steps=200, actual=-0.11)  # ~56 deg
+    run(a, -0.04, LEFT, mph=10, steps=20, actual=-0.0625)
+    run(a, -0.016, NONE, mph=10, actual=-0.0625)
+    assert a.carry_sign == 0
 
 
 class TestTurnAssistLog:
