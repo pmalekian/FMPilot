@@ -1,6 +1,6 @@
 # FM Pilot: handoff for new chats (short)
 
-State as of Nov 12, 2026 (evening; garage-turn fixes and boost bar fix added). This is the current state only. Background findings, past drive analyses and
+State as of Nov 13, 2026 (morning drive `00000073` analyzed, item 0l; Turn Assist logging + fixes A/B/C built, item 0m). This is the current state only. Background findings, past drive analyses and
 the ideas backlog are in `claude/FM_PILOT_FINDINGS.md`: read it only when a task needs that history. Features, settings
 and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 
@@ -47,6 +47,10 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 
 ## What he drives now
 
+- **Nov 13 drive `00000073`** (`fm-dev-jet` `6162743`): **Lane Centering** (`FM_LaneKeepMode` 1), Set Speed boost (mode 3),
+  Lateral Smoothing on 0.1, and the turn features all on together: Turn Lead (adaptive, gate off, min 2 mph), Turn Hold +
+  Path Source + Adds Your Steering + Early Correction + Blip debounce, Carry-Through, Smooth Start, Calmer 70%, Low-Speed FF
+  (L Gentle / R Medium), Release Guard 150, Max Torque 580 + fast ramp + full cap past 90°, Turn Pulse on Pull-Away.
 - **TSFDOM**, Experimental Mode, **Blendful** as his daily lane keeping (`FM_LaneKeepMode` 3, in the Nov 11 logs; said
   Nov 11), Lane Guard off, off-tracking off, Camera Offset 0.05 m
   (since Nov 4, not yet analyzed). Aggressive personality, following time offset -20% (Nov 3 backup).
@@ -81,6 +85,74 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
   parses, so modeld most likely runs the default model until TSFDOM (same ref) is selected again and re-downloads
   (from the code, not yet seen on the device); leave it offroad for the warmup. **Check before driving:** DM works (face seen, no DM faults), model label/picker
   shows the selected model, no modeld errors. Then try Cheddar as its own drive.
+
+### 0m. Turn Assist logging + fixes A/B/C on `fm-dev-jet` (Nov 13): built, ON by default, not driven
+
+- **Why:** item 0l. One push, one change per commit (his call: all three on by default, logging first):
+  - `e9afce4` **Logging:** `carControlSP.turnAssist` every frame (sign, source blinker/carry, amount, request in/out,
+    what Boost / Lead / Hold Adds / Path Source / hold floor / Nudge / a fading hold each added toward the turn, Smooth
+    Start's cut, hold active / peak / floor, degrees turned (every turn) and the hold's own degrees and seconds,
+    `releaseReason` none/driverAgainst/maxTurned/maxTime/modelExit, earlyCorrection, againstTime) and
+    `carControlSP.fmLowSpeed` (Low-Speed FF lat accel, Calmer gain in force). card drops both (test).
+  - `b25a3a5` **`turns.py` assist line** (who started / held / released each turn, "kept past the model") and
+    **`fmlog.read` sorts by `logMonoTime`**. `aac8f54` hides early corrections under 0.05 s.
+  - `812b394` **A, Carry Only at Turn-In** (`FM_TurnCarryTurnInOnly`, under Finish Turn After Signal Cancels): no carry
+    once 45 deg turned or the truck's curve is under 70% of the turn's tightest; then the usual 0.5 s cancel fade.
+  - `6b62fbc` **B, Hold Follows the Model's Exit** (`FM_TurnHoldFollowExit`, Turn Hold Settings): past 45 deg, model under
+    50% of the hold peak and not pressing into the turn -> release (modelExit) and fade what was applied over 0.5 s; a
+    signal cancel mid-fade continues it.
+  - `0c7be1a` **C, Hold Starts at Turn-In** (`FM_TurnHoldStartsAtTurnIn`, Turn Hold Settings): 8 s count from 5 deg
+    turned; before 10 deg a press against passes through (as Early Correction, any Turn Assist speed) unless it lasts
+    1.5 s (pre-turn presses here lasted up to 0.97 s); blip debounce's at-once line 1.5 Nm instead of 0.5. A re-arm after
+    a stop was written and dropped: with the rest, nothing can release the hold before 10 deg.
+- **Replay on `00000073`** (real lane centering + Turn Assist on the logged inputs, open loop; the new log written into
+  rlog copies and read back by `turns.py`): kept past the model --8 +32 L 3.3 -> 1.7 s (rest is Turn Lead on the path;
+  hold released +34.8 vs +37.1, no carry), --8 +43 L 1.6 -> 0.8 s (+46.8 vs his push at +48.3), --2 +43 R 1.0 -> 0.8 s
+  (+45.9 vs +46.6), --8 +16 R 1.8 -> 0.9 s. The hold now survives into --4 +19 L and --5 +9.5 R and Hold Adds follows
+  his line instead of openpilot pushing against him; on --5 after he let go at +12.8 the request stays ~15-19 m for
+  ~1 s where he drove 20-22 m (his own wound curve, by design): **watch for this**.
+- Tests: turn assist 164 pass (130 before), tools 48 (44), card conversion 2; Sunnylink compiled and validated.
+  Off-device suite vs `6162743` with the same shim: 802 vs 763 pass, no new failures (312 shim/data failures both).
+- **Test drive:** same corners as `00000073`, everything else as that drive. Send rlogs; `turns.py` now prints the
+  assist line per turn. Watch: turns ending with the model (no extra turning after it opens up), the hold being there
+  for turns after a long blinker / a hand on the wheel, and whether wound-in curves (Hold Adds) stay too tight after
+  you let go.
+
+### 0l. Nov 13 morning turns (`00000073--9033a9dddc` --0..--8): analysis (fixes built in 0m)
+
+- **What he felt:** some turns turned too much and wanted to keep turning; some didn't start or started late.
+- **Replay:** real lane centering + `FmTurnAssist` on the logged inputs reproduces `controlsState.desiredCurvature`
+  (p99 0.0018 1/m) once events are taken in `logMonoTime` order. **rlogs are not strictly in time order**
+  (`modelDataV2SP` at 13.440 s is stored after carState 13.469 s); `tools/fm` reads file order (worth sorting).
+  Script was a chat scratch file (`replay_turns.py`), not in the repo (`fmlog.read` now sorts); it skips `clip_curvature`, so request drops at
+  speed lag in the log by up to ~0.65 s (--2 +46.6: 12 -> 61 m).
+- **--2:** +13.6 L and +20.3 R were manual (lateral not yet engaged). +43 R from a stop **worked at the start** (Hold Path
+  Source + Lead + Adds Your Steering: 36 -> 13 m within ~1 s of pulling away), then **kept turning**: from +45.8 the model
+  asked 19-23 m while the hold kept 10-11 m (peak 8.5 m, 65 deg turned) until he pushed out at +46.6 (2-3.5 Nm). Earlier
+  on the approach (+36.8, 7 mph) a 1.56 Nm press had released that blinker's hold; the blinker re-cycle at +42.3 gave a
+  fresh one.
+- **Late starts (4 of 6):** TSFDOM's steering output lags its own plan: the planned path bends 20-50 m toward the turn at
+  20 m out while `action.desiredCurvature` says straight or slightly the **wrong way**, with turnLeft desire 1.00.
+  --4 +19 L from a stop (asked 340-740 m right ~0.6 s after pull-away); --7 +55 L from a stop (110-160 m right for 1.5 s,
+  over Turn Lead's 0.003 oppose block, so nothing started it until he steered at +56.8); --8 +31 L (800-2500 m right at the
+  corner, Turn Lead 12 -> 8 m started it); --8 +16 R (180-440 m until he steered at +16.0, Lead 13 -> 8 m after).
+  Mid-turn the model asked wider than driven (20-40 m vs 10-15 m) and he held it in at ~2 Nm.
+- **Turn Hold gone before the turn (3 of 6):** --3 +13.4 its 8 s clock (starts at the blinker) ran out on the approach,
+  before the stop at the light (turn at --4 +19); --8 +13.44 the right blinker's desire arrived while he still pressed
+  0.62 Nm left (over the blip debounce's 0.5 Nm "firm" line), released at once (replay confirms); --5 +8.64 one 10 ms
+  frame at 1.01 Nm against while openpilot sent -146 (wheel reaction, most likely).
+- **Over-turning (3 of 7 incl. --2 +43), from the request, not torque** (truck tracked the request): --8 +34.8 L, model let go
+  (25 -> 166 m by +37) but Turn Hold's floor (peak 8 m, 90%, -15%/s) held 15-25 m; blinker self-cancelled at +35.2 at
+  51 deg turned and **Carry-Through** kept the hold instead of the 0.5 s cancel fade; hold released at 75 deg (+37.1), he
+  steered out at +37.3. --8 +43 tight L at 5 mph near lock (523 deg): model barely asked (140-2600 m), Adds Your Steering
+  adopted his curve to 5 m; after he eased off at +46.5 (model 99 -> 29 m) hold + carry kept full lock 1.8 s until he
+  pushed against it at +48.3.
+- **Fixes (built, item 0m):** (A) Carry-Through only at turn-in: no carry once the truck has turned ~45 deg
+  (or the wheel is unwinding) when the blinker cancels. (B) Hold exit follows the model: past ~45 deg turned, when the
+  model asks under ~50% of the hold peak, fade the floor over ~0.5 s (also covers --2 +43). (C) Don't spend Turn Hold before the turn: count the
+  8 s only once turning (or reset after a stop), raise the firm against-press line to ~1.0-1.5 Nm, or ignore against
+  presses until ~10 deg turned. (D) Late model action: Turn Lead past the oppose block helps little on --7 +55 (the plan
+  itself only bent 6-10 m at 20 m during pull-away); model issue.
 
 ### 0j. Garage turns (Nov 12 logs `00000070--77/78`): carry-through, hand-blip debounce, boost bar fix; built, ON, not driven
 
@@ -449,6 +521,8 @@ From `0000005e--e26703ace2--2` (Nov 9 build, Cheddar, Road Edge Turn Desire on):
 
 ## Next steps
 
+000. Item 0m: drive the same corners as `00000073` with A/B/C on (default) and the new logging; send rlogs; `turns.py`
+   assist lines.
 00. Drive the request-side turn fixes on `fm-dev-jet` (item 0g), all on, together, now with item 0j (carry-through,
    hand-blip debounce) also on; send rlogs; `turns.py` timing and torque lines.
 00a0. Set Speed grace fade (item 0i): one drive in Set Speed mode with traffic; plus more cold-morning segments with
