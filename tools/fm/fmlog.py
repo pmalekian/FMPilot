@@ -36,9 +36,14 @@ def read(path, keep=None):
     data = bz2.decompress(data)
   evs = log.Event.read_multiple_bytes(data)
   if keep is None:
-    return list(evs)
-  # copies sized to the message (the default first segment is 8 KB each, which an hour of small messages can't afford)
-  return [e.as_builder(num_first_segment_words=e.total_size.word_count + 1).as_reader() for e in evs if e.which() in keep]
+    evs = list(evs)
+  else:
+    # copies sized to the message (the default first segment is 8 KB each, which an hour of small messages can't afford)
+    evs = [e.as_builder(num_first_segment_words=e.total_size.word_count + 1).as_reader() for e in evs if e.which() in keep]
+  # rlogs are not strictly in time order (00000073--8: a modelDataV2SP sent at 13.440 s is stored after a carState
+  # from 13.469 s), so put them in the order they were sent; a stable sort keeps same-time messages as stored
+  evs.sort(key=lambda e: e.logMonoTime)
+  return evs
 
 
 def log_msg(e):

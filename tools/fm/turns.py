@@ -29,6 +29,14 @@ sent out of the turn, how far the wheel then went past center (within RELEASE_LO
 kept pushing it that way after it crossed center. With Release Guard on (logged as carControlSP.releaseGuard) also the
 share of the pressing time it limited the push and the most it cut; "guard off" when it never ran in this log.
 
+Assist line (logs with carControlSP.turnAssist, from Nov 13, 2026): which Turn Assist part acted in the turn, from up to
+ONSET_LOOKBACK_S before it to RELEASE_LOOK_S after: where the turn came from (blinker, Carry-Through), each part that
+added more than ASSIST_MIN 1/m (Turn Lead, Hold Adds Your Steering, Hold Path Source, Turn Hold's floor, Turn Boost,
+Turn Nudge, a fading hold) with when it first and last acted and the most it added, Turn Hold's release (time, reason,
+degrees turned), early corrections, what was asked at the truck's turn-in (model alone or which part added the most),
+and "kept past the model": the time after the truck's tightest point that the request stayed more than ASSIST_MIN
+tighter than the model.
+
 The limit is the logged `carStateSP.fmSteerCap` frame by frame (so Max Torque, the 95% cap past 90 degrees and the
 speed curve all count). Logs from before it existed fall back to the base speed curve, and logs without
 `carOutput.torqueOutputCan` use the logged torque times the same curve.
@@ -58,6 +66,11 @@ PRESS_CURVATURE = 0.003  # 1/m: the truck already turning that way (as Release G
 RELEASE_LOOK_S = 2.0    # s after letting go to look for the wheel passing center
 PRESS_MIN_S = 0.3       # s: shorter presses into the turn get no release line
 PRESS_GAP_S = 0.2       # s: breaks shorter than this are one press
+ASSIST_MIN = 0.003  # 1/m: an assist part adding less than this doesn't count as acting
+ASSIST_PARTS = (("lead", "Turn Lead"), ("driverAdds", "your steering (Hold Adds)"), ("holdPath", "Hold Path Source"),
+                ("holdFloor", "Turn Hold floor"), ("boost", "Turn Boost"), ("nudge", "Turn Nudge"),
+                ("exitFade", "hold fading out"))
+RELEASE_NAMES = {"driverAgainst": "you steered against the turn", "maxTurned": "75 deg limit", "maxTime": "8 s limit"}
 AMBIGUOUS_NOTE = ("* against openpilot = you resisting OR the loose wheel's reaction to openpilot's torque; the column "
                   "sensor can't tell them apart")
 
@@ -216,6 +229,57 @@ def release_check(t, ang, hand, pressed, curv, sent, lat_active, turn_lp, guard_
   return out
 
 
+def assist_series(drive):
+  """carControlSP.turnAssist as {field: array} with 't', or None when this log doesn't have it."""
+  rows = []
+  for e in drive.evs:
+    if e.which() != "carControlSP":
+      continue
+    ta = e.carControlSP.turnAssist
+    rows.append((drive.t(e), ta.sign, str(ta.source), ta.requestIn, ta.requestOut, ta.lead, ta.driverAdds, ta.holdPath,
+                 ta.holdFloor, ta.boost, ta.nudge, ta.exitFade, ta.holdActive, str(ta.releaseReason), ta.turned,
+                 ta.earlyCorrection))
+  if not rows or not any(r[3] != 0.0 or r[1] != 0 for r in rows):
+    return None
+  names = ("t", "sign", "source", "requestIn", "requestOut", "lead", "driverAdds", "holdPath", "holdFloor", "boost", "nudge",
+           "exitFade", "holdActive", "releaseReason", "turned", "earlyCorrection")
+  cols = list(zip(*rows, strict=True))
+  return {n: np.array(c, dtype=object if n in ("source", "releaseReason") else float) for n, c in zip(names, cols, strict=True)}
+
+
+def assist_summary(ta, lo, hi, turn_sign, truck_in_t, peak_t):
+  """What Turn Assist did between drive times lo and hi in a turn whose curvature sign is turn_sign (+1 right)."""
+  m = (ta["t"] >= lo) & (ta["t"] <= hi)
+  if not m.any():
+    return None
+  q = {k: v[m] for k, v in ta.items()}
+  t = q["t"]
+  mine = q["sign"] == turn_sign
+  out = {"sources": sorted({s for s, x in zip(q["source"], mine, strict=True) if x and s != "none"}), "parts": []}
+  for key, name in ASSIST_PARTS:
+    act = mine & (q[key] > ASSIST_MIN)
+    if act.any():
+      out["parts"].append((name, t[act][0], t[act][-1], float(q[key][act].max())))
+  carry = mine & (q["source"] == "carry")
+  out["carry"] = (t[carry][0], t[carry][-1]) if carry.any() else None
+  rel = np.flatnonzero(mine & (q["releaseReason"] != "none"))
+  out["release"] = None
+  if len(rel):
+    i = rel[0]
+    out["release"] = (t[i], str(q["releaseReason"][i]), float(q["turned"][i]))
+  out["early_s"] = float(np.sum(mine & (q["earlyCorrection"] > 0.5)) * np.median(np.diff(t))) if len(t) > 1 else 0.0
+  # at the truck's turn-in: model alone, or which part added the most
+  i = int(np.clip(np.searchsorted(t, truck_in_t), 0, len(t) - 1))
+  adds = [(float(q[k][i]), name) for k, name in ASSIST_PARTS if mine[i]]
+  best = max(adds, default=(0.0, ""))
+  out["at_turn_in"] = best[1] if best[0] > ASSIST_MIN else "model"
+  # kept past the model: after the truck's tightest point, the request still tighter than the model
+  toward_in, toward_out = turn_sign * q["requestIn"], turn_sign * q["requestOut"]
+  past = mine & (t >= peak_t) & (toward_out - toward_in > ASSIST_MIN)
+  out["kept_past_s"] = float(np.sum(past) * np.median(np.diff(t))) if len(t) > 1 and past.any() else 0.0
+  return out
+
+
 def find_turns(t, curv, v):
   """(start, end) index windows of turns tighter than TURN_RADIUS_M lasting over 1 s, padded 0.6 s before and 0.2 s
   after, never across a gap in the log."""
@@ -242,6 +306,7 @@ def main(drive):
   v = at(cs, t, 1)
   turns = find_turns(t, curv, v)
   guard_logged = bool(np.any(rg[:, 3] > 0))
+  ta = assist_series(drive)
   print(f"{drive.label()}: model {model_name(drive.evs)}, {len(turns)} sharp turns")
   if turns:
     print(f"  {AMBIGUOUS_NOTE}")
@@ -258,7 +323,9 @@ def main(drive):
           f"driven r {1 / max(ak.max(), 1e-4):5.1f} m | hands "
           f"{np.abs(hand).mean():.2f} Nm avg; openpilot steering: with it {pct(h['with_op'])}, against it* {pct(h['against_op'])}; "
           f"you steering: into the turn {pct(h['driver_into'])}")
-    print_timing(drive, t, ctl, md, curv, a, b, turn_lp)
+    onset = print_timing(drive, t, ctl, md, curv, a, b, turn_lp)
+    if ta is not None and onset is not None:
+      print_assist(drive, ta, t, a, b, turn_lp, *onset)
     asked, sent, cap, notes = torque_counts(tt, cs, cc, co, sp)
     q = torque_limits(asked, sent, cap, la)
     if np.isnan(q["at_limit"]):
@@ -297,8 +364,32 @@ def print_release(drive, t, cs, cc, co, sp, rg, curv, a, b, turn_lp, guard_logge
   print(line)
 
 
+def print_assist(drive, ta, t, a, b, turn_lp, truck_in_t, peak_t):
+  """The assist line for the turn window [a, b): ONSET_LOOKBACK_S before it to RELEASE_LOOK_S after."""
+  turn_sign = -int(turn_lp)  # curvature is right-positive, turn_lp left-positive
+  q = assist_summary(ta, t[a] - ONSET_LOOKBACK_S, t[b - 1] + RELEASE_LOOK_S, turn_sign, truck_in_t, peak_t)
+  if q is None:
+    return
+  if not q["sources"] and not q["parts"]:
+    print("      assist: none (no turn desire)")
+    return
+  src = " + ".join({"desire": "blinker", "carry": "Carry-Through"}.get(x, x) for x in q["sources"]) or "none"
+  parts = "; ".join(f"{name} {drive.where(t0)}..{t1 - t0:+.1f} s max {mx:.3f}" for name, t0, t1, mx in q["parts"]) or "nothing added"
+  line = f"      assist: from {src} | {parts} | at turn-in: {q['at_turn_in']}"
+  if q["carry"]:
+    line += f" | carry {drive.where(q['carry'][0])}..{q['carry'][1] - q['carry'][0]:+.1f} s"
+  if q["release"]:
+    rt, why, deg = q["release"]
+    line += f" | hold released {drive.where(rt)} ({RELEASE_NAMES.get(why, why)}, {deg:.0f} deg turned)"
+  if q["early_s"] > 0:
+    line += f" | early correction {q['early_s']:.1f} s"
+  line += f" | kept past the model {q['kept_past_s']:.1f} s"
+  print(line)
+
+
 def print_timing(drive, t, ctl, md, curv, a, b, turn_lp):
-  """The timing line for the turn window [a, b), looking back up to ONSET_LOOKBACK_S without crossing a gap in the log."""
+  """The timing line for the turn window [a, b), looking back up to ONSET_LOOKBACK_S without crossing a gap in the log.
+  Returns (truck turn-in time, truck's tightest time), or None."""
   start = a
   while start > 0 and t[a] - t[start - 1] <= ONSET_LOOKBACK_S and t[start] - t[start - 1] < 1:
     start -= 1
@@ -309,11 +400,12 @@ def print_timing(drive, t, ctl, md, curv, a, b, turn_lp):
   op = toward(ctl[start:b, 2])
   peak = int(np.argmax(truck))
   if truck[peak] <= 0:
-    return
+    return None
   q = turn_timing(tw, model, op, truck, peak)
   rel = lambda x: "never" if np.isnan(x) else f"{x:+.1f} s"  # noqa: E731
   print(f"      timing: truck turned in at {drive.where(q['truck'])} | model asked {rel(q['model'])}, openpilot asked "
         f"{rel(q['openpilot'])} (before is -) | {q['verdict']}")
+  return q["truck"], tw[peak]
 
 
 if __name__ == "__main__":

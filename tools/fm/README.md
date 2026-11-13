@@ -119,4 +119,21 @@ torque kept pushing it that way after it crossed. With Release Guard on, `(guard
 from `carControlSP.releaseGuard`. The longest press in the turn is the one checked, so catching an overshoot afterwards
 doesn't replace it. A turn that started in a segment you didn't load may not be found as a turn.
 
+### Assist line in `turns.py`
+
+Logs from Nov 13, 2026 on carry `carControlSP.turnAssist` (what each Turn Assist part added, every frame), and each
+turn gets:
+```
+assist: from blinker + Carry-Through | Turn Lead --8 +31.8s..+1.2 s max 0.105; Turn Hold floor --8 +32.6s..+4.5 s max 0.080 |
+  at turn-in: Turn Lead | carry --8 +35.3s..+2.0 s | hold released --8 +37.1s (75 deg limit, 75 deg turned) | kept past the model 2.3 s
+```
+From up to 4 s before the turn to 2 s after: where the turn came from (blinker, Carry-Through), every part that added
+more than 0.003 1/m (Turn Lead, Hold Adds Your Steering, Hold Path Source, Turn Hold's floor, Turn Boost, Turn Nudge, a
+hold fading out) with when it started, how long it acted and the most it added (1/m toward the turn), what started the
+turn at the truck's turn-in (the model alone, or the part adding the most), when and why Turn Hold let go, early
+corrections, and **kept past the model**: how long after the truck's tightest point the request stayed tighter than the
+model wanted. `carControlSP.fmLowSpeed` has Low-Speed Steering Feedforward's added lateral accel and the Calmer gain.
+
+Events are read in the order they were sent (`logMonoTime`): rlogs sometimes store a message after later ones.
+
 Tests: `python -m pytest tests` (small synthetic logs; no device or real logs needed).

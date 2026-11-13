@@ -437,3 +437,69 @@ def test_release_check_picks_the_long_press_not_a_later_catch():
   curv[250:260] = -0.01
   r = turns.release_check(t, ang, hand, pressed, curv, sent, lat, 1)
   assert r["t"] == pytest.approx(1.0)
+
+
+def assist_events(n, fill):
+  """carControlSP events of segment n at 100 Hz; fill(t, turnAssist) sets the fields."""
+  evs = []
+  for i in range(int(SEG_S * 100)):
+    t = n * SEG_S + i / 100 + 0.01
+    e = log.Event.new_message()
+    e.logMonoTime = int((1000.0 + t) * 1e9)
+    fill(t, e.init("carControlSP").turnAssist)
+    evs.append(e)
+  return evs
+
+
+class TestAssistLine:
+  """turns.py assist line, from carControlSP.turnAssist (right turn 8-13 s, see curvature_at)."""
+
+  @staticmethod
+  def fill(t, ta):
+    ta.requestIn = curvature_at(t) * 0.5
+    ta.requestOut = curvature_at(t)
+    if 6.0 <= t < 14.0:
+      ta.sign = 1
+      ta.source = "carry" if t >= 12.0 else "desire"
+      ta.lead = 0.02 if 7.5 <= t < 9.0 else 0.0
+      ta.holdFloor = 0.025 if 9.0 <= t < 13.0 else 0.0
+      ta.holdActive = t < 11.0
+      if t >= 11.0:
+        ta.releaseReason = "maxTurned"
+        ta.turned = 75.0
+
+  def drive(self, tmp_path, fill):
+    prm = settings()
+    for n in (0, 1):
+      evs = segment(n, prm, loaded="tsfdom_driving_tinygrad.pkl" if n == 0 else None) + assist_events(n, fill)
+      write(tmp_path / f"{ROUTE}--{n}" / "rlog.zst", evs)
+    (d,) = fmlog.load_drives([str(tmp_path)])
+    return d
+
+  def test_assist_line(self, tmp_path):
+    out = run(turns.main, self.drive(tmp_path, self.fill))
+    line = next(x for x in out.splitlines() if "assist:" in x)
+    assert "from blinker + Carry-Through" in line or "from Carry-Through + blinker" in line
+    assert "Turn Lead --0 + 7.5s..+1.5 s max 0.020" in line
+    assert "Turn Hold floor --0 + 9.0s..+4.0 s max 0.025" in line
+    assert "hold released --1 + 1.0s (75 deg limit, 75 deg turned)" in line
+    assert "carry --1 + 2.0s..+2.0 s" in line
+    assert "kept past the model" in line
+
+  def test_no_turn_desire(self, tmp_path):
+    def fill(t, ta):
+      ta.requestIn = ta.requestOut = curvature_at(t)
+    out = run(turns.main, self.drive(tmp_path, fill))
+    assert "assist: none (no turn desire)" in out
+
+  def test_old_logs_have_no_assist_line(self, drive_dir):
+    (d,) = fmlog.load_drives([str(drive_dir)])
+    assert "assist:" not in run(turns.main, d)
+
+
+def test_events_are_read_in_time_order(tmp_path):
+  evs = segment(0, settings())
+  late = evs.pop(5)  # stored out of order, as rlogs sometimes are
+  evs.insert(40, late)
+  got = [e.logMonoTime for e in fmlog.read(write(tmp_path / "x" / "rlog.zst", evs))]
+  assert got == sorted(got)
