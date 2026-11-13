@@ -51,8 +51,9 @@ to sunnypilot's v25 model list; in git history before that date).
 - **Blendful**: sunnypilot #2073, commit `97135965e` (Oct 29, 2026; Blendful math by James Vecellio-Grant /
   Discountchubbs, with royjr, rav4kumar, nayan8teen and Jason Wen; MIT), `blendful.py` and its tests unchanged. FM Pilot
   changes: switched by `FM_LaneKeepMode` instead of its own toggle, and only the blue center line is drawn on screen.
-- **Accel Boost bar**: sunnypilot #2090 (rav4kumar and Jason Wen, Nov 4, 2026; MIT; open there). FM Pilot changes: Gas and
-  Predictive, reads the logged boost, own setting.
+- **Accel Boost bar**: sunnypilot #2090 (rav4kumar and Jason Wen, Nov 4, 2026; MIT; open there). FM Pilot changes: Gas,
+  Predictive and Set Speed, reads the logged boost, own setting. In Set Speed mode a "cruise" plan source still fills
+  the bar, since Set Speed lifts the model exactly to the cruise ramp and the planner's min() reports that tie as cruise.
 - **Predictive Boost**: sunnypilot `AccelBoostSP`, branch `booooost` (James Vecellio-Grant / Discountchubbs, Nov 3, 2026;
   MIT), logic unchanged. When sunnypilot ships it and AP takes it in, ours gives way to theirs and the mode selector stays.
 - **Set Speed Assist**: EVPilot (gerrylum's fork, now `evpilotgo/openpilot`, branch `dev`), Gerry / gerrylum, commits

@@ -5,16 +5,22 @@ This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 
 FM Pilot: Accel Boost bar on the comma 4's side panel, from sunnypilot #2090 (rav4kumar and Jason Wen, Nov 4 2026, MIT;
-not yet merged there). FM Pilot changes: it shows for both Gas and Predictive boost (FM_AccelBoostMode), reads what
-the boost actually added from longitudinalPlanSP.fmAccelBoost, scales to that mode's maximum, and has its own
-setting, FM_AccelBoostIndicator (off by default). It takes the confidence ball's place only while it is shown.
+not yet merged there). FM Pilot changes: it shows for every boost mode, Gas, Predictive and Set Speed
+(FM_AccelBoostMode), reads what the boost actually added from longitudinalPlanSP.fmAccelBoost, scales to that mode's
+maximum, and has its own setting, FM_AccelBoostIndicator (off by default). It takes the confidence ball's place only
+while it is shown.
+
+Set Speed lifts the model's target exactly up to the cruise ramp, so the planner's min() ties the two and labels the
+source "cruise" (the cruise candidate is listed first). In Set Speed mode a cruise source still counts as the boost
+setting the speed; only a lead (the MPC) empties the bar. Without this the bar read empty for most of each Set Speed
+boost (97% of boosting frames in a steady replay of set_speed_assist.py through the planner's min()).
 """
 import math
 import pyray as rl
 
 from openpilot.cereal import log
 from openpilot.common.filter_simple import FirstOrderFilter
-from openpilot.selfdrive.controls.lib.fm_boost_mode import MODE_OFF, boost_max
+from openpilot.selfdrive.controls.lib.fm_boost_mode import MODE_OFF, MODE_SET_SPEED, boost_max
 from openpilot.selfdrive.ui.mici.onroad import SIDE_PANEL_WIDTH
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.ui.lib.application import gui_app
@@ -49,6 +55,15 @@ def get_boost_color(fraction: float) -> rl.Color:
   return lighten(COLOR_FILL, MAX_BOOST_BLEND * blend)
 
 
+PlanSource = log.LongitudinalPlan.LongitudinalPlanSource
+
+
+def boost_sets_speed(source, mode: int) -> bool:
+  """The boosted model target is what sets the speed: the model (e2e), or in Set Speed mode also the cruise ramp it was
+  lifted to (a tie in the planner's min())."""
+  return source == PlanSource.e2e or (mode == MODE_SET_SPEED and source == PlanSource.cruise)
+
+
 def indicator_wanted() -> bool:
   """Setting on, a boost mode selected, openpilot controlling speed."""
   return bool(ui_state.fm_accel_boost_indicator and ui_state.fm_accel_boost_mode != MODE_OFF and ui_state.has_longitudinal_control)
@@ -72,10 +87,10 @@ class AccelBoostIndicator(Widget):
     sm = ui_state.sm
     visible = (indicator_wanted() and sm.alive['selfdriveState'] and sm.alive['longitudinalPlan'] and
                sm['selfdriveState'].enabled)
-    # Only counts while the boosted model target is what sets the speed; if the lead or set speed is limiting,
-    # the boost isn't doing anything
+    # Only counts while the boosted model target is what sets the speed; if the lead (or, except for Set Speed, the
+    # cruise ramp) is limiting, the boost isn't doing anything
     applied = (visible and sm.alive['longitudinalPlanSP'] and
-               sm['longitudinalPlan'].longitudinalPlanSource == log.LongitudinalPlan.LongitudinalPlanSource.e2e)
+               boost_sets_speed(sm['longitudinalPlan'].longitudinalPlanSource, ui_state.fm_accel_boost_mode))
     self._boost_filter.update(float(sm['longitudinalPlanSP'].fmAccelBoost) if applied else 0.0)
     self._alpha_filter.update(1.0 if visible else 0.0)
 

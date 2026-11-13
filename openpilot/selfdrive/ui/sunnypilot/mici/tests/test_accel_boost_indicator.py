@@ -6,13 +6,14 @@ import pytest
 pytest.importorskip("pyray")
 
 from openpilot.cereal import log
-from openpilot.selfdrive.controls.lib.fm_boost_mode import MODE_GAS, MODE_OFF, MODE_PREDICTIVE, boost_max
+from openpilot.selfdrive.controls.lib.fm_boost_mode import MODE_GAS, MODE_OFF, MODE_PREDICTIVE, MODE_SET_SPEED, boost_max
 from openpilot.selfdrive.ui.sunnypilot.mici.onroad.accel_boost_indicator import (CAP_BLEND_START, COLOR_FILL, AccelBoostIndicator,
                                                                                 get_boost_color, get_boost_fraction)
 from openpilot.selfdrive.ui.ui_state import ui_state
 
 E2E = log.LongitudinalPlan.LongitudinalPlanSource.e2e
 LEAD = log.LongitudinalPlan.LongitudinalPlanSource.lead0
+CRUISE = log.LongitudinalPlan.LongitudinalPlanSource.cruise
 P = log.LongitudinalPersonality
 
 
@@ -79,3 +80,27 @@ def test_hidden_keeps_confidence_ball(state, setting, mode, enabled):
   ind = AccelBoostIndicator()
   _settle(ind, FakeSM(enabled=enabled), state)
   assert not ind.holding_panel
+
+
+def test_set_speed_fills_when_tied_with_cruise(state):
+  # Set Speed lifts the model target exactly to the cruise ramp; the planner then reports the source as cruise
+  state.setattr(ui_state, "fm_accel_boost_mode", MODE_SET_SPEED, raising=False)
+  ind = AccelBoostIndicator()
+  _settle(ind, FakeSM(boost=0.3, source=CRUISE), state)
+  assert ind._boost_filter.x == pytest.approx(0.3, abs=1e-3)
+  assert ind._max_boost_filter.x == pytest.approx(boost_max(MODE_SET_SPEED, P.aggressive), abs=1e-3)
+
+
+def test_set_speed_empty_behind_lead(state):
+  state.setattr(ui_state, "fm_accel_boost_mode", MODE_SET_SPEED, raising=False)
+  ind = AccelBoostIndicator()
+  _settle(ind, FakeSM(boost=0.3, source=LEAD), state)
+  assert ind._boost_filter.x == pytest.approx(0.0, abs=1e-3)
+
+
+@pytest.mark.parametrize("mode", [MODE_GAS, MODE_PREDICTIVE])
+def test_other_modes_empty_when_cruise_limits(state, mode):
+  state.setattr(ui_state, "fm_accel_boost_mode", mode, raising=False)
+  ind = AccelBoostIndicator()
+  _settle(ind, FakeSM(boost=0.1, source=CRUISE), state)
+  assert ind._boost_filter.x == pytest.approx(0.0, abs=1e-3)
