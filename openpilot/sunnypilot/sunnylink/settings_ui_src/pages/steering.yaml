@@ -815,6 +815,16 @@ sections:
       - type: param
         key: FM_TurnHoldEnabled
         equals: true
+    - key: FM_TurnHoldReleaseDebounce
+      widget: toggle
+      title: Ignore Brief Hand Blips
+      description: Steering against the turn releases Turn Hold only once it lasts a quarter second, or at once with a firm
+        push (0.5 Nm or more). A brief flicker as your hand relaxes on the wheel no longer ends the hold for the rest of the
+        turn. On by default.
+      enablement:
+      - type: param
+        key: FM_TurnHoldEnabled
+        equals: true
   - id: turn_lead_settings
     label: Turn Lead Settings
     trigger_key: FM_TurnLeadEnabled

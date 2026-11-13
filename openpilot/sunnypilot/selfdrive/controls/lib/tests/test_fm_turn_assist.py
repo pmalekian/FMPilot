@@ -10,7 +10,8 @@ from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_assist import (FmTurnAs
                                                                          PARAM_LEAD, PARAM_MIN_RADIUS, MIN_RADIUS_DEFAULT, PARAM_HOLD_PATH,
                                                                          PARAM_HOLD_DRIVER, PARAM_LEAD_MIN_SPEED, PARAM_HOLD_EARLY,
                                                                          PARAM_PHASE_IN, PHASE_IN_TAU, PARAM_LEAD_ADAPTIVE, PARAM_LEAD_GATE,
-                                                                         PARAM_LEAD_GATE_DIST, plan_circle_curvature)
+                                                                         PARAM_LEAD_GATE_DIST, plan_circle_curvature, PARAM_HOLD_DEBOUNCE,
+                                                                         HOLD_AGAINST_TIME)
 
 LEFT, RIGHT, NONE = TurnDirection.turnLeft, TurnDirection.turnRight, TurnDirection.none
 FADE_STEPS = int(FADE_TIME / DT_CTRL) + 2
@@ -21,7 +22,8 @@ class FakeParams:
     self.values = {PARAM_BOOST: False, PARAM_BOOST_LEFT: 1.1, PARAM_BOOST_RIGHT: 1.2, PARAM_HOLD: False, PARAM_LEAD: False,
                    PARAM_HOLD_PATH: False, PARAM_HOLD_DRIVER: False, PARAM_HOLD_EARLY: False, PARAM_LEAD_MIN_SPEED: 7.0,
                    PARAM_MIN_RADIUS: MIN_RADIUS_DEFAULT, PARAM_PHASE_IN: False,
-                   PARAM_LEAD_ADAPTIVE: False, PARAM_LEAD_GATE: False, PARAM_LEAD_GATE_DIST: 5.0} | values
+                   PARAM_LEAD_ADAPTIVE: False, PARAM_LEAD_GATE: False, PARAM_LEAD_GATE_DIST: 5.0,
+                   PARAM_HOLD_DEBOUNCE: False} | values
 
   def get_bool(self, key):
     return bool(self.values.get(key))
@@ -637,3 +639,54 @@ class TestLeadStartDistance:
   def test_gate_setting_is_clamped(self):
     assert FmTurnAssist(FakeParams(**{PARAM_LEAD_GATE_DIST: 50.0})).lead_gate_dist == 10.0
     assert FmTurnAssist(FakeParams(**{PARAM_LEAD_GATE_DIST: "x"})).lead_gate_dist == 5.0
+
+
+class TestHoldReleaseDebounce:
+  """Ignore Brief Hand Blips: a press against the turn releases Turn Hold only once it lasts 0.25 s or reaches 0.5 Nm."""
+  AGAINST_RIGHT = 0.14  # Nm, positive (left) is against a right turn: 00000070--77 +33.78 s
+
+  def hold(self, debounce=True, **values):
+    a = FmTurnAssist(FakeParams(**({PARAM_HOLD: True, PARAM_HOLD_DEBOUNCE: debounce} | values)))
+    run(a, 0.09, RIGHT, steps=FADE_STEPS, actual=0.001)
+    return a
+
+  def test_one_frame_blip_keeps_the_hold(self):
+    a = self.hold()
+    run(a, 0.03, RIGHT, mph=12.7, pressed=True, torque=self.AGAINST_RIGHT, actual=0.005)
+    assert not a.hold_released
+    assert run(a, 0.03, RIGHT, mph=12.7, actual=0.005) == pytest.approx(0.081, rel=0.02)
+
+  def test_off_releases_on_one_frame(self):
+    a = self.hold(debounce=False)
+    run(a, 0.03, RIGHT, mph=12.7, pressed=True, torque=self.AGAINST_RIGHT, actual=0.005)
+    assert a.hold_released
+
+  def test_sustained_press_releases(self):
+    a = self.hold()
+    steps = int(round(HOLD_AGAINST_TIME / DT_CTRL))
+    run(a, 0.03, RIGHT, steps=steps - 2, pressed=True, torque=self.AGAINST_RIGHT, actual=0.005)
+    assert not a.hold_released
+    run(a, 0.03, RIGHT, steps=3, pressed=True, torque=self.AGAINST_RIGHT, actual=0.005)
+    assert a.hold_released
+    assert run(a, 0.03, RIGHT, actual=0.005) == 0.03
+
+  @pytest.mark.parametrize("direction, torque", [(RIGHT, 0.6), (LEFT, -0.6)])
+  def test_firm_press_releases_at_once(self, direction, torque):
+    sign = 1 if direction == RIGHT else -1
+    a = FmTurnAssist(FakeParams(**{PARAM_HOLD: True, PARAM_HOLD_DEBOUNCE: True}))
+    run(a, sign * 0.09, direction, steps=FADE_STEPS, actual=sign * 0.001)
+    run(a, sign * 0.03, direction, pressed=True, torque=torque, actual=sign * 0.005)
+    assert a.hold_released
+
+  def test_blips_must_be_continuous(self):
+    a = self.hold()
+    for _ in range(10):  # 20 ms pressed, 10 ms not, for 0.3 s
+      run(a, 0.03, RIGHT, steps=2, pressed=True, torque=self.AGAINST_RIGHT, actual=0.005)
+      run(a, 0.03, RIGHT, actual=0.005)
+    assert not a.hold_released
+
+  def test_into_turn_with_driver_adds_unchanged(self):
+    a = self.hold(**{PARAM_HOLD_DRIVER: True})
+    assert run(a, 0.03, RIGHT, steps=50, pressed=True, torque=-1.5, actual=0.12) == pytest.approx(0.12)
+    assert not a.hold_released
+

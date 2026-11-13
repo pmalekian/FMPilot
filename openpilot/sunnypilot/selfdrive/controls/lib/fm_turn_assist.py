@@ -31,6 +31,9 @@ only change the requested curvature, so every steering limit after them still ap
     While you steer, the model's request passes through and the hold's fade is paused; once you let go it carries on
     from the same peak. Past 5 mph or 20 degrees, steering against the turn releases it as before. Straightening also
     doesn't count against the 75 degrees.
+    Option Ignore Brief Hand Blips (on by default): steering against the turn releases Turn Hold only once it has lasted
+    0.25 s, or at once with 0.5 Nm or more against the turn. A single frame read as pressed while your hand relaxes
+    (00000070--77 +33.78 s: +0.14 Nm at 12.7 mph) released the hold for the rest of that turn.
   - Turn Lead starts the turn on time when a model turns in late. Between Turn Lead Min Speed (2 to 7 mph, default 7;
     full strength about 2.2 mph above it) and about 16 mph it reads the curve of the planned path 1.3 s ahead (4 to
     14 m) and, if that bends harder toward the turn than the model's request, asks for 85% of it instead. It fades out
@@ -84,6 +87,7 @@ PARAM_MIN_RADIUS = "FM_TurnPathMinRadius"
 PARAM_PHASE_IN = "FM_TurnPhaseIn"
 PARAM_LEAD_ADAPTIVE = "FM_TurnLeadAdaptive"
 PARAM_LEAD_GATE = "FM_TurnLeadGate"
+PARAM_HOLD_DEBOUNCE = "FM_TurnHoldReleaseDebounce"
 PARAM_LEAD_GATE_DIST = "FM_TurnLeadGateDist"  # m
 
 BOOST_LIMITS = (1.0, 1.5)
@@ -97,6 +101,11 @@ HOLD_MAX_TIME = 8.0  # s of moving
 HOLD_MOVING_SPEED = 0.5  # m/s
 HOLD_EARLY_MAX_SPEED = 5 * CV.MPH_TO_MS  # Hold Through Early Correction: the start of a turn is under this speed
 HOLD_EARLY_MAX_HEADING = math.radians(20.)  # and before the truck has turned this much
+# Ignore Brief Hand Blips: steering against the turn releases Turn Hold only once it lasts this long, or at once past
+# this much hand torque against the turn (00000070--77 +33.78 s: one 10 ms frame read pressed at +0.14 Nm, 12.7 mph)
+HOLD_AGAINST_TIME = 0.25  # s
+HOLD_AGAINST_TORQUE = 0.5  # Nm
+
 
 # Turn Lead (from StarPilot's TURN_LEAD_*)
 LEAD_TIME = 1.3  # s of travel to the path point it reads
@@ -265,6 +274,7 @@ class FmTurnAssist:
     self.lead_adaptive = False
     self.lead_gate = False
     self.lead_gate_dist = LEAD_GATE_DIST_DEFAULT
+    self.hold_debounce = False
     self.amount = 0.0  # 0..1 fade
     self._reset_turn(0)
     self.read_params()
@@ -295,6 +305,7 @@ class FmTurnAssist:
     self.phase_in = self.params.get_bool(PARAM_PHASE_IN)
     self.lead_adaptive = self.params.get_bool(PARAM_LEAD_ADAPTIVE)
     self.lead_gate = self.params.get_bool(PARAM_LEAD_GATE)
+    self.hold_debounce = self.params.get_bool(PARAM_HOLD_DEBOUNCE)
     try:
       gate = float(self.params.get(PARAM_LEAD_GATE_DIST, return_default=True) or LEAD_GATE_DIST_DEFAULT)
     except (TypeError, ValueError):
@@ -322,6 +333,7 @@ class FmTurnAssist:
     self.turn_ended = False
     self.nudge_time = 0.0
     self.nudge_remaining = 0.0
+    self.against_time = 0.0
     self.extra = 0.0  # Smooth Turn Start: what is applied on top of the model's request, toward the turn
 
   @property
@@ -455,6 +467,10 @@ class FmTurnAssist:
       into_turn = steering_pressed and self.hold_driver and sign * steering_torque < 0.0
       driver_adds = into_turn and sign * actual_curvature > HOLD_DRIVER_MIN_CURVATURE
       against = steering_pressed and not into_turn
+      self.against_time = self.against_time + DT_CTRL if against else 0.0
+      if against and self.hold_debounce:
+        # Ignore Brief Hand Blips: a press against the turn only counts once it lasts or is firm
+        against = self.against_time >= HOLD_AGAINST_TIME - 1e-6 or sign * steering_torque >= HOLD_AGAINST_TORQUE
       early_correction = (steering_pressed and sign * steering_torque > 0.0 and self.hold_early and v_ego < HOLD_EARLY_MAX_SPEED
                           and self.heading < HOLD_EARLY_MAX_HEADING and self.turn_time < HOLD_MAX_TIME)
       if early_correction:
