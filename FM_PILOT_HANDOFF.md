@@ -21,6 +21,11 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
   UI tests. Known off-device failures: `test_latcontrol_torque_ext.py` (NNLC data submodule not cloned).
   After YAML edits recompile `openpilot/sunnypilot/sunnylink/tools/compile_settings_ui.py` (and run
   `validate_settings_ui.py`).
+- **How to approach his asks:** when he asks whether something can be built or solved, work out how: name the hurdles
+  and give actionable steps past each. Don't treat today's software as the limit (open-source pieces like Jetlink can be
+  forked and changed). Look up checkable facts (vehicle specs etc.) yourself instead of leaving them as open questions.
+- **His compute:** Jetlink host MacBook M2 Pro; Windows laptop with a mobile RTX 3050; desktop PC with an RTX 3080 Ti
+  (12 GB). The R1S's 120 V outlets supply up to 1500 W.
 - **Frankie's side:** Windows PowerShell. Comma at `192.168.1.246`, user `comma`. Always `scp -O`. Say which prompt each
   command runs at (`PS C:\...>` or after `ssh comma@192.168.1.246`). He can also download single rlogs from Comma
   Connect on his phone and attach them (rename each to its segment, e.g. `<route>--<n>--rlog.zst`). The PC can be
@@ -297,6 +302,24 @@ From `0000005e--e26703ace2--2` (Nov 9 build, Cheddar, Road Edge Turn Desire on):
   Nov 11: EVPilot's MAP_NORESERVE model load (`6a1ff0b9`; only for ~2 GB models loaded on the comma, which Jetlink avoids),
   its generic resend of panda-blocked frames, and its navigation (openpilot's nav, Mapbox; compare with the StarPilot nav plan first).
 
+### 0k. Alpamayo 2 Edge through a Jetlink fork (idea, Nov 12): nothing built
+
+- **Goal (his):** drive NVIDIA's Alpamayo 2 Edge (open weights Nov 10, Hugging Face `nvidia/Alpamayo2-Edge`; ~2.65 B
+  params BF16, about 5.3 GB: 1.96 B LM + 0.41 B SigLIP2 vision + 0.08 B projector, 0.2 B diffusion action expert; outputs
+  trajectories plus optional reasoning text; NVIDIA quotes ~10 Hz on DRIVE AGX Thor) as the Jetlink big model.
+- **Host:** the desktop's RTX 3080 Ti (12 GB, ~912 GB/s, BF16 + FlashAttention 2 OK), in the truck on the R1S 120 V
+  outlet (1500 W; a 3080 Ti system ~500-600 W, can be power-limited with `nvidia-smi -pl`). Jetlink's hosts are
+  Mac / Jetson / Linux PC / phone, so run it under Linux. The 3050 laptop is too small; the M2 Pro fits the weights but
+  is ~4x short on bandwidth.
+- **Plan:** (1) offline on the desktop: run the model on forward-camera frames from his rlogs, reasoning off, one
+  trajectory candidate, fewer diffusion steps; measure Hz. (2) Fork `zoompilot/jetlink`: add a host backend that feeds
+  Alpamayo and converts its trajectory into the plan/action Jetlink returns, holding or interpolating 10 Hz up to the
+  20 Hz model step. (3) Nav text input: start from turn desire / blinker ("turn left"), later the nav port.
+  (4) Speed it up (TensorRT / torch.compile, FP8-INT8 if needed). (5) Usual model checks (tests, NaN, compare with
+  TSFDOM on the same rlogs), then parked link test, then drive.
+- **Cameras:** the model is trained on surround views (incl. cross and rear cameras) the comma doesn't have. Frankie:
+  deal with this later.
+
 ### 0b. Jetlink on `fm-dev-jet` (Nov 8): built, off, not yet on the device
 
 - Branch `fm-dev-jet` = `fm-dev-set` + Jetlink (zoompilot/jetlink v0.9.0, API 4). Sources: AP PR #12 (params, events,
@@ -304,7 +327,7 @@ From `0000005e--e26703ace2--2` (Nov 9 build, Cheddar, Road Edge Turn Desire on):
   Models > Jetlink (Off / USB / iOS, offroad), `JetlinkLink` 0 by default. Events `jetlinkReady/LinkLost/Chime` @28-30.
 - Big model = comma's large models from Jetlink's index, picked in the Jetlink app (FM doesn't use the model-list hooks).
   It runs stock modeld's action path + Blendful (`fm_jetlink_action.py`); Calmer Crawl-Speed Steering doesn't apply to it.
-- Frankie's host: MacBook M1 Pro (tested platform; ~20 s prepare, up to 10 s load). Needs a USB 3 data cable, the comma
+- Frankie's host: MacBook **M2 Pro** (corrected Nov 12; earlier written as M1 Pro) (Apple silicon is Jetlink's tested platform; ~20 s prepare, up to 10 s load). Needs a USB 3 data cable, the comma
   powered from the harness (Jetlink cuts USB-C draw at boot when on), the Mac on its own power and awake. S25 Ultra
   Android app is experimental.
 - Model icon (Nov 9), home screen and road view, from zoompilot: Jetlink sets `ui_state.chestnut_state` through jetlink's
