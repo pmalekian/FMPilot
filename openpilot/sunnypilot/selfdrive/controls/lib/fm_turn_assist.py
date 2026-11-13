@@ -169,6 +169,10 @@ PHASE_IN_ALPHA = DT_CTRL / (PHASE_IN_TAU + DT_CTRL)
 MIN_RADIUS_LIMITS = (8.0, 20.0)  # m
 MIN_RADIUS_DEFAULT = 12.0
 
+# Logged in carControlSP.turnAssist: where the turn came from and why Turn Hold let go (same numbers as the log enums)
+SOURCE_NONE, SOURCE_DESIRE, SOURCE_CARRY = 0, 1, 2
+RELEASE_NONE, RELEASE_DRIVER, RELEASE_TURNED, RELEASE_TIME = 0, 1, 2, 3
+
 
 def plan_circle_curvature(xs, ys, lookahead: float) -> float:
   """Curvature of the circle from the truck through the first planned point at least `lookahead` m away (2y/d^2,
@@ -295,6 +299,7 @@ class FmTurnAssist:
     self.carry_against = 0.0
     self.amount = 0.0  # 0..1 fade
     self._reset_turn(0)
+    self._clear_log(0.0)
     self.read_params()
 
   def read_params(self) -> None:
@@ -354,6 +359,16 @@ class FmTurnAssist:
     self.nudge_remaining = 0.0
     self.against_time = 0.0
     self.extra = 0.0  # Smooth Turn Start: what is applied on top of the model's request, toward the turn
+    self.turned = 0.0  # rad the truck has turned toward the turn since it started (every turn, hold or not)
+    self.release_reason = RELEASE_NONE
+
+  def _clear_log(self, desired_curvature: float) -> None:
+    """Per-frame record of what Turn Assist did, for carControlSP.turnAssist. Nothing here feeds back into control."""
+    self.log_source = SOURCE_NONE
+    self.log_in = self.log_out = float(desired_curvature)
+    self.log_boost = self.log_lead = self.log_driver = self.log_path = self.log_floor = 0.0
+    self.log_nudge = self.log_smooth_cut = self.log_exit = self.log_floor_level = 0.0
+    self.log_early = False
 
   @property
   def enabled(self) -> bool:
@@ -434,8 +449,10 @@ class FmTurnAssist:
   def update(self, desired_curvature: float, turn_direction, v_ego: float, actual_curvature: float,
              steering_pressed: bool, lat_active: bool, model_v2=None, a_ego: float = 0.0,
              lane_changing: bool = False, steering_torque: float = 0.0) -> float:
-    sign = turn_sign(turn_direction) if self.enabled else 0
-    sign = self._carry(sign, v_ego, actual_curvature, steering_pressed, steering_torque, lat_active, lane_changing)
+    self._clear_log(desired_curvature)
+    desire_sign = turn_sign(turn_direction) if self.enabled else 0
+    sign = self._carry(desire_sign, v_ego, actual_curvature, steering_pressed, steering_torque, lat_active, lane_changing)
+    self.log_source = SOURCE_DESIRE if desire_sign != 0 else (SOURCE_CARRY if sign != 0 else SOURCE_NONE)
     step = DT_CTRL / FADE_TIME
     if sign == 0 and self.hold_exit_amount > 0.0:
       self.turn_ended = True
@@ -447,12 +464,16 @@ class FmTurnAssist:
           and v_ego < MAX_SPEED and self.hold_exit_amount > 0.0):
         toward = self.sign * desired_curvature
         correction = max(self.hold_exit_curvature - toward, 0.0)
-        return desired_curvature + self.sign * correction * self.hold_exit_amount
+        self.log_exit = correction * self.hold_exit_amount
+        self.log_out = desired_curvature + self.sign * self.log_exit
+        return self.log_out
       self._reset_turn(0)
       return desired_curvature
 
     if sign != self.sign or self.turn_ended:
       self._reset_turn(sign)
+    if sign != 0:
+      self.turned += sign * actual_curvature * v_ego * DT_CTRL
 
     speed_scale = float(np.interp(v_ego, [FULL_SPEED, MAX_SPEED], [1.0, 0.0]))
     target = speed_scale if (sign != 0 and lat_active) else 0.0
@@ -468,12 +489,14 @@ class FmTurnAssist:
     if self.boost_enabled and toward > 0.0:
       gain = self.boost_right if sign > 0 else self.boost_left
       out = out * (1.0 + (gain - 1.0) * self.amount)
+      self.log_boost = sign * out - toward
       toward = sign * out
 
     if self.lead_enabled and not lane_changing and toward > -LEAD_MODEL_OPPOSE:
       lead = self.lead_curvature(model_v2, sign, v_ego, a_ego, actual_curvature)
       if lead > max(toward, 0.0):
         out = sign * (toward + (lead - toward) * self.amount)
+        self.log_lead = sign * out - toward
         toward = sign * out
 
     before_hold = out
@@ -496,33 +519,68 @@ class FmTurnAssist:
       if early_correction:
         # Straightening before the turn: pass the request through, pause the fade, keep the peak; don't release
         self.heading = max(self.heading, 0.0)
+        self.log_early = True
       elif against or self.heading >= HOLD_MAX_HEADING or self.turn_time >= HOLD_MAX_TIME:
         self.hold_released = True
+        self.release_reason = (RELEASE_DRIVER if against else
+                               RELEASE_TURNED if self.heading >= HOLD_MAX_HEADING else RELEASE_TIME)
       else:
         if driver_adds:
           wound = min(sign * actual_curvature, HOLD_DRIVER_MAX_CURVATURE)  # your curve, not the slider's
           if wound > toward:
             out = sign * (toward + (wound - toward) * self.amount)
+            self.log_driver = sign * out - toward
             toward = sign * out
         if self.hold_path and model_v2 is not None and v_ego < HOLD_PATH_MAX_SPEED:
           path = self.hold_path_curvature(model_v2, sign)
           if path > toward:
             out = sign * (toward + (path - toward) * self.amount)
+            self.log_path = sign * out - toward
             toward = sign * out
         if toward >= self.peak:
           self.peak, self.since_peak = toward, 0.0
         else:
           self.since_peak += DT_CTRL
         floor = self.peak * max(HOLD_RATIO - HOLD_DECAY * self.since_peak, 0.0)
+        self.log_floor_level = floor
         if toward < floor:
           out = sign * (toward + (floor - toward) * self.amount)
+          self.log_floor = sign * out - toward
 
     if lat_active and sign * (out - before_hold) > 0.0:
       self.hold_exit_curvature = sign * out
       self.hold_exit_amount = 1.0
     # The timing nudge never feeds the hold peak or its signal-cancel fade.
+    before_nudge = out
     out = self.turn_nudge(out, sign, v_ego, a_ego, model_v2, steering_pressed, steering_torque, lat_active, lane_changing)
-    return self._smooth_start(desired_curvature, out, sign)
+    self.log_nudge = sign * (out - before_nudge)
+    self.log_out = self._smooth_start(desired_curvature, out, sign)
+    return self.log_out
+
+  def fill_log(self, msg) -> None:
+    """Write this frame's record into carControlSP.turnAssist."""
+    msg.sign = int(self.sign if (self.log_source != SOURCE_NONE or self.log_exit > 0.0) else 0)
+    msg.source = int(self.log_source)
+    msg.amount = float(self.amount)
+    msg.requestIn = float(self.log_in)
+    msg.requestOut = float(self.log_out)
+    msg.boost = float(self.log_boost)
+    msg.lead = float(self.log_lead)
+    msg.driverAdds = float(self.log_driver)
+    msg.holdPath = float(self.log_path)
+    msg.holdFloor = float(self.log_floor)
+    msg.nudge = float(self.log_nudge)
+    msg.smoothCut = float(self.log_smooth_cut)
+    msg.exitFade = float(self.log_exit)
+    msg.holdActive = bool(self.hold_enabled and self.sign != 0 and not self.hold_released and self.log_source != SOURCE_NONE)
+    msg.holdPeak = float(self.peak)
+    msg.holdFloorLevel = float(self.log_floor_level)
+    msg.turned = float(math.degrees(self.turned))
+    msg.holdTurned = float(math.degrees(self.heading))
+    msg.holdTime = float(self.turn_time)
+    msg.releaseReason = int(self.release_reason)
+    msg.earlyCorrection = bool(self.log_early)
+    msg.againstTime = float(self.against_time)
 
   def _carry(self, sign: int, v_ego: float, actual_curvature: float, steering_pressed: bool, steering_torque: float,
              lat_active: bool, lane_changing: bool) -> int:
@@ -560,6 +618,7 @@ class FmTurnAssist:
       self.extra += (target - self.extra) * PHASE_IN_ALPHA
     else:
       self.extra = target
+    self.log_smooth_cut = max(target - self.extra, 0.0)
     if self.hold_exit_amount > 0.0:
       # a blinker cancel fades out from what was actually applied, never from more
       self.hold_exit_curvature = min(self.hold_exit_curvature, sign * desired_curvature + self.extra)

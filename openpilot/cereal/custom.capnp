@@ -418,6 +418,53 @@ struct CarControlSP @0xa5cd762cd951a455 {
   intelligentCruiseButtonManagement @4 :IntelligentCruiseButtonManagement;
   laneCentering @5 :LaneCentering;
   releaseGuard @6 :ReleaseGuard;  # FM Pilot Release Guard
+  turnAssist @7 :TurnAssist;      # FM Pilot Turn Assist (Turn Boost / Lead / Hold / Nudge, Carry-Through)
+  fmLowSpeed @8 :FmLowSpeed;      # FM Pilot Low-Speed Steering Feedforward and Calmer Low-Speed Correction
+
+  # Curvatures are 1/m. "toward" values are how much the request moved toward the turn (>= 0); others are signed like
+  # desiredCurvature: positive is to the right.
+  struct TurnAssist {
+    sign @0 :Int8;              # turn being assisted: +1 right, -1 left, 0 none
+    source @1 :Source;
+    amount @2 :Float32;         # 0..1 speed and on/off fade (full under 15 mph, gone by 20)
+    requestIn @3 :Float32;      # request coming in (model + lane centering), signed
+    requestOut @4 :Float32;     # request going out (before controlsd's curvature limits), signed
+    boost @5 :Float32;          # toward: added by Turn Boost
+    lead @6 :Float32;           # toward: added by Turn Lead
+    driverAdds @7 :Float32;     # toward: added by Hold Adds Your Steering (your curve)
+    holdPath @8 :Float32;       # toward: added by Hold Path Source
+    holdFloor @9 :Float32;      # toward: added by Turn Hold's floor
+    nudge @10 :Float32;         # toward: added by Turn Nudge
+    smoothCut @11 :Float32;     # toward: held back by Smooth Turn Start this frame
+    exitFade @12 :Float32;      # toward: added by a hold fading out after the signal cancels
+    holdActive @13 :Bool;       # Turn Hold is holding this turn (enabled, not released)
+    holdPeak @14 :Float32;      # toward: the turn's peak request Turn Hold keeps a floor under
+    holdFloorLevel @15 :Float32;  # toward: the floor this frame
+    turned @16 :Float32;        # deg the truck has turned toward the turn since it started
+    holdTurned @17 :Float32;    # deg Turn Hold counts toward its 75 deg release
+    holdTime @18 :Float32;      # s Turn Hold counts toward its 8 s release
+    releaseReason @19 :ReleaseReason;  # why Turn Hold let go of this turn (stays set for the rest of the turn)
+    earlyCorrection @20 :Bool;  # a press against the turn is passing through without releasing the hold
+    againstTime @21 :Float32;   # s the current press against the turn has lasted
+
+    enum Source {
+      none @0;
+      desire @1;   # the blinker turn (laneTurnDirection)
+      carry @2;    # Finish Turn After Signal Cancels
+    }
+
+    enum ReleaseReason {
+      none @0;
+      driverAgainst @1;  # you steered against the turn
+      maxTurned @2;      # the truck turned 75 deg
+      maxTime @3;        # 8 s
+    }
+  }
+
+  struct FmLowSpeed {
+    feedforward @0 :Float32;  # m/s^2 lateral accel added by Low-Speed Steering Feedforward, positive to the right
+    gainScale @1 :Float32;    # Calmer Low-Speed Correction: the P gain multiplier in force at this speed (1 = openpilot's)
+  }
 
   struct LaneCentering {
     active @0 :Bool;         # the lane lines passed every gate this frame

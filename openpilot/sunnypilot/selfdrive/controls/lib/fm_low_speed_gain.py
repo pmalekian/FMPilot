@@ -71,6 +71,10 @@ class FmLowSpeedGain:
     self.scale = float(np.clip(self.target, self.scale - step, self.scale + step))
     return self.scale
 
+  def factor(self, v_ego: float) -> float:
+    """The P gain multiplier in force at this speed (1.0 = openpilot's), as the scaled table applies it."""
+    return float(np.interp(v_ego, SPEEDS, [self.scale, 1.0]))
+
   def apply(self, lac, speeds, kps) -> None:
     """Point the controller's PID at the scaled table when the scale changed."""
     scale = self.update()

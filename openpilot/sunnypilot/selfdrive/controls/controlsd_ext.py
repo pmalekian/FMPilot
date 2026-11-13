@@ -124,6 +124,26 @@ class ControlsExt(ModelStateBase):
       CC_SP.releaseGuard.cut = float(guard.cut)
       CC_SP.releaseGuard.limit = float(guard.limit)
 
+    # FM Pilot Turn Assist: what each part added to the request this frame and why Turn Hold let go
+    turn_assist = getattr(getattr(self, 'fm_lateral', None), 'turn_assist', None)
+    if turn_assist is not None:
+      turn_assist.fill_log(CC_SP.turnAssist)
+
+    # FM Pilot Low-Speed Steering Feedforward and Calmer Low-Speed Correction (on the torque controllers only)
+    lac = getattr(self, 'LaC', None)
+    low_ff = getattr(lac, 'fm_low_speed_ff', None)
+    if low_ff is not None:
+      CC_SP.fmLowSpeed.feedforward = float(getattr(low_ff, 'last', 0.0))
+    low_gain = getattr(lac, 'fm_low_speed', None)
+    if low_gain is not None and hasattr(low_gain, 'factor'):
+      try:
+        v_ego = float(sm['carState'].vEgo)
+      except (KeyError, TypeError, AttributeError):
+        v_ego = 0.0
+      CC_SP.fmLowSpeed.gainScale = low_gain.factor(v_ego) if low_gain.available else 1.0
+    else:
+      CC_SP.fmLowSpeed.gainScale = 1.0
+
     return CC_SP
 
   @staticmethod

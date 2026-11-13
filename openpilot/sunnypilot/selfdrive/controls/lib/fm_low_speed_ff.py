@@ -59,6 +59,7 @@ class FmLowSpeedFF:
     self.target = {"left": 0.0, "right": 0.0}
     self.strength = {"left": 0.0, "right": 0.0}
     self.frame = -1
+    self.last = 0.0  # what the last update added (logged in carControlSP.fmLowSpeed)
     if self.available:
       if self.params is None:
         from openpilot.common.params import Params
@@ -89,6 +90,10 @@ class FmLowSpeedFF:
   def update(self, desired_curvature: float, v_ego: float, VM, lat_accel_factor: float, fm_scale: float = 1.0) -> float:
     """Extra feedforward in the controller's lateral acceleration units (positive to the right, like
     desired_curvature), or 0."""
+    self.last = self._update(desired_curvature, v_ego, VM, lat_accel_factor, fm_scale)
+    return self.last
+
+  def _update(self, desired_curvature: float, v_ego: float, VM, lat_accel_factor: float, fm_scale: float) -> float:
     if not self.available:
       return 0.0
     self.frame += 1

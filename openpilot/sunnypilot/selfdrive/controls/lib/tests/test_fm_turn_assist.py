@@ -764,3 +764,127 @@ class TestCarryThrough:
     run(a, 0.01, NONE, steps=5, actual=0.08)
     run(a, -0.01, LEFT, actual=0.08)
     assert a.carry_sign == 0 and a.sign == -1
+
+
+class TestTurnAssistLog:
+  """carControlSP.turnAssist: what each part added and why Turn Hold let go. Logging only."""
+
+  @staticmethod
+  def msg():
+    from openpilot.cereal import custom
+    return custom.CarControlSP.new_message().turnAssist
+
+  def logged(self, a):
+    m = self.msg()
+    a.fill_log(m)
+    return m
+
+  def test_idle_logs_nothing(self):
+    a = FmTurnAssist(FakeParams(**{PARAM_HOLD: True}))
+    run(a, 0.01, NONE)
+    m = self.logged(a)
+    assert m.sign == 0 and str(m.source) == "none" and not m.holdActive
+    assert m.requestIn == pytest.approx(0.01) and m.requestOut == pytest.approx(0.01)
+
+  def test_hold_floor_and_peak_logged(self):
+    a = FmTurnAssist(FakeParams(**{PARAM_HOLD: True}))
+    run(a, 0.09, RIGHT, steps=FADE_STEPS, actual=0.001)
+    out = run(a, 0.03, RIGHT, actual=0.001)
+    m = self.logged(a)
+    assert m.sign == 1 and str(m.source) == "desire" and m.holdActive
+    assert m.holdPeak == pytest.approx(0.09, rel=1e-5)
+    assert m.holdFloor == pytest.approx(out - 0.03, rel=1e-4)
+    assert m.requestOut == pytest.approx(out, rel=1e-5) and m.requestIn == pytest.approx(0.03)
+    assert m.holdFloorLevel == pytest.approx(0.09 * (0.9 - 0.15 * DT_CTRL), rel=1e-4)  # one frame past the peak
+
+  def test_left_turn_toward_is_positive(self):
+    a = FmTurnAssist(FakeParams(**{PARAM_HOLD: True}))
+    run(a, -0.09, LEFT, steps=FADE_STEPS, actual=-0.001)
+    run(a, -0.03, LEFT, actual=-0.001)
+    m = self.logged(a)
+    assert m.sign == -1 and m.holdFloor > 0.0 and m.requestOut < -0.03
+
+  def test_lead_and_driver_adds_logged(self):
+    a = FmTurnAssist(FakeParams(**{PARAM_LEAD: True, PARAM_LEAD_MIN_SPEED: 2.0}))
+    model = path(10, start=0.0)
+    out = run(a, 0.0, RIGHT, mph=5, steps=FADE_STEPS, actual=0.0, model=model)
+    m = self.logged(a)
+    assert m.lead == pytest.approx(out, rel=1e-4) and m.lead > 0.0
+    b = FmTurnAssist(FakeParams(**{PARAM_HOLD: True, PARAM_HOLD_DRIVER: True}))
+    run(b, 0.02, RIGHT, steps=FADE_STEPS, actual=0.02)
+    out = run(b, 0.02, RIGHT, actual=0.1, pressed=True, torque=-1.5)
+    m = self.logged(b)
+    assert m.driverAdds == pytest.approx(out - 0.02, rel=1e-4) and m.driverAdds > 0.05
+
+  def test_turned_counts_every_turn(self):
+    a = FmTurnAssist(FakeParams(**{PARAM_LEAD: True}))
+    v = 10 * CV.MPH_TO_MS
+    steps = 100
+    run(a, 0.05, RIGHT, steps=steps, actual=0.05)
+    assert self.logged(a).turned == pytest.approx(math.degrees(0.05 * v * DT_CTRL * steps), rel=1e-3)
+
+  @pytest.mark.parametrize("how,reason", [("press", "driverAgainst"), ("heading", "maxTurned"), ("time", "maxTime")])
+  def test_release_reason(self, how, reason):
+    a = FmTurnAssist(FakeParams(**{PARAM_HOLD: True}))
+    run(a, 0.09, RIGHT, steps=FADE_STEPS, actual=0.001)
+    if how == "press":
+      run(a, 0.03, RIGHT, actual=0.001, pressed=True, torque=1.0)
+    elif how == "heading":
+      run(a, 0.03, RIGHT, steps=400, actual=0.2, mph=10)
+    else:
+      run(a, 0.03, RIGHT, steps=int(8.0 / DT_CTRL) + 5, actual=0.0001)
+    m = self.logged(a)
+    assert a.hold_released and str(m.releaseReason) == reason and not m.holdActive
+    run(a, 0.0, NONE, steps=FADE_STEPS)
+    run(a, 0.05, LEFT)
+    assert str(self.logged(a).releaseReason) == "none"  # a new turn starts clean
+
+  def test_carry_source_and_exit_fade(self):
+    a = FmTurnAssist(FakeParams(**{PARAM_HOLD: True, PARAM_CARRY: True}))
+    run(a, 0.09, RIGHT, steps=FADE_STEPS, actual=0.001)
+    run(a, 0.01, NONE, actual=0.08)
+    m = self.logged(a)
+    assert str(m.source) == "carry" and m.sign == 1 and m.holdFloor > 0.0
+    run(a, 0.01, NONE, actual=0.005)  # carry ends: the usual cancel fade
+    m = self.logged(a)
+    assert str(m.source) == "none" and m.sign == 1 and m.exitFade > 0.0
+
+  def test_smooth_start_cut_logged(self):
+    a = FmTurnAssist(FakeParams(**{PARAM_LEAD: True, PARAM_LEAD_MIN_SPEED: 2.0, PARAM_PHASE_IN: True}))
+    model = path(10, start=0.0)
+    run(a, 0.0, RIGHT, mph=5, steps=FADE_STEPS, actual=0.0)  # no model: no lead yet
+    run(a, 0.0, RIGHT, mph=5, actual=0.0, model=model)
+    m = self.logged(a)
+    assert m.lead > 0.0 and m.smoothCut > 0.0 and m.requestOut < m.lead
+
+  def test_logging_changes_nothing(self):
+    opts = {PARAM_HOLD: True, PARAM_LEAD: True, PARAM_LEAD_MIN_SPEED: 2.0, PARAM_HOLD_DRIVER: True, PARAM_CARRY: True}
+    a, b = FmTurnAssist(FakeParams(**opts)), FmTurnAssist(FakeParams(**opts))
+    model = path(10, start=0.0)
+    for k, act, d in [(0.0, 0.0, RIGHT), (0.02, 0.05, RIGHT), (0.01, 0.09, RIGHT), (0.01, 0.05, NONE)] * 30:
+      x = run(a, k, d, mph=5, actual=act, model=model)
+      a.fill_log(self.msg())
+      assert x == run(b, k, d, mph=5, actual=act, model=model)
+
+
+def test_controlsd_ext_logs_turn_assist_and_low_speed():
+  from openpilot.cereal import messaging
+  from openpilot.sunnypilot.selfdrive.controls.controlsd_ext import ControlsExt
+  a = FmTurnAssist(FakeParams(**{PARAM_HOLD: True}))
+  run(a, 0.09, RIGHT, steps=FADE_STEPS, actual=0.001)
+  run(a, 0.03, RIGHT, actual=0.001)
+  lc = SimpleNamespace(active=False, holding=False, correction=0.0, center_error=0.0, clipped=False, single_line=False,
+                       line_side=0)
+  gain = SimpleNamespace(available=True, factor=lambda v: 0.7 if v < 7.0 else 1.0)
+  lac = SimpleNamespace(fm_low_speed_ff=SimpleNamespace(last=0.25), fm_low_speed=gain)
+  host = SimpleNamespace(LaC=lac, lane_centering=lc, fm_lateral=SimpleNamespace(turn_assist=a), get_lead_data=lambda *x: None)
+  cs = messaging.new_message('carState').carState
+  cs.vEgo = 3.0
+  sm = {'radarState': messaging.new_message('radarState').radarState,
+        'selfdriveStateSP': messaging.new_message('selfdriveStateSP').selfdriveStateSP, 'carState': cs}
+  cc = ControlsExt.state_control_ext(host, sm)
+  assert cc.turnAssist.sign == 1 and cc.turnAssist.holdActive and cc.turnAssist.holdFloor > 0.0
+  assert cc.fmLowSpeed.feedforward == pytest.approx(0.25) and cc.fmLowSpeed.gainScale == pytest.approx(0.7)
+  host = SimpleNamespace(LaC=SimpleNamespace(), lane_centering=lc, get_lead_data=lambda *x: None)  # angle / PID steering
+  cc = ControlsExt.state_control_ext(host, sm)
+  assert cc.turnAssist.sign == 0 and cc.fmLowSpeed.gainScale == 1.0
