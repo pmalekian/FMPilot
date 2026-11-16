@@ -20,6 +20,7 @@ import math
 import numpy as np
 
 from openpilot.common.realtime import DT_CTRL
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_math import step_toward
 
 PARAM_ENABLED = "FM_LowSpeedGainEnabled"
 PARAM_PERCENT = "FM_LowSpeedGainPercent"
@@ -67,12 +68,13 @@ class FmLowSpeedGain:
     self.frame += 1
     if self.frame % int(PARAMS_PERIOD / DT_CTRL) == 0:
       self.read_params()
-    step = DT_CTRL / BLEND_S
-    self.scale = float(np.clip(self.target, self.scale - step, self.scale + step))
+    self.scale = step_toward(self.scale, self.target, DT_CTRL / BLEND_S)
     return self.scale
 
   def factor(self, v_ego: float) -> float:
     """The P gain multiplier in force at this speed (1.0 = openpilot's), as the scaled table applies it."""
+    if self.scale == 1.0 or v_ego >= SPEEDS[1]:
+      return 1.0  # what the interpolation gives there, without the call: this is logged every control step
     return float(np.interp(v_ego, SPEEDS, [self.scale, 1.0]))
 
   def apply(self, lac, speeds, kps) -> None:

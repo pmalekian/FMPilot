@@ -36,6 +36,7 @@ import math
 import numpy as np
 
 from openpilot.common.realtime import DT_CTRL
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_math import step_toward
 
 PARAM_ENABLED = "FM_LowSpeedFFEnabled"
 PARAM_STEP_LEFT = "FM_LowSpeedFFStepLeft"
@@ -101,7 +102,7 @@ class FmLowSpeedFF:
       self.read_params()
     step = DT_CTRL / BLEND_S
     for side in self.strength:
-      self.strength[side] = float(np.clip(self.target[side], self.strength[side] - step, self.strength[side] + step))
+      self.strength[side] = step_toward(self.strength[side], self.target[side], step)
     strength = self.strength["right" if desired_curvature > 0.0 else "left"]
     if strength <= 0.0 or v_ego >= SPEEDS[1] or desired_curvature == 0.0:
       return 0.0

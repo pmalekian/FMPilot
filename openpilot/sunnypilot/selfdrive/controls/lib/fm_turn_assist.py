@@ -92,6 +92,7 @@ import numpy as np
 from openpilot.cereal import custom
 from openpilot.common.constants import CV
 from openpilot.common.realtime import DT_CTRL
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_math import step_toward
 
 TurnDirection = custom.ModelDataV2SP.TurnDirection
 
@@ -521,9 +522,9 @@ class FmTurnAssist:
       self.turned += sign * actual_curvature * v_ego * DT_CTRL
       self.peak_actual = max(self.peak_actual, sign * actual_curvature)
 
-    speed_scale = float(np.interp(v_ego, [FULL_SPEED, MAX_SPEED], [1.0, 0.0]))
-    target = speed_scale if (sign != 0 and lat_active) else 0.0
-    self.amount = float(np.clip(target, self.amount - step, self.amount + step))
+    # the speed fade is only worked out during a turn: this line runs on every control step of every drive
+    target = float(np.interp(v_ego, [FULL_SPEED, MAX_SPEED], [1.0, 0.0])) if (sign != 0 and lat_active) else 0.0
+    self.amount = step_toward(self.amount, target, step)
     self.hold_exit_amount = 0.0
     if self.amount <= 0.0 or sign == 0:
       self.extra = 0.0
@@ -624,29 +625,42 @@ class FmTurnAssist:
     return self.log_out
 
   def fill_log(self, msg) -> None:
-    """Write this frame's record into carControlSP.turnAssist."""
-    msg.sign = int(self.sign if (self.log_source != SOURCE_NONE or self.log_exit > 0.0) else 0)
-    msg.source = int(self.log_source)
-    msg.amount = float(self.amount)
-    msg.requestIn = float(self.log_in)
-    msg.requestOut = float(self.log_out)
-    msg.boost = float(self.log_boost)
-    msg.lead = float(self.log_lead)
-    msg.driverAdds = float(self.log_driver)
-    msg.holdPath = float(self.log_path)
-    msg.holdFloor = float(self.log_floor)
-    msg.nudge = float(self.log_nudge)
-    msg.smoothCut = float(self.log_smooth_cut)
-    msg.exitFade = float(self.log_exit)
-    msg.holdActive = bool(self.hold_enabled and self.sign != 0 and not self.hold_released and self.log_source != SOURCE_NONE)
-    msg.holdPeak = float(self.peak)
-    msg.holdFloorLevel = float(self.log_floor_level)
-    msg.turned = float(math.degrees(self.turned))
-    msg.holdTurned = float(math.degrees(self.heading))
-    msg.holdTime = float(self.turn_time)
-    msg.releaseReason = int(self.release_reason)
-    msg.earlyCorrection = bool(self.log_early)
-    msg.againstTime = float(self.against_time)
+    """Write this frame's record into carControlSP.turnAssist. msg is a fresh message, so a field at its default (0,
+    False, none) is left alone: with no turn only the request in and out are written, 2 fields instead of 22, on
+    every control step."""
+    if self.sign == 0 and self.log_source == SOURCE_NONE and self.amount == 0.0 and self.log_exit == 0.0:
+      # no turn and nothing fading: _reset_turn(0) and _clear_log() left every other field at 0
+      if self.log_in:
+        msg.requestIn = float(self.log_in)
+      if self.log_out:
+        msg.requestOut = float(self.log_out)
+      return
+    for name, value in (
+      ("sign", int(self.sign if (self.log_source != SOURCE_NONE or self.log_exit > 0.0) else 0)),
+      ("source", int(self.log_source)),
+      ("amount", float(self.amount)),
+      ("requestIn", float(self.log_in)),
+      ("requestOut", float(self.log_out)),
+      ("boost", float(self.log_boost)),
+      ("lead", float(self.log_lead)),
+      ("driverAdds", float(self.log_driver)),
+      ("holdPath", float(self.log_path)),
+      ("holdFloor", float(self.log_floor)),
+      ("nudge", float(self.log_nudge)),
+      ("smoothCut", float(self.log_smooth_cut)),
+      ("exitFade", float(self.log_exit)),
+      ("holdActive", bool(self.hold_enabled and self.sign != 0 and not self.hold_released and self.log_source != SOURCE_NONE)),
+      ("holdPeak", float(self.peak)),
+      ("holdFloorLevel", float(self.log_floor_level)),
+      ("turned", float(math.degrees(self.turned))),
+      ("holdTurned", float(math.degrees(self.heading))),
+      ("holdTime", float(self.turn_time)),
+      ("releaseReason", int(self.release_reason)),
+      ("earlyCorrection", bool(self.log_early)),
+      ("againstTime", float(self.against_time)),
+    ):
+      if value:
+        setattr(msg, name, value)
 
   def _carry(self, sign: int, v_ego: float, actual_curvature: float, steering_pressed: bool, steering_torque: float,
              lat_active: bool, lane_changing: bool) -> int:

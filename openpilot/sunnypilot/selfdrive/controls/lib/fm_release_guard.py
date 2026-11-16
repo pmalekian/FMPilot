@@ -34,6 +34,7 @@ import numpy as np
 
 from openpilot.common.constants import CV
 from openpilot.common.realtime import DT_CTRL
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_math import step_toward
 
 PARAM_ENABLED = "FM_ReleaseGuard"
 PARAM_MAX = "FM_ReleaseGuardMax"
@@ -99,8 +100,7 @@ class FmReleaseGuard:
     self.frame += 1
     if self.frame % int(PARAMS_PERIOD / DT_CTRL) == 0:
       self.read_params()
-    step = DT_CTRL / BLEND_S
-    self.enabled = float(np.clip(self.target, self.enabled - step, self.enabled + step))
+    self.enabled = step_toward(self.enabled, self.target, DT_CTRL / BLEND_S)
 
     if not active or self.enabled <= 0.0:
       self.amount, self.against = 0.0, 0.0

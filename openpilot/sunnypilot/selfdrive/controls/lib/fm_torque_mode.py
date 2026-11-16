@@ -17,6 +17,7 @@ Changing the mode blends over BLEND_S, so switching mid-drive or mid-turn never 
 import numpy as np
 
 from openpilot.common.realtime import DT_CTRL
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_math import step_toward
 
 PARAM_MODE = "FM_TorqueMode"
 OFF, HEADROOM, FULL = 0, 1, 2
@@ -29,12 +30,15 @@ def _lookups(cap: int):
   return CarControllerParams.STEER_MAX_LOOKUP, CarControllerParams.steer_max_lookup_high(cap)
 
 
-def high_torque_ratio(v_ego: float, cap: int = 481) -> float:
-  """Higher cap / AP's cap at this speed, rounded as the car code rounds them; never below 1."""
-  base, high = _lookups(cap)
+def _ratio(v_ego: float, base, high) -> float:
   b = round(float(np.interp(v_ego, *base)))
   h = max(b, round(float(np.interp(v_ego, *high))))
   return h / b
+
+
+def high_torque_ratio(v_ego: float, cap: int = 481) -> float:
+  """Higher cap / AP's cap at this speed, rounded as the car code rounds them; never below 1."""
+  return _ratio(v_ego, *_lookups(cap))
 
 
 def drive_torque_cap(CP_SP) -> int:
@@ -59,6 +63,8 @@ class FmTorqueMode:
     self.w_headroom = 0.0  # 0..1, blended toward the selected mode
     self.w_full = 0.0
     self.frame = -1
+    # the two speed curves, looked up once: they depend only on this drive's cap
+    self.lookups = _lookups(self.cap) if self.available else None
     if self.available:
       if self.params is None:
         from openpilot.common.params import Params
@@ -83,8 +89,10 @@ class FmTorqueMode:
     step = DT_CTRL / BLEND_S
     target_h = 1.0 if self.mode == HEADROOM else 0.0
     target_f = 1.0 if self.mode == FULL else 0.0
-    self.w_headroom = float(np.clip(target_h, self.w_headroom - step, self.w_headroom + step))
-    self.w_full = float(np.clip(target_f, self.w_full - step, self.w_full + step))
+    self.w_headroom = step_toward(self.w_headroom, target_h, step)
+    self.w_full = step_toward(self.w_full, target_f, step)
+    if self.w_headroom == 0.0 and self.w_full == 0.0:
+      return 1.0, 1.0  # Off and fully blended out: the ratio isn't used
 
-    extra = high_torque_ratio(v_ego, self.cap) - 1.0
+    extra = _ratio(v_ego, *self.lookups) - 1.0
     return 1.0 + extra * self.w_headroom, 1.0 + extra * self.w_full

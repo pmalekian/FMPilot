@@ -117,12 +117,15 @@ class ControlsExt(ModelStateBase):
     CC_SP.laneCentering.lineSide = int(self.lane_centering.line_side)
 
     # FM Pilot Release Guard (on the torque controllers only)
+    # (FM Pilot's log fields are only written when they aren't at their default, 0 or False: CC_SP is a fresh message,
+    # so the logged values are the same and a step with nothing to report costs almost nothing)
     guard = getattr(getattr(self, 'LaC', None), 'fm_release_guard', None)
-    if guard is not None:
-      CC_SP.releaseGuard.active = bool(guard.active)
-      CC_SP.releaseGuard.amount = float(guard.amount * guard.enabled)
-      CC_SP.releaseGuard.cut = float(guard.cut)
-      CC_SP.releaseGuard.limit = float(guard.limit)
+    if guard is not None and (guard.active or guard.amount or guard.cut or guard.limit):
+      release_guard = CC_SP.releaseGuard
+      release_guard.active = bool(guard.active)
+      release_guard.amount = float(guard.amount * guard.enabled)
+      release_guard.cut = float(guard.cut)
+      release_guard.limit = float(guard.limit)
 
     # FM Pilot Turn Assist: what each part added to the request this frame and why Turn Hold let go
     turn_assist = getattr(getattr(self, 'fm_lateral', None), 'turn_assist', None)
@@ -132,8 +135,8 @@ class ControlsExt(ModelStateBase):
     # FM Pilot Low-Speed Steering Feedforward and Calmer Low-Speed Correction (on the torque controllers only)
     lac = getattr(self, 'LaC', None)
     low_ff = getattr(lac, 'fm_low_speed_ff', None)
-    if low_ff is not None:
-      CC_SP.fmLowSpeed.feedforward = float(getattr(low_ff, 'last', 0.0))
+    if low_ff is not None and (feedforward := float(getattr(low_ff, 'last', 0.0))):
+      CC_SP.fmLowSpeed.feedforward = feedforward
     low_gain = getattr(lac, 'fm_low_speed', None)
     if low_gain is not None and hasattr(low_gain, 'factor'):
       try:
