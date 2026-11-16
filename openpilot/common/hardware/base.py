@@ -1,5 +1,7 @@
 import os
+import time
 from abc import abstractmethod, ABC
+from collections.abc import Callable
 from dataclasses import dataclass, fields
 
 from openpilot.cereal import log
@@ -43,15 +45,25 @@ class ThermalConfig:
   gnss: ThermalZone | None = None
   bottomSoc: ThermalZone | None = None
 
-  def get_msg(self):
+  def get_msg(self, on_read: Callable[[str, float], None] | None = None):
+    # FM Pilot: on_read(zone name, ms) times each read, for hardwared's slow-loop report
+    def read(zone: ThermalZone) -> float:
+      if on_read is None:
+        return zone.read()
+      t0 = time.monotonic()
+      try:
+        return zone.read()
+      finally:
+        on_read(zone.name, (time.monotonic() - t0) * 1e3)
+
     ret = {}
     for f in fields(ThermalConfig):
       v = getattr(self, f.name)
       if v is not None:
         if isinstance(v, list):
-          ret[f.name + "TempC"] = [x.read() for x in v]
+          ret[f.name + "TempC"] = [read(x) for x in v]
         else:
-          ret[f.name + "TempC"] = v.read()
+          ret[f.name + "TempC"] = read(v)
     return ret
 
 class HardwareBase(ABC):
