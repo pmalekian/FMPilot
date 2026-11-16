@@ -48,25 +48,44 @@ def convert_to_capnp(struct: structs.CarParamsSP | structs.CarStateSP) -> capnp.
   return struct_capnp
 
 
+# The car-side dataclass for each struct field of carControlSP that opendbc defines one for
+_CC_SP_STRUCTS = {
+  'mads': structs.ModularAssistiveDrivingSystem,
+  'leadOne': structs.LeadData,
+  'leadTwo': structs.LeadData,
+  'intelligentCruiseButtonManagement': structs.IntelligentCruiseButtonManagement,
+  'laneCentering': structs.CarControlSP.LaneCentering,
+}
+
+
+def _remove_deprecated(s: dict) -> dict:
+  return {k: v for k, v in s.items() if not k.endswith('DEPRECATED')}
+
+
+def _capnp_to_plain(value):
+  """A capnp struct as a dict, a capnp list as a list of those, an enum as its name: what to_dict() gives for one field."""
+  if hasattr(value, 'to_dict'):
+    return value.to_dict()
+  if hasattr(value, '_as_str'):
+    return value._as_str()
+  if isinstance(value, (str, bytes, int, float, bool)) or value is None:
+    return value
+  return [_capnp_to_plain(v) for v in value]
+
+
 def convert_carControlSP(struct: capnp.lib.capnp._DynamicStructReader) -> structs.CarControlSP:
   # TODO: recursively handle any car struct as needed
-  def remove_deprecated(s: dict) -> dict:
-    return {k: v for k, v in s.items() if not k.endswith('DEPRECATED')}
-
-  struct_dict = struct.to_dict()
-  # FM Pilot: only pass fields the car-side dataclass knows. carControlSP can carry log-only fields (e.g. releaseGuard)
-  # that opendbc doesn't define; passing them crashed card with a TypeError and blocked engagement.
-  known = getattr(structs.CarControlSP, _FIELDS)
-  struct_dataclass = structs.CarControlSP(**remove_deprecated({k: v for k, v in struct_dict.items()
-                                                               if k in known and not isinstance(k, dict)}))
-
-  struct_dataclass.mads = structs.ModularAssistiveDrivingSystem(**remove_deprecated(struct_dict.get('mads', {})))
+  # FM Pilot: only the fields the car-side dataclass knows are converted. carControlSP also carries log-only fields
+  # (releaseGuard, turnAssist, fmLowSpeed) that opendbc doesn't define; passing them crashed card with a TypeError and
+  # blocked engagement. This runs in card at 100 Hz, and it used to turn the whole message into a dict first
+  # (struct.to_dict()) and then throw those away: about a third of the call's time went to fields it dropped.
+  fields = {}
+  for name in getattr(structs.CarControlSP, _FIELDS):
+    # a struct or list that was never set is left to the dataclass's own default, as to_dict() leaves it out
+    if name.endswith('DEPRECATED') or not struct._has(name):
+      continue
+    value = _capnp_to_plain(getattr(struct, name))
+    cls = _CC_SP_STRUCTS.get(name)
+    fields[name] = cls(**_remove_deprecated(value)) if cls is not None else value
   # struct_dataclass.params = [structs.CarControlSP.Param(**remove_deprecated(p)) for p in struct_dict.get('params', [])]
-  struct_dataclass.leadOne = structs.LeadData(**remove_deprecated(struct_dict.get('leadOne', {})))
-  struct_dataclass.leadTwo = structs.LeadData(**remove_deprecated(struct_dict.get('leadTwo', {})))
-  struct_dataclass.intelligentCruiseButtonManagement = structs.IntelligentCruiseButtonManagement(
-    **remove_deprecated(struct_dict.get('intelligentCruiseButtonManagement', {}))
-  )
-  struct_dataclass.laneCentering = structs.CarControlSP.LaneCentering(**remove_deprecated(struct_dict.get('laneCentering', {})))
-
-  return struct_dataclass
+  return structs.CarControlSP(**fields)
