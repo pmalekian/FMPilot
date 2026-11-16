@@ -112,7 +112,28 @@ def test_empty_and_partly_filled_messages():
 
 def test_every_car_side_field_is_converted():
   # a struct field added to opendbc's CarControlSP without its dataclass listed here would arrive as a plain dict
-  from openpilot.selfdrive.car.helpers import _CC_SP_STRUCTS
+  from openpilot.selfdrive.car.helpers import _CC_SP_PLAIN, _CC_SP_STRUCTS
   known = set(getattr(structs.CarControlSP, _FIELDS))
   assert set(_CC_SP_STRUCTS) <= known
   assert known - set(_CC_SP_STRUCTS) == {"params"}
+  # every car-side struct is read field by field today, and each of its fields that capnp has is read
+  for name, (cls, plain) in _CC_SP_PLAIN.items():
+    schema = custom.CarControlSP.schema.fields[name].schema
+    want = [f for f in getattr(cls, _FIELDS) if not f.endswith("DEPRECATED") and f in schema.fields]
+    assert [f for f, _ in plain] == want and plain, name
+    enums = {f for f, is_enum in plain if is_enum}
+    assert enums == {f for f in want if schema.fields[f].proto.slot.type.which() == 'enum'}, name
+  assert {f for f, e in _CC_SP_PLAIN['mads'][1] if e} == {'state'}
+  assert {f for f, e in _CC_SP_PLAIN['intelligentCruiseButtonManagement'][1] if e} == {'state', 'sendButton'}
+
+
+def test_enums_arrive_as_their_names():
+  msg = messaging.new_message('carControlSP')
+  msg.carControlSP.mads.state = 'enabled'
+  msg.carControlSP.intelligentCruiseButtonManagement.sendButton = 'increase'
+  reader = messaging.log_from_bytes(msg.to_bytes()).carControlSP
+  cc, want = convert_carControlSP(reader), _whole_message_convert(reader)
+  assert cc.mads.state == want.mads.state == 'enabled'
+  assert cc.intelligentCruiseButtonManagement.sendButton == want.intelligentCruiseButtonManagement.sendButton == 'increase'
+  assert type(cc.mads.state) is type(want.mads.state)
+  assert type(cc.intelligentCruiseButtonManagement.sendButton) is type(want.intelligentCruiseButtonManagement.sendButton)
