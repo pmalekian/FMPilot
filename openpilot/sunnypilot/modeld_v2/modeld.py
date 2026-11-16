@@ -83,6 +83,26 @@ def fm_lat_smooth_seconds(params, bundle_seconds: float) -> float:
   return min(max(seconds, 0.0), LAT_SMOOTH_MAX) if math.isfinite(seconds) else bundle_seconds
 
 
+def fm_own_model_states(model, small_model) -> list:
+  """FM Pilot: modeld_v2's own ModelStates among the model the loop runs and the small model, each once. With Jetlink
+  on, `model` is jetlink's joining model: a read on it answers for whichever model is driving and a write stays on
+  the wrapper itself (jetlink's JoiningModelState), so per-model settings are written to the ModelStates here."""
+  states = []
+  for m in (model, small_model):
+    if isinstance(m, ModelState) and not any(m is s for s in states):
+      states.append(m)
+  return states
+
+
+def fm_apply_model_settings(params, model, small_model, action_speed_floor: float) -> None:
+  """FM Pilot: FM_LowSpeedCurvatureFloor and FM_LateralSmoothingEnabled, on modeld_v2's own ModelStates only. A Jetlink
+  big model keeps comma's own smoothing (it has no bundle value), and reading `model.LAT_SMOOTH_SECONDS` afterwards
+  still follows the model that is driving."""
+  for m in fm_own_model_states(model, small_model):
+    m.action_speed_floor = action_speed_floor
+    m.LAT_SMOOTH_SECONDS = fm_lat_smooth_seconds(params, m.BUNDLE_LAT_SMOOTH_SECONDS)
+
+
 PROCESS_NAME = "openpilot.selfdrive.modeld.modeld_tinygrad"
 BIG_MODEL_TIMEOUT = 60
 
@@ -462,7 +482,9 @@ def main(demo=False):
       camera_offset_helper.set_offset(params.get("CameraOffset", return_default=True))
       blendful_enabled = get_lane_keep_mode(params) == MODE_BLENDFUL
       action_speed_floor = fm_action_speed_floor(params)
-      model.LAT_SMOOTH_SECONDS = fm_lat_smooth_seconds(params, model.BUNDLE_LAT_SMOOTH_SECONDS)
+      # on the ModelStates themselves, never on `model`: a Jetlink joining model keeps a plain write to itself (the
+      # small model then never saw the setting) and has no bundle value once the big model drives (AttributeError)
+      fm_apply_model_settings(params, model, small_model, action_speed_floor)
     lat_delay = model.lat_delay + model.LAT_SMOOTH_SECONDS
     if sm.updated["extrinsicsCalibration"] and sm.seen['narrowRoadCameraState'] and sm.seen['deviceState']:
       device_from_calib_euler = np.array(sm["extrinsicsCalibration"].rpyCalib, dtype=np.float32)
@@ -543,10 +565,6 @@ def main(demo=False):
         prev_action.desiredCurvature = sm['controlsState'].curvature
       # Blendful only acts with no desire and no lane change (turns, lane changes stay the model's own)
       blendful_active = desire == log.Desire.none and DH.lane_change_state == log.LaneChangeState.off
-      # on the ModelStates themselves: a Jetlink joining model keeps a plain write to itself
-      for m in (model if isinstance(model, ModelState) else None, small_model):
-        if m is not None:
-          m.action_speed_floor = action_speed_floor
       action = model.get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego,
                                            partial(blendful.update, model_output, v_ego, blendful_active, enabled=blendful_enabled))
       prev_action = action
