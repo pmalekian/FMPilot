@@ -111,6 +111,35 @@ class TestJetlinkAdapter(GuardedTest, OpenpilotTestCase):
     assert check_fallback(jetlink_adapter._Off("why"), jetlink_adapter.HOOK_NAMES,
                           link_on=jetlink_adapter.link_on) == []
 
+  def test_the_fallback_has_every_hook_the_fork_calls(self):
+    """FM Pilot: every hook called in the fork's code (HOOKS.<hook>(...) or jetlink_adapter.<hook>(...)) must be
+    answered by the fallback too. hardwared called shutdown_pending(), which _Off did not have: with jetlink_repo
+    missing or unusable that was an AttributeError on every hardwared pass, so no deviceState and no drive."""
+    off = jetlink_adapter._Off("why")
+    own = {"hooks", "link_on", "adapter", "owner_config", "main"}  # the module's own functions, not hooks
+    called = {}
+    for path in sorted(OPENPILOT.rglob("*.py")):
+      if "tests" in path.parts or "jetlink_adapter" in path.parts or "third_party" in path.parts:
+        continue
+      try:
+        source = path.read_text()
+      except (OSError, UnicodeDecodeError):
+        continue
+      if "jetlink_adapter" not in source:
+        continue
+      for n in ast.walk(ast.parse(source)):
+        if (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and isinstance(n.func.value, ast.Name)
+            and n.func.value.id in ("HOOKS", "jetlink_adapter") and n.func.attr not in own):
+          called.setdefault(n.func.attr, path.name)
+    assert {"shutdown_pending", "shutdown_step", "reason", "prepare", "attach", "handed_over"} <= set(called), called
+    missing = {name: where for name, where in called.items() if not callable(getattr(off, name, None))}
+    assert missing == {}, f"hooks the fallback cannot answer: {missing}"
+    assert set(called) <= set(jetlink_adapter.HOOK_NAMES), set(called) - set(jetlink_adapter.HOOK_NAMES)
+    # and the module-level names exist for each
+    for name in jetlink_adapter.HOOK_NAMES:
+      assert callable(getattr(jetlink_adapter, name)), name
+    assert off.shutdown_pending() is False and off.request_shutdown("test") is False
+
   def test_the_model_manager_keeps_its_own_big_model_list(self):
     """FM Pilot doesn't call the model-list hooks (lists_big_models, big_catalog, listed_ref): the big model is picked
     on the Jetlink computer or in the comma's chestnut slot, and sunnypilot's list stays the only one fetched here."""

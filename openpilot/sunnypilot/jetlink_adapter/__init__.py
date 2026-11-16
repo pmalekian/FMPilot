@@ -198,10 +198,14 @@ class _Off:
   alike."""
   # by hook; a callable is handed the hook's arguments. A wanted power-off goes
   # ahead: no jetlink must keep a comma on to drain the car's battery
+  # FM Pilot: request_shutdown, shutdown_pending and the two catalog hooks were missing. hardwared calls
+  # shutdown_pending() on every pass, so without a usable jetlink_repo it raised AttributeError there and stopped
+  # deviceState (no drive could start). test_seam.py now holds this table to every hook the fork's code calls.
   ANSWERS = {'should_run': False, 'status': None, 'prepare': False, 'attach': lambda model, *_: model,
              'handed_over': False, 'state': 'none', 'shutdown_step': lambda wanted, reason='': wanted,
              'model_state': None, 'lists_big_models': False, 'big_catalog': None, 'listed_ref': None,
-             'swap_events': None, 'runtime': None}
+             'swap_events': None, 'runtime': None, 'request_shutdown': False, 'shutdown_pending': False,
+             'should_extend_catalog': False, 'extend_catalog': lambda catalog: catalog}
 
   def __init__(self, why: str = ''):
     self.why = why
@@ -227,5 +231,6 @@ def _hook(name: str):
 # the call: jetlink.openpilot.hooks says what each does and answers
 HOOK_NAMES = (*_Off.ANSWERS, 'reason')
 (should_run, status, prepare, attach, handed_over, state, shutdown_step, model_state, lists_big_models,
- big_catalog, listed_ref, swap_events, runtime, reason) = map(_hook, HOOK_NAMES)
+ big_catalog, listed_ref, swap_events, runtime, request_shutdown, shutdown_pending, should_extend_catalog,
+ extend_catalog, reason) = map(_hook, HOOK_NAMES)
 
