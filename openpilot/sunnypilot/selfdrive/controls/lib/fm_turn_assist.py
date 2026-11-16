@@ -3,8 +3,9 @@ FM Pilot: Turn Boost and Turn Hold, for blinker turns at low speed.
 
 Both act only while a turn desire is active (the blinker turn that modeld's DesireHelper publishes as
 modelDataV2SP.laneTurnDirection, from AP's Lane Turn Desire or FM Pilot's Road Edge Turn Desire), only while openpilot is
-steering, and only at low speed: full below 15 mph, fading out by 20 mph. They fade with speed over half a second. An active hold also fades when the turn desire ends. They
-only change the requested curvature, so every steering limit after them still applies.
+steering, and only at low speed: full below 15 mph, fading out by 20 mph. They fade with speed over half a second. An
+active hold also fades when the turn desire ends. They only change the requested curvature, so every steering limit after
+them still applies.
 
   - Turn Boost scales the model's curvature request in the turn's direction by a gain per side (Turn Boost Left / Right,
     1.0 to 1.5). Newer models ask for wider turns than the truck needs and reach full torque late; a stronger request

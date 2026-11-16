@@ -471,7 +471,7 @@ class TestTurnNudge:
     from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_assist import PARAM_TURN_NUDGE
     a = FmTurnAssist(FakeParams(**{PARAM_HOLD: True, PARAM_HOLD_DRIVER: True, PARAM_TURN_NUDGE: True}))
     model = path(12, start=0.0, side=sign)
-    opts = dict(mph=4, actual=0.0, model=model)
+    opts = {"mph": 4, "actual": 0.0, "model": model}
     assert run(a, 0.0, direction, steps=FADE_STEPS, **opts) == 0.0
     assert run(a, 0.0, direction, pressed=True, torque=-sign, **opts) == 0.0
     assert run(a, 0.0, direction, steps=15, pressed=True, torque=-sign, **opts) == pytest.approx(sign * 0.01 * 4 / 6)
