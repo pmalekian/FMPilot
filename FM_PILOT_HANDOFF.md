@@ -1,6 +1,6 @@
 # FM Pilot: handoff for new chats (short)
 
-State as of Nov 13, 2026 (morning drive `00000073` analyzed, item 0l; Turn Assist logging + fixes A/B/C built, item 0m). This is the current state only. Background findings, past drive analyses and
+State as of Nov 16, 2026 (comm warnings traced to hardwared stalls, stall diagnostics built, item 0n; Nov 13: drive `00000073` analyzed, item 0l; Turn Assist logging + fixes A/B/C built, item 0m). This is the current state only. Background findings, past drive analyses and
 the ideas backlog are in `claude/FM_PILOT_FINDINGS.md`: read it only when a task needs that history. Features, settings
 and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 
@@ -62,6 +62,32 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 - Custom splice model: **removed** Nov 8 (with the on-device compile fix and model check tools), for the v25 move.
 
 ## Active work
+
+### 0n. "Low Communication Rate" warnings = hardwared stalls (Nov 16); stall diagnostics on `fm-dev-jet` `eb7550f`: built, always on, not driven
+
+- **What he saw:** brief "TAKE CONTROL IMMEDIATELY / Low Communication Rate Between Processes" that clears in ~1 s. Comma
+  Connect's timeline sent us to the wrong minute (11:39); it was `0000008e--e36519f5d4--6` +20.16 s (11:35:19 CST),
+  build `fm-dev-jet` `b747a99`, OPM16D, Jetlink USB with nothing attached.
+- **Cause (observed):** hardwared stopped publishing `deviceState` (2 Hz) for 2.7 s (+9.3..12.0) and 1.5 s (+19.0..20.6);
+  selfdrived logged `commIssue cause=not_freq_ok not_freq_ok=[deviceState]` -> soft disable, back to enabled at +21.1.
+  manager's gaps at the same times are downstream (it polls `deviceState`, 1 s timeout). No I/O wait, no D-state.
+- **Not it:** params calls (all timed, <8 ms), offroad alerts incl. Jetlink's (3.4 ms), SPI, CPU (other cores 60-80%).
+  The old `hardwared_slow_loop` put ~all the stalled time outside every timed phase (2334 ms work, ~7 ms in phases).
+- **How often (qlog search on the device, work > 500 ms):** 16 stalls across 6 drives `00000070`..`0000008e`, segments
+  3..58; worst 4.15 s (`00000072--37`) and 4.17 s (`00000088--9`). At 5 s it becomes `commIssue` not_alive = a real
+  disengage. AP added the slow-loop report in Sep (`304fbcc`) for the same disengage, so it predates FM's turn work.
+- **Suspects (unverified):** `thermal_config.get_msg()` (18 sysfs zone reads incl. the comma 4's gnss/intake/exhaust/
+  bottom_soc) or another hardwared thread holding the GIL (`hw_state_thread` modem/network queries, chestnut, touch).
+- **Built (`eb7550f`):** `system/hardware/loop_timer.py` (LoopTimer moved out of hardwared). Report adds `untimed_ms`,
+  per-zone `reads` (phase `thermal`, via `ThermalConfig.get_msg(on_read)`), `watchdog_late_ms` (20 Hz watchdog thread:
+  ~stall length = whole process stuck / GIL; ~0 = loop thread blocked in a GIL-releasing call) and `stack`/`threads`
+  (loop thread's stack taken once work passes 0.3 s, plus other threads' lines). Tests 13 pass, ruff clean.
+- **Next:** one normal drive on `eb7550f`, then pull the `hardwared_slow_loop` events with `stack` from qlogs.
+- **Separate findings, same logs:** CPU core 4 at ~99-100% every segment: card ~47%, controlsd ~28%, selfdrived ~24%
+  (`test_onroad` budgets 26/16/16). controlsd publishes at only 70-89 Hz (card/selfdrived 99.4). Not near a comm limit
+  (40 Hz floor) but no headroom. Jetlink isn't it (`jetlink_adapter` 0.7% on core 5). Also SPI `got NACK` bursts
+  (14-94 lines, 1-4 s) in 4 of 9 segments, mostly during or after a driver-distracted alert; harmless (CAN gaps
+  <=22 ms, no CAN errors). Both open.
 
 ### 00. v25 model list + tinygrad 92b742f on `fm-dev-set` (Nov 8): built, not yet on the device
 
@@ -521,6 +547,8 @@ From `0000005e--e26703ace2--2` (Nov 9 build, Cheddar, Road Edge Turn Desire on):
 
 ## Next steps
 
+0000. Item 0n: drive `fm-dev-jet` `eb7550f` normally; pull `hardwared_slow_loop` events with `stack` from the
+   qlogs; fix what they name. Later: core 4 load (card / controlsd / selfdrived).
 000. Item 0m: drive the same corners as `00000073` with A/B/C on (default) and the new logging; send rlogs; `turns.py`
    assist lines.
 00. Drive the request-side turn fixes on `fm-dev-jet` (item 0g), all on, together, now with item 0j (carry-through,
