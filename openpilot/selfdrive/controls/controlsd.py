@@ -48,7 +48,8 @@ class Controls(ControlsExt):
 
     self.sm = messaging.SubMaster(['lateralDelay', 'vehicleParameters', 'lateralTorqueParameters', 'modelV2', 'selfdriveState',
                                    'extrinsicsCalibration', 'deviceMotion', 'longitudinalPlan', 'lateralManeuverPlan', 'carState', 'carOutput',
-                                   'driverMonitoringState', 'onroadEvents', 'driverAssistance'] + self.sm_services_ext,
+                                   'driverMonitoringState', 'onroadEvents', 'driverAssistance'] + self.sm_services_ext +
+                                  ['modelDataV2SP'],  # FM Pilot: the active turn desire, for Turn Assist (fm_lateral.py)
                                   poll='selfdriveState')
     self.pm = messaging.PubMaster(['carControl', 'controlsState'] + self.pm_services_ext)
 
@@ -150,7 +151,7 @@ class Controls(ControlsExt):
                                                        bool(CS.leftBlinker or CS.rightBlinker), CC.latActive,
                                                        bool(self.sm.all_checks(['modelV2'])), CS.steeringPressed)
     new_desired_curvature = self.fm_lateral.update(new_desired_curvature, model_v2, CS, CC.latActive, self.lane_centering.enabled,
-                                                   self.curvature)
+                                                   self.curvature, self.sm)
     self.desired_curvature, curvature_limited = clip_curvature(CS.vEgo, self.desired_curvature, new_desired_curvature, lp.roll)
     lat_delay = self.sm["lateralDelay"].lateralDelay + LAT_SMOOTH_SECONDS
 

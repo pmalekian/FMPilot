@@ -512,6 +512,54 @@ class TestFmLateralWiring:
     assert out == pytest.approx(0.08 * 1.2)
 
 
+  def _lateral(self, turn_sm=None):
+    from openpilot.sunnypilot.selfdrive.controls.lib.fm_lateral import FmLateral
+    params = FakeParams(**{PARAM_BOOST: True})
+    params.values.update({"LaneGuardEnabled": False, "RivianOfftrackCompensationEnabled": False, "IsRhdDetected": False})
+    lat = FmLateral(SimpleNamespace(brand='rivian', wheelbase=3.08), params, turn_sm=turn_sm)
+    lat.lane_guard.update = lambda *a, **k: 0.0
+    return lat
+
+  def test_turn_direction_from_controlsds_submaster_without_polling(self, monkeypatch):
+    """The turn desire is read from the SubMaster controlsd passes in. FmLateral used to run its own, updated inside
+    the control step: msgq's poll sleeps when no message is waiting, 4 of every 5 steps for a 20 Hz service."""
+    from openpilot.cereal import messaging
+
+    def no_submaster(*args, **kwargs):
+      raise AssertionError("FmLateral must not open a SubMaster of its own")
+    monkeypatch.setattr(messaging, "SubMaster", no_submaster)
+
+    class ControlsdSM(dict):
+      def __init__(self, direction, seen=True):
+        super().__init__(modelDataV2SP=SimpleNamespace(laneTurnDirection=direction))
+        self.seen = {'modelDataV2SP': seen}
+
+      def update(self, timeout=None):
+        raise AssertionError("controlsd's SubMaster is updated by controlsd, once a step")
+
+    lat = self._lateral()
+    CS = SimpleNamespace(vEgo=10 * CV.MPH_TO_MS, steeringPressed=False, leftBlinker=False, rightBlinker=True)
+    out = 0.08
+    for _ in range(FADE_STEPS):
+      out = lat.update(0.08, SimpleNamespace(), CS, True, True, 0.08, ControlsdSM(RIGHT))
+    assert out == pytest.approx(0.08 * 1.2)
+    # no turn desire seen yet (modeld hasn't published), or none passed at all: the request is untouched
+    for sm in (ControlsdSM(RIGHT, seen=False), None):
+      lat = self._lateral()
+      for _ in range(FADE_STEPS):
+        assert lat.update(0.08, SimpleNamespace(), CS, True, True, 0.08, sm) == 0.08
+
+  def test_controlsd_subscribes_to_the_turn_desire_and_passes_its_submaster(self):
+    import ast
+    from pathlib import Path
+    import openpilot.selfdrive.controls as controls
+    tree = ast.parse((Path(controls.__file__).parent / "controlsd.py").read_text())
+    submasters = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and ast.unparse(n.func) == "messaging.SubMaster"]
+    assert len(submasters) == 1 and "'modelDataV2SP'" in ast.unparse(submasters[0])
+    calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and ast.unparse(n.func) == "self.fm_lateral.update"]
+    assert len(calls) == 1 and ast.unparse(calls[0].args[-1]) == "self.sm"
+
+
 class TestSmoothTurnStart:
   """Smooth Turn Start: the extra request eases in over about 0.3 s and drops at once; the model's own request is never
   filtered (00000068--1 +24.3 s: a stepped Turn Lead request saturated the controller, which then swung back)."""

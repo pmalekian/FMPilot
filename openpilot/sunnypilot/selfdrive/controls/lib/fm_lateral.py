@@ -25,9 +25,11 @@ class FmLateral:
     self.CP = CP
     self.params = params
     self.turn_assist = FmTurnAssist(params)
-    if turn_sm is None:
-      from openpilot.cereal import messaging
-      turn_sm = messaging.SubMaster(['modelDataV2SP'])  # the active turn desire, published by modeld
+    # The active turn desire (modelDataV2SP.laneTurnDirection, published by modeld) comes from the SubMaster controlsd
+    # already runs, passed to update(). This used to be a SubMaster of its own, updated inside the control step:
+    # msgq's poll sleeps (nanosleep) whenever no new message is waiting, and modelDataV2SP is 20 Hz, so controlsd went
+    # to sleep in the middle of 4 of every 5 steps (68 us a step on a PC, against 0.3 us for one more service on
+    # controlsd's own SubMaster). turn_sm is only a fallback for callers that pass none (tests).
     self.turn_sm = turn_sm
     self.lane_guard = LaneGuard(TUNES.get(CP.brand, STOCK))
     self.lane_guard_enabled = False
@@ -47,14 +49,16 @@ class FmLateral:
       self.turn_assist.read_params()
 
   def update(self, desired_curvature: float, model_v2, CS, lat_active: bool, lane_centering_enabled: bool,
-             actual_curvature: float = 0.0) -> float:
+             actual_curvature: float = 0.0, sm=None) -> float:
     self.frame += 1
     if self.frame % int(PARAMS_PERIOD / DT_CTRL) == 0:
       self.read_params()
 
     if self.turn_assist.enabled:
-      self.turn_sm.update(0)
-      turn_direction = self.turn_sm['modelDataV2SP'].laneTurnDirection if self.turn_sm.seen['modelDataV2SP'] else None
+      turn_sm = sm if sm is not None else self.turn_sm  # already updated by its owner this step; never polled here
+      turn_direction = None
+      if turn_sm is not None and turn_sm.seen['modelDataV2SP']:
+        turn_direction = turn_sm['modelDataV2SP'].laneTurnDirection
       lane_change_state = getattr(getattr(model_v2, 'meta', None), 'laneChangeState', 0)
       desired_curvature = self.turn_assist.update(desired_curvature, turn_direction, CS.vEgo, actual_curvature,
                                                   CS.steeringPressed, lat_active, model_v2=model_v2,
