@@ -9,9 +9,10 @@ from openpilot.cereal import messaging, custom
 from opendbc.car import structs
 from openpilot.common.constants import CV
 from openpilot.common.params import Params
-from openpilot.selfdrive.car.cruise import V_CRUISE_MAX
+from openpilot.selfdrive.car.cruise import V_CRUISE_MAX, V_CRUISE_UNSET
 from openpilot.sunnypilot.selfdrive.controls.lib.dec.dec import DynamicExperimentalController
 from openpilot.sunnypilot.selfdrive.controls.lib.e2e_alerts_helper import E2EAlertsHelper
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_nav_turn_speed import FmNavTurnSpeed
 from openpilot.sunnypilot.selfdrive.controls.lib.smart_cruise_control.smart_cruise_control import SmartCruiseControl
 from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.speed_limit_assist import SpeedLimitAssist
 from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.speed_limit_resolver import SpeedLimitResolver
@@ -33,6 +34,7 @@ class LongitudinalPlannerSP:
     self.generation = int(model_bundle.generation) if (model_bundle := get_active_bundle()) else None
     self.source = LongitudinalPlanSource.cruise
     self.e2e_alerts_helper = E2EAlertsHelper()
+    self.fm_nav_turn_speed = FmNavTurnSpeed()  # FM Pilot: slow for a planned turn onto a mapped street
 
     self.output_v_target = 0.
     self.output_a_target = 0.
@@ -77,8 +79,20 @@ class LongitudinalPlannerSP:
     if self.scc.governor.output_v_target < curve_v:
       curve_v, curve_a = self.scc.governor.output_v_target, min(curve_a, 0.0)
 
+    # FM Pilot: Nav Turn Speed. Only with a turn planned toward a mapped street; otherwise UNSET, which never wins.
+    nav_turn = (V_CRUISE_UNSET, a_ego)
+    if (nts := getattr(self, 'fm_nav_turn_speed', None)) is not None:
+      seen, mono = getattr(sm, 'seen', {}), getattr(sm, 'logMonoTime', {})
+      nav_seen = bool(seen.get('fmNavTurn'))
+      md_sp = sm['modelDataV2SP'] if seen.get('modelDataV2SP') else None
+      nts.update(mono.get('modelV2', 0) * 1e-9, long_enabled, long_override, v_ego, a_ego,
+                 md_sp.laneTurnDirection.raw if md_sp is not None else 0,
+                 sm['fmNavTurn'] if nav_seen else None, mono.get('fmNavTurn', 0) * 1e-9 if nav_seen else None)
+      nav_turn = (nts.output_v_target, nts.output_a_target)
+
     targets = {
       LongitudinalPlanSource.cruise: (v_cruise, a_ego),
+      LongitudinalPlanSource.fmNavTurn: nav_turn,
       LongitudinalPlanSource.sccVision: (self.scc.vision.output_v_target, self.scc.vision.output_a_target),
       LongitudinalPlanSource.sccMap: (self.scc.map.output_v_target, self.scc.map.output_a_target),
       LongitudinalPlanSource.speedLimitAssist: (self.sla.output_v_target, self.sla.output_a_target),
@@ -133,6 +147,9 @@ class LongitudinalPlannerSP:
     if (boost := getattr(self, 'accel_boost', None)) is not None:
       longitudinalPlanSP.fmAccelBoost = float(boost.applied)
       longitudinalPlanSP.fmAccelBoostMode = int(boost.mode)
+    if (nts := getattr(self, 'fm_nav_turn_speed', None)) is not None and nts.active:
+      longitudinalPlanSP.fmNavTurnSpeed = float(min(nts.output_v_target, 50.0))
+      longitudinalPlanSP.fmNavTurnDistance = float(nts.distance)
 
     # Dynamic Experimental Control
     dec = longitudinalPlanSP.dec

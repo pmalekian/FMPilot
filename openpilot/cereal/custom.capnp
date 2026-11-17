@@ -209,6 +209,8 @@ struct LongitudinalPlanSP @0xf35cc4560bbf6ec2 {
   e2eAlerts @7 :E2eAlerts;
   fmAccelBoost @8 :Float32;  # FM Pilot: what the selected Accel Boost added to the model's target (m/s^2)
   fmAccelBoostMode @9 :UInt8;  # FM Pilot: FM_AccelBoostMode in use (0 Off, 1 Gas, 2 Predictive, 3 Set Speed)
+  fmNavTurnSpeed @10 :Float32;  # FM Pilot: Nav Turn Speed's cap on the target speed (m/s), 0 = not capping
+  fmNavTurnDistance @11 :Float32;  # FM Pilot: m to the mapped junction it is capping for
 
   struct DynamicExperimentalControl {
     state @0 :DynamicExperimentalControlState;
@@ -327,6 +329,7 @@ struct LongitudinalPlanSP @0xf35cc4560bbf6ec2 {
     sccMap @2;
     speedLimitAssist @3;
     curveSpeed @4;
+    fmNavTurn @5;  # FM Pilot: Nav Turn Speed
   }
 
   struct E2eAlerts {
