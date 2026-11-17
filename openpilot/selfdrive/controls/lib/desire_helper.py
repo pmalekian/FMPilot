@@ -5,6 +5,7 @@ from openpilot.sunnypilot.selfdrive.controls.lib.auto_lane_change import AutoLan
 from openpilot.sunnypilot.selfdrive.controls.lib.lane_turn_desire import LaneTurnController
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_desire import FmTurnDesire
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_pulse import FmTurnPulse
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_nav_turn_desire import FmNavTurnDesire
 
 LaneChangeState = log.LaneChangeState
 LaneChangeDirection = log.LaneChangeDirection
@@ -33,12 +34,13 @@ class DesireHelper:
     self.lane_turn_direction = TurnDirection.none
     self.fm_turn = FmTurnDesire()  # FM Pilot: road-edge turn desire and the held-turn rule
     self.fm_turn_pulse = FmTurnPulse()  # FM Pilot: fresh turn pulse to the model when pulling away from a stop
+    self.fm_nav_turn = FmNavTurnDesire()  # FM Pilot: a blinker toward a mapped street is a turn, above the lane-turn speed too
 
   @staticmethod
   def get_lane_change_direction(CS):
     return LaneChangeDirection.left if CS.leftBlinker else LaneChangeDirection.right
 
-  def update(self, carstate, lateral_active, lane_change_prob, left_edge_detected=False, right_edge_detected=False):
+  def update(self, carstate, lateral_active, lane_change_prob, left_edge_detected=False, right_edge_detected=False, nav_turn=None):
     self.alc.update_params()
     self.lane_turn_controller.update_params()
     v_ego = carstate.vEgo
@@ -57,6 +59,14 @@ class DesireHelper:
     if self.fm_turn.enabled:
       self.lane_turn_direction = self.fm_turn.turn_direction
       fm_turn_armed = self.fm_turn.armed
+
+    # FM Pilot: Map Turn Desire. A street on the map toward the blinker holds off the lane change and, close enough,
+    # starts the turn. It never replaces a turn already chosen above.
+    lane_changing = self.lane_change_state in (LaneChangeState.laneChangeStarting, LaneChangeState.laneChangeFinishing)
+    self.fm_nav_turn.update(carstate, lateral_active, nav_turn, lane_changing)
+    if self.fm_nav_turn.enabled and self.lane_turn_direction == TurnDirection.none:
+      self.lane_turn_direction = self.fm_nav_turn.turn_direction
+      fm_turn_armed = fm_turn_armed or self.fm_nav_turn.armed
 
     if fm_turn_armed or not lateral_active or self.lane_change_timer > LANE_CHANGE_TIME_MAX or \
        self.alc.lane_change_set_timer == AutoLaneChangeMode.OFF:

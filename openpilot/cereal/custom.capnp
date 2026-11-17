@@ -574,6 +574,9 @@ struct ModelDataV2SP @0xa1680744031fdb2d {
   blendfulLeftProb @7 :Float32;
   blendfulRightProb @8 :Float32;
   blendfulLaneWidth @9 :Float32;
+  # FM Pilot: Map Turn Desire (the map found a street on the blinker's side)
+  fmNavTurnArmed @10 :Bool;
+  fmNavTurnActive @11 :Bool;
 
   enum TurnDirection {
     none @0;

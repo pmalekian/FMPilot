@@ -400,7 +400,8 @@ def main(demo=False):
   pub_socks = ["modelV2", "drivingModelData", "cameraOdometry", "modelDataV2SP"] + (["chestnutGpuState"] if CHESTNUT else [])
   pm = PubMaster(pub_socks)
   sm = SubMaster(["deviceState", "carState", "narrowRoadCameraState", "extrinsicsCalibration", "driverMonitoringState",
-                  "carControl", "controlsState", "lateralDelay"])
+                  "carControl", "controlsState", "lateralDelay", "fmNavTurn"],
+                 ignore_alive=["fmNavTurn"], ignore_avg_freq=["fmNavTurn"], ignore_valid=["fmNavTurn"])  # FM Pilot: only with Nav Assist on
 
   publish_state = PublishState()
   chestnut_state = ChestnutGpuState(pm, model.chestnut) if CHESTNUT else None
@@ -578,11 +579,14 @@ def main(demo=False):
       r_lane_change_prob = desire_state[log.Desire.laneChangeRight]
       lane_change_prob = l_lane_change_prob + r_lane_change_prob
       left_edge, right_edge = RELC.update_and_fill(modelv2_send.modelV2, mdv2sp_send.modelDataV2SP, v_ego)
-      DH.update(sm['carState'], sm['carControl'].latActive, lane_change_prob, left_edge, right_edge)
+      nav_turn = sm['fmNavTurn'] if sm.alive['fmNavTurn'] and sm.valid['fmNavTurn'] else None  # FM Pilot: Map Turn Desire
+      DH.update(sm['carState'], sm['carControl'].latActive, lane_change_prob, left_edge, right_edge, nav_turn)
       modelv2_send.modelV2.meta.laneChangeState = DH.lane_change_state
       modelv2_send.modelV2.meta.laneChangeDirection = DH.lane_change_direction
       mdv2sp_send.valid = modelv2_send.valid
       mdv2sp_send.modelDataV2SP.laneTurnDirection = DH.lane_turn_direction
+      mdv2sp_send.modelDataV2SP.fmNavTurnArmed = DH.fm_nav_turn.armed
+      mdv2sp_send.modelDataV2SP.fmNavTurnActive = DH.fm_nav_turn.active
       mdv2sp_send.modelDataV2SP.blendfulCurvature = blendful.curvature
       mdv2sp_send.modelDataV2SP.blendfulTrust = float(blendful.trust)
       mdv2sp_send.modelDataV2SP.modelCurvature = float(blendful.model_curvature)
