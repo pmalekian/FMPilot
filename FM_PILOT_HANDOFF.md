@@ -1,6 +1,6 @@
 # FM Pilot: handoff for new chats (short)
 
-State as of Nov 16, 2026 (comm warnings traced to hardwared stalls, stall diagnostics built, item 0n; Nov 13: drive `00000073` analyzed, item 0l; Turn Assist logging + fixes A/B/C built, item 0m). This is the current state only. Background findings, past drive analyses and
+State as of Nov 16, 2026 (code review of everything above AdventurePilot: fixes on `fm-dev-max2`, item 0p; Nav Assist plan, item 0o; comm warnings traced to hardwared stalls, stall diagnostics built, item 0n; Nov 13: drive `00000073` analyzed, item 0l; Turn Assist logging + fixes A/B/C built, item 0m). This is the current state only. Background findings, past drive analyses and
 the ideas backlog are in `claude/FM_PILOT_FINDINGS.md`: read it only when a task needs that history. Features, settings
 and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 
@@ -11,14 +11,27 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
   (Higher Torque + radar settings) and adding the settings reorganization, Blendful and the boost bar; `fm-dev-torque`
   stays at `bece23e` as the fallback. `fm-dev-max` (`d189ccc`) is the everyday branch, installer `pmalekian/fm-dev-max`. Own fork of AdventurePilot `dev` (last synced `980dd5c`, Oct 31).
   **No more AP syncs**; borrow single pieces only if wanted.
+  **Newest: `fm-dev-max2`** (Nov 16) = `fm-dev-jet` `b627e6a` + the code-review fixes (item 0p), code at `a0d71b3`. `fm-dev-jet`
+  stays at `b627e6a` as the fallback.
 - **Keeping this file current:** whenever this handoff is updated, also write the updated copy into the Project with
   `project_write` (path `FM_PILOT_HANDOFF (3).md`, replacing the old one) in the same turn, so Frankie doesn't have to re-upload it.
 - **Code work:** attach the repo (push access), clone the branch. Commit as
   `Frankie Malekian <107580415+pmalekian@users.noreply.github.com>`, messages start "FM Pilot", one change per commit.
-  Push with `--no-verify` (LFS hook 403s). Tests run off-device with a shim stubbing `Params` from `params_keys.h` (and
-  `msgq` names, for `cereal.messaging`), with `opendbc_repo` on the path; deps: numpy pytest pycapnp zstandard
-  setproctitle psutil pyzmq pycryptodome tqdm, plus `tinygrad` (pip) for modeld_v2 tests and `raylib` + `xvfb-run` for
-  UI tests. Known off-device failures: `test_latcontrol_torque_ext.py` (NNLC data submodule not cloned).
+  Push with `--no-verify` (LFS hook 403s); in a cloud chat add the repo to the session with push access first.
+  **Tests off-device: a real build works in a cloud chat, no shim needed** (Nov 16; real `Params`, msgq and the panda
+  safety library, so the Jetlink, safety and UI tests run too):
+  `git submodule update --init --depth 1`; `UV_PYTHON=/usr/bin/python3.12 UV_PYTHON_PREFERENCE=system uv sync --frozen --all-extras`;
+  `source .venv/bin/activate`; `scons -j2 openpilot/common openpilot/cereal msgq_repo opendbc_repo openpilot/selfdrive/controls
+  openpilot/selfdrive/pandad openpilot/common/transformations rednose_repo openpilot/selfdrive/locationd openpilot/system/hardware`
+  (about 5 min); `uv pip install pytest pytest-timeout`; `PYTHONPATH` = the repo plus `opendbc_repo`, `msgq_repo`,
+  `rednose_repo`, `tinygrad_repo`, `teleoprtc_repo`, `panda`; run `python -m pytest --timeout=90 --continue-on-collection-errors`
+  on `openpilot/sunnypilot openpilot/selfdrive/controls openpilot/selfdrive/car/tests/test_fm_convert_carcontrolsp.py
+  openpilot/selfdrive/modeld/tests openpilot/selfdrive/ui/sunnypilot openpilot/system/hardware/tests openpilot/common/hardware/tests openpilot/system/manager
+  opendbc_repo/opendbc/car/rivian opendbc_repo/opendbc/sunnypilot/car/rivian opendbc_repo/opendbc/safety/tests/test_rivian.py`
+  (11 min), and `cd tools/fm && python -m pytest tests`. Failing there and not FM's: `test_default_model` onnx hashes (LFS
+  not pulled), `test_locationd::test_params_gps` (times out, and leaves a pytest child behind: kill it), `test_manager::
+  test_set_params_with_default_value` (AP's `ScreenSaverCustomText`), and a collection error in AP's
+  `test_curve_speed_controller.py` (imports `A_LAT_CEILING`, which its module doesn't have).
   After YAML edits recompile `openpilot/sunnypilot/sunnylink/tools/compile_settings_ui.py` (and run
   `validate_settings_ui.py`).
 - **How to approach his asks:** when he asks whether something can be built or solved, work out how: name the hurdles
@@ -62,6 +75,86 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 - Custom splice model: **removed** Nov 8 (with the on-device compile fix and model check tools), for the v25 move.
 
 ## Active work
+
+### 0p. Code review of everything above AdventurePilot (Nov 16): fixes on `fm-dev-max2` (code at `a0d71b3`): built, not driven
+
+- **Scope:** all 157 files / 144 commits since AP `980dd5c`, at `fm-dev-jet` `b627e6a`, with a real build in the cloud
+  (see Setup). Nothing in panda safety, the torque cap, driver monitoring or any tuning number was changed.
+- **Two real bugs, both Jetlink-side (found by reading, confirmed by tests):**
+  - `7062b26` **hardwared crashed without a usable `jetlink_repo`.** It calls `HOOKS.shutdown_pending()` on every pass and
+    the fork's fallback (`_Off`: jetlink missing, empty, too old or failing to import) didn't have it (nor
+    `request_shutdown` and the two catalog hooks): AttributeError in the loop, no deviceState, no drive. The fallback
+    now answers them, and a test reads every hook call out of the tree and holds the fallback to it.
+  - `026ce75` **modeld_v2 + Jetlink + Lateral Smoothing.** With the link on, `model` in the loop is jetlink's joining
+    model: a write stays on the wrapper, a read follows the model that drives. The loop's
+    `model.LAT_SMOOTH_SECONDS = f(params, model.BUNDLE_LAT_SMOOTH_SECONDS)` meant (a) the small model's low-pass kept the
+    bundle's value while the delay handed to the model used the setting's (no effect so far: TSFDOM and OPM16D are .1 and
+    his setting is 0.1; it would have mattered with Cheddar .0 or the setting at 0.2), and (b) once a big model drove,
+    the `BUNDLE_...` read was an AttributeError on the frame thread within 3 s of the swap: modeld down. jetlink_adapter's
+    own seam test had been failing on that write since Nov 11. Settings now go to modeld_v2's ModelStates
+    (`fm_apply_model_settings`), never to `model`.
+- **Efficiency, all on core 4's 100 Hz loops (item 0n's "no headroom" finding):**
+  - `858eb54` FmLateral ran a second SubMaster (modelDataV2SP) and updated it inside every control step; msgq's poll
+    sleeps when no message waits, so controlsd went to sleep mid-step 4 times out of 5. controlsd now subscribes itself.
+  - `1c75ca3` with no turn the hooks still ran a dozen numpy scalar calls, Lane Guard's whole update (to return 0), and
+    wrote 28 log fields. Now near zero; the logged record is identical.
+  - `7f61b9f`, `a0d71b3` card's `convert_carControlSP` turned the whole carControlSP into a dict each step, FM's log
+    fields included, then dropped them. Now reads only the car-side fields, directly.
+  - **Measured on a PC (not the comma):** the real controlsd class on synthetic messages, whole step, his Nov 13
+    settings: highway 514-550 -> 371-389 us, a 9 mph blinker turn 565-592 -> 436-446 us, same outputs. FM's hooks alone,
+    no turn: 151 -> 20 us a step. `convert_carControlSP`: 110.6 -> 35.7 us a call.
+- **Same behavior, checked:** old against new code on the same random inputs, 160 drives / 229,044 control steps, 0
+  differences (FmLateral output, the turnAssist record, Higher Torque, low-speed gain and feedforward, Release Guard).
+  Two differences on purpose: Lane Guard switched on *while driving* starts as after a lane change (lines unguarded 1 s);
+  the turn desire reaches Turn Assist at most one 10 ms step later.
+- **Also checked, nothing to fix:** Turn Assist fuzzed with 600 random drives incl. NaN / short / missing paths (no
+  exception, no non-finite output, never moves the request away from the turn or past its sources); every param key used
+  exists in `params_keys.h`; Sunnylink JSON matches its YAML and validates 10/10; ruff clean on FM's files (`84ed917`
+  fixed the two findings); panda safety tests 950 pass.
+- **Tests:** 2297 pass off-device at `a0d71b3` (2269 at `b627e6a`: 27 new tests plus the jetlink seam test that failed before; nothing that passed before fails), the same 3 non-FM failures and 1 AP collection error as
+  the baseline (Setup); `openpilot/selfdrive/car/tests` 293 pass (run separately, 5 min); tools 48.
+- **Found, not changed (his call):**
+  - **Turn Hold can pick up the wheel's angle as its peak while lateral is off.** When openpilot stops steering during a
+    held turn (e.g. the truck stops: no steering under 0.3 m/s), Turn Assist fades over 0.5 s, and in that time controlsd
+    passes the truck's own curvature as "the request", so the hold's peak rises to it. Reproduced on the module: request
+    0.03 before the stop, wheel at 0.12 at the stop -> 0.084-0.090 asked after pulling away, model still at 0.03, hands
+    off, Hold Adds Your Steering on or off. Needs the wheel wound tighter than anything asked during those 0.5 s, so it
+    should be rare. Fix would be one condition (no hold bookkeeping while lateral is off); it changes turn behavior, so
+    replay it on his logs first.
+  - FmLateral re-reads 25 params in one control step once a second (156 us on a PC). Left as is.
+  - Item 0n's hardwared stalls: still need the drive on the diagnostics build (they are in `fm-dev-max2`).
+- **Test drive:** a normal drive on `fm-dev-max2`, everything as on `00000073`. Nothing should feel different. Then send
+  one rlog segment: compare core 4 (card ~47 / controlsd ~28 / selfdrived ~24 % in `0000008e`) and controlsd's rate (70-89 Hz
+  there) with the new build, and pull the `hardwared_slow_loop` events for item 0n. A Jetlink big-model swap is now
+  worth trying parked (it would have taken modeld down before).
+
+### 0o. Nav Assist for the small models (Nov 16): researched and planned, nothing built
+
+- Plan: `claude/FM_PILOT_NAV_ASSIST_PLAN.md` (project doc). His goal: map/nav data helps TSFDOM-class models start turns on
+  time and shape sharp turns they can't see; full nav assist if reachable; no map curve speed.
+- State of the art (Nov 16): openpilot master has the nav alpha (navd, mapsd, athena `setNavDestination`, developer
+  toggle); only big chestnut models on the unmerged `nav-model-integration` branch take map input (`nav_map` 256x256 +
+  47-float `navigation`). Connect's destination UI is an unmerged branch and prime only. sunnypilot master has the
+  same daemons, not wired; contributor branch `turn-plan-floor` tried signal routes, a 0.75x plan floor and a turn
+  template (open-loop only; stacking turn layers made turns unreliable on the road). StarPilot Dom: phone nav (Galaxy,
+  share links), turn desire when the blinker matches a nav turn (< 14 m/s), turn speed ceiling; no map steering.
+- Key fact: the small model's wide input spans ~59° (sbigmodel focal 455, 512 px), so in a 90° turn the exit lane
+  enters view only after ~55-60° turned. His Loop A turns (R 12-14 m rolling, turn-in ~11 m before the corner
+  middle) match a straight-arc-straight template with tangent length R x tan(angle / 2).
+- Proposal: `fm_navassistd` (offline Protomaps roads + optional Mapbox route; GPS + odometry; corner fused with the
+  plan's corner) publishes `fmNavTurn`; Map Turn Desire + desire timing; Map Turn Profile as a toward-the-turn floor in
+  `FmTurnAssist`, handing back to the model at ~55-60° turned, replacing (not stacking on) Lead's gate and Hold's
+  timer when confident; blinker required; phone destinations via share sheet -> comma. Track B: comma's RL nav model
+  through a Jetlink fork on the Mac (replaces TSFDOM while selected: his call). Track C: learned adapter.
+- **Phase 0 on Loop A `00000032` (Nov 16, plan section 8):** map `C:\FMPilot\maps\fm-chicagoland.pmtiles` (Protomaps
+  20261116, 118 MB). u-blox GPS 10 Hz, ~2 m, 0.2 m jitter; his turn-in point repeats within 1-3 m of the map corner;
+  map turn angle |err| p50 6° / p90 12°; signal mode picked the right street 33/33 (few side streets on Loop A). TSFDOM
+  was roughly on time on these rolling turns, and a generic map arc did **not** beat its action (RMS 18.0 vs 15.9e-3
+  1/m vs his line). Decision: map for intent/timing/hold release; map path only when the model clearly
+  under-commits, preferably from his own recorded line per corner ("corner memory").
+- Next: Phase 0 on `00000073--9033a9dddc` --0..--8 (turns from a stop) and a drive with dense side streets. Scripts:
+  project doc `claude/nav_phase0_scripts.md`. The Nav session had no push permission: its plan and scripts are project
+  docs only; this handoff item reached GitHub with the code-review session's push to `fm-dev-max2`.
 
 ### 0n. "Low Communication Rate" warnings = hardwared stalls (Nov 16); stall diagnostics on `fm-dev-jet` `eb7550f`: built, always on, not driven
 
@@ -398,7 +491,7 @@ From `0000005e--e26703ace2--2` (Nov 9 build, Cheddar, Road Edge Turn Desire on):
 - Also on `fm-dev-jet` from EVPilot (Nov 11): the off-tracking / Lane Guard near-zero-curvature crash fix (`868d1b7`) and
   Rivian `steerLimitTimer` 0.8 (`17d4a0d`; only counts above 22 mph, so it doesn't change slow turns). Not taken, decided
   Nov 11: EVPilot's MAP_NORESERVE model load (`6a1ff0b9`; only for ~2 GB models loaded on the comma, which Jetlink avoids),
-  its generic resend of panda-blocked frames, and its navigation (openpilot's nav, Mapbox; compare with the StarPilot nav plan first).
+  its generic resend of panda-blocked frames, and its navigation (openpilot's nav, Mapbox; superseded by the Nav Assist plan, item 0o).
 
 ### 0k. Alpamayo 2 Edge through a Jetlink fork (idea, Nov 12): nothing built
 
@@ -547,6 +640,8 @@ From `0000005e--e26703ace2--2` (Nov 9 build, Cheddar, Road Edge Turn Desire on):
 
 ## Next steps
 
+00000. Item 0p: put `fm-dev-max2` on the comma, one normal drive, send one rlog segment (core 4 load, controlsd rate) and
+   the `hardwared_slow_loop` events; decide on the Turn Hold lateral-off finding (replay first).
 0000. Item 0n: drive `fm-dev-jet` `eb7550f` normally; pull `hardwared_slow_loop` events with `stack` from the
    qlogs; fix what they name. Later: core 4 load (card / controlsd / selfdrived).
 000. Item 0m: drive the same corners as `00000073` with A/B/C on (default) and the new logging; send rlogs; `turns.py`
@@ -563,7 +658,8 @@ From `0000005e--e26703ace2--2` (Nov 9 build, Cheddar, Road Edge Turn Desire on):
 3. Smoother stops: his answers to item 5, then decide whether to build the taper (off by default).
 4. Older: analyze Nov 4 routes `0000002e`, `0000002f`, `00000030`, `00000033`, `00000034`, `00000035` (Turn Assist with
    fixes) and the Camera Offset pull test (`C:\fmlogs\2026-11-04`). Turn Boost / Hold speed limit to 20 → 25 mph.
-5. Later: nav port (`claude/FM_PILOT_NAV_PLAN.md`).
+5. Nav Assist (item 0o): Phase 0 first (map extract on his PC, GPS check, map replay of logged turns). The old
+   `claude/FM_PILOT_NAV_PLAN.md` is retired (he asked to start fresh Nov 16).
 
 ## Key facts in one line each (details in claude/FM_PILOT_FINDINGS.md)
 
@@ -574,4 +670,8 @@ From `0000005e--e26703ace2--2` (Nov 9 build, Cheddar, Road Edge Turn Desire on):
 - The VDM decides regen vs friction; openpilot only sends a target accel (truck delivers ~0.23 m/s² more decel than sent).
 - Lane Centering, Lane Guard and Blendful are one setting, `FM_LaneKeepMode`; read it via `get_lane_keep_mode`.
 - Never loosen driver monitoring.
+- With Jetlink on, modeld's `model` is jetlink's joining model: write per-model settings to the ModelStates
+  (`fm_apply_model_settings`), never to `model`; a new hook call needs an answer in `jetlink_adapter._Off` (tests hold both).
+- Code on the 100 Hz loops (controlsd, card): no SubMaster updates inside the step, no numpy scalar calls or log writes
+  when there is nothing to do (`fm_math.step_toward`, `test_fm_step_cost.py`).
 - For other assistants (ChatGPT, Gemini), paste `claude/FM_PILOT_BRIEF_FOR_OTHER_AIS.md`. Check their claims before use.
