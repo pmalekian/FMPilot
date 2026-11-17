@@ -151,6 +151,15 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
     is cancelled; needs lateral on and a clear blind spot; a blinker that already changed lanes never becomes a turn;
     under 20 mph unchanged. In `DesireHelper` (both modeld's, so with a Jetlink big model too). Logged:
     `modelDataV2SP.fmNavTurnArmed/Active`.
+  - **Nav Turn Speed** (`FM_NavTurnSpeed` + `FM_NavTurnSpeedMph` 10-20, default 14; Nov 17): with a turn desire (AP's
+    or Map Turn Desire) toward a mapped street, caps openpilot's target speed to reach the turn speed ~10 m before the
+    map junction (1 m/s² profile, lowered 1 s for the cruise accel's lag), held through the turn (ends at 60 deg turned,
+    20 m past without turning, or the desire ending). New `fmNavTurn` source in sunnypilot's speed-target min(); only
+    lowers, never adds speed, only with openpilot longitudinal. Sim on the real cruise accel: 30 mph / 80 m out -> 14.9
+    mph at turn-in, firmest -1.2 m/s²; 18 mph / 40 m -> 14.7. Real planner (mocked messages): caps when on, identical
+    when off / no turn / no map message; longitudinal maneuver tests pass. **Not driven; he mostly drives the pedals
+    through turns** (openpilot speed control off in every turn in the Nov 4/13/16 logs) because openpilot goes too fast
+    into turns or too slow from a stop; this only addresses the first.
   - **`tools/fm/nav.py`**: per blinker, the pick vs where the truck went, and what Map Turn Desire did or would do
     (the real class on the logged inputs). Logged `fmNavTurn` if present, else replay with `--map`.
 - **Offline, the real code on his logs** (~95 min: Loop A `00000032`, `00000073`, Nov 16 `00000089`/`0000008d`, Nov 3
@@ -168,6 +177,10 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
   better than TSFDOM's action on rolling turns, so **no map steering was built**. 4 of 7 problem turns on `00000073` are
   onto unnamed OSM `service` roads: logged (`leftService`/`rightService`) but never used, because turning them on gave a
   wrong aisle in the same lot twice and one false trigger.
+- **Map file on the comma 4:** no download button yet. sunnypilot's "Download maps" (OSM page) exists only in the comma
+  3X UI (`selfdrive/ui/sunnypilot/layouts/settings/osm.py`), not in the comma 4 UI or Sunnylink, and those OSM files are
+  mapd's (speed limits / map curve speed), not Nav Assist's. Nav Assist's `.pmtiles` goes on by `scp -O` (below).
+  Offered Nov 17: an on-device download (comma fetches the region extract itself). Not built.
 - **To put on the truck** (commands in the Nov 16 chat; repeat if asked):
   1. PowerShell: `ssh comma@192.168.1.246 "mkdir -p /data/media/0/fmnav"` then
      `scp -O C:\FMPilot\maps\fm-chicagoland.pmtiles comma@192.168.1.246:/data/media/0/fmnav/` (118 MB).
