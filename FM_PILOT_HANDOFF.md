@@ -1,6 +1,6 @@
 # FM Pilot: handoff for new chats (short)
 
-State as of Nov 17, 2026 (Nav Assist on `fm-dev-nav`: map logging, Map Turn Desire, Nav Turn Speed, Download Nav Map and the Top Readout CPU option, all off or as before, none on the truck yet, item 0o; code review of everything above AdventurePilot: fixes on `fm-dev-max2`, item 0p; comm warnings traced to hardwared stalls, stall diagnostics built, item 0n; Nov 13: drive `00000073` analyzed, item 0l; Turn Assist logging + fixes A/B/C built, item 0m). This is the current state only. Background findings, past drive analyses and
+State as of Nov 17, 2026 (Calmer Straight Pull-Away for Cheddar's pull-away jerk, item 0q; Nav Assist on `fm-dev-nav`: map logging, Map Turn Desire, Nav Turn Speed, Download Nav Map and the Top Readout CPU option, all off or as before, none on the truck yet, item 0o; code review of everything above AdventurePilot: fixes on `fm-dev-max2`, item 0p; comm warnings traced to hardwared stalls, stall diagnostics built, item 0n; Nov 13: drive `00000073` analyzed, item 0l; Turn Assist logging + fixes A/B/C built, item 0m). This is the current state only. Background findings, past drive analyses and
 the ideas backlog are in `claude/FM_PILOT_FINDINGS.md`: read it only when a task needs that history. Features, settings
 and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 
@@ -11,7 +11,7 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
   (Higher Torque + radar settings) and adding the settings reorganization, Blendful and the boost bar; `fm-dev-torque`
   stays at `bece23e` as the fallback. `fm-dev-max` (`d189ccc`) is the everyday branch, installer `pmalekian/fm-dev-max`. Own fork of AdventurePilot `dev` (last synced `980dd5c`, Oct 31).
   **No more AP syncs**; borrow single pieces only if wanted.
-  **Newest: `fm-dev-nav`** (Nov 17, head `5516cc7`) = `fm-dev-max2` `196f750` + Nav Assist (item 0o), all off by default.
+  **Newest: `fm-dev-nav`** (Nov 17) = `fm-dev-max2` `196f750` + Nav Assist (item 0o) + Calmer Straight Pull-Away (item 0q, code `ce8ddd4`), all off by default.
   `fm-dev-max2` (Nov 16) = `fm-dev-jet` `b627e6a` + the code-review fixes (item 0p), code at `040bef2`. `fm-dev-jet`
   stays at `b627e6a` as the fallback.
 - **Keeping this file current:** whenever this handoff is updated, also write the updated copy into the Project with
@@ -86,18 +86,27 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
   from ~0 at +0.3 m/s to that value in one 50 ms frame (lat smoothing 0.0 = Cheddar's own), the wheel goes 15-63 deg left, then the floor
   shrinks the request past 1 m/s and the model's real ask (+0.009) straightens it. Hands under 1 Nm, no Turn Assist / lane centering / Release Guard
   contribution; Low-Speed FF and the torque controller only follow the request. Not checked on TSFDOM (both logs are Cheddar).
-- **Built (`FM_StraightPullAwayFloor`, off):** `modeld_v2/fm_pull_away.py` + a per-frame hook in `modeld.py`: the 2.5 m/s floor of
-  Calmer Crawl-Speed Steering only while pulling away straight. Usual floor on a blinker, turn desire (last frame's `DH.desire`), steering press, or wheel past 30 deg;
-  once any is seen below 2.5 m/s it holds until 2.5 m/s (floors agree there) or a full stop with nothing set. With Calmer Crawl-Speed Steering on it changes nothing.
-  modeld_v2's own ModelStates only (a Jetlink big model keeps the stock action path).
-- **Offline (open loop, real helper on the logged inputs, angle trigger left out to stand in for the closed loop):** peak request old -> new
-  `--40` +19.7 -0.028 -> -0.009 (wheel est 76 -> 23 deg; the new peak is the model's own right swing), +44.1 -0.032 -> -0.008;
-  `--8` +27.8 -0.013 -> -0.002 (36 -> 6 deg), +48.8 -0.010 -> -0.002. Not replayed: a turn from a stop with a blinker (none in these two logs): the tests
-  cover it. Replay `00000073` --2/--4/--7 (turns from a stop) when the logs are at hand; they must be identical to off.
-- **Watch for:** a no-blinker turn from a stop with the wheel near straight and hands off is softened (garage ramps, item 0j): wheel past 30 deg or a press
-  switches it back. Tests: 14 pull-away + 1 Jetlink wrapper, modeld_v2 suite and jetlink_adapter pass, ruff clean, Sunnylink compiled and validated 10/10.
-- **Test drive:** switch it on, Cheddar, a few stop-and-go pull-aways with no blinker; `modelV2.action` vs `controlsState.desiredCurvature` at +0.3 s should stay under ~0.005.
-  Then turns from a stop with the blinker as before.
+- **Built (`FM_StraightPullAwayFloor`, off; `f41f946`, reworked in `ce8ddd4` after a double-check):** `modeld_v2/fm_pull_away.py` + a per-frame
+  hook in `modeld.py`: Calmer Crawl-Speed Steering's 2.5 m/s floor only for a pull-away from a stop. Decided at the stop: calm if no blinker, no turn
+  desire (last frame's `DH.desire`), no press held 0.3 s and the wheel within 30 deg. During the pull-away a blinker, turn desire or press held
+  0.3 s switches to the usual floor for the rest of it, **blended over 0.5 s** (the curvatures of the two floors mixed; the floor handed to
+  modeld is the one that gives the mix, never below v). The wheel angle is **not** checked while moving. Slowing into crawl speed without a stop
+  keeps the usual floor. At 2.5 m/s both floors agree. With Calmer Crawl-Speed Steering on it changes nothing. modeld_v2's own ModelStates only.
+- **Double-check found and fixed (the first version, `f41f946`, was never on the truck):** (1) the 30 deg check ran while moving: with a bias 3x
+  Cheddar's the leftover request wound the wheel past 30 deg, the floor flipped back in one frame and the wheel went to 70 deg (the jerk again);
+  (2) every switch to the usual floor was a one-frame jump (blinker at 0.8 m/s: x9 request); (3) it also applied when slowing below 5.6 mph without
+  stopping (`--40` +14.5 s), softening rolling no-blinker crawl turns like the garage ramps; (4) docs had the remaining `--40` peaks as left: they
+  are the model's own swing to the right.
+- **Offline:** closed-loop sim, plant fitted per pull-away on the old logged response (delay 100-350 ms, tau 0.25-1.0 s; reproduces the logged
+  peaks 63/61/27/15 deg as 70/74/25/20): new peak wheel `--40` +19.7 16 deg, +44.1 12 deg, `--8` +27.8 4 deg, +48.8 3 deg; floor stays calm
+  throughout. Bias x1.5 / x2 / x3: 21 / 28 / 42 deg (`--40` +19.7), floor never flips. Open loop (logged inputs, peak request): `--40` -0.028 ->
+  +0.009 (right), -0.032 -> +0.008 (right); `--8` -0.013 -> -0.002, -0.010 -> -0.002. Over both full logs the calm floor applies only in those
+  four pull-aways (0.3-2.5 m/s, 2.3-3.8 s each). Not replayed: a turn from a stop with a blinker (none in these logs; tests cover it).
+  Replay `00000073` --2/--4/--7 (turns from a stop) when the logs are at hand: they must match off.
+- **Watch for:** a no-blinker turn pulled out from a straight stop is softened until you steer it for 0.3 s (then back to full over 0.5 s).
+  Tests: 18 pull-away + 1 Jetlink wrapper; modeld_v2, jetlink_adapter and controls lib suites 230 pass; ruff clean; Sunnylink compiled and validated 10/10.
+- **Test drive:** switch it on, Cheddar, stop-and-go pull-aways with no blinker; `controlsState.desiredCurvature` in the first second after
+  0.3 m/s should stay under ~0.005. Then turns from a stop with the blinker as before.
 
 ### 0p. Code review of everything above AdventurePilot (Nov 16): fixes on `fm-dev-max2` (code at `040bef2`): built, not driven
 
