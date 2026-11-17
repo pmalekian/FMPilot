@@ -1221,6 +1221,38 @@
               ]
             },
             {
+              "key": "FM_NavTurnSpeed",
+              "widget": "toggle",
+              "title": "Nav Turn Speed",
+              "description": "When a blinker turn is planned toward a street the map shows on that side, openpilot slows so the truck reaches Nav Turn Speed where it starts to turn in, and holds that speed through the turn. Only lowers the target speed (a lead, a stop or the model asking for less still win) and never pulls away faster from a stop. Only while openpilot controls the speed; parking and access roads never count. Needs Nav Assist on.",
+              "enablement": [
+                {
+                  "type": "param",
+                  "key": "FM_NavAssist",
+                  "equals": true
+                }
+              ],
+              "sub_items": [
+                {
+                  "key": "FM_NavTurnSpeedMph",
+                  "widget": "option",
+                  "title": "Nav Turn Speed",
+                  "description": "Speed for the turn itself. Default 14 mph.",
+                  "min": 10,
+                  "max": 20,
+                  "step": 1,
+                  "unit": "mph",
+                  "enablement": [
+                    {
+                      "type": "param",
+                      "key": "FM_NavTurnSpeed",
+                      "equals": true
+                    }
+                  ]
+                }
+              ]
+            },
+            {
               "key": "FM_TurnCarryThrough",
               "widget": "toggle",
               "title": "Finish Turn After Signal Cancels",
