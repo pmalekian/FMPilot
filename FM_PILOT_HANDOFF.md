@@ -77,6 +77,28 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 
 ## Active work
 
+### 0q. Pull-away jerk to the left (Nov 17, logs `00000097--40` and `0000009a--8`, Cheddar, build `5516cc7`): Calmer Straight Pull-Away built on `fm-dev-nav`, OFF, not driven
+
+- **What he felt:** stopped in traffic, then moving off, the wheel jerks left before straightening. Noticed since Cheddar.
+- **Cause (observed, 4 of 4 pull-aways):** Cheddar's lateral-accel output sits slightly left while stopped (-0.026 m/s2 in `--40`, -0.014 in `--8`;
+  logged `modelDataV2SP.modelCurvature` x max(1,v)^2). modeld_v2 divides it by speed squared with the speed floored at 1.0 m/s, so
+  a near-zero output is read as a -0.010..-0.032 1/m curve; controlsd starts steering at 0.3 m/s (`latActive` needs vEgo > 0.3), the request steps
+  from ~0 at +0.3 m/s to that value in one 50 ms frame (lat smoothing 0.0 = Cheddar's own), the wheel goes 15-63 deg left, then the floor
+  shrinks the request past 1 m/s and the model's real ask (+0.009) straightens it. Hands under 1 Nm, no Turn Assist / lane centering / Release Guard
+  contribution; Low-Speed FF and the torque controller only follow the request. Not checked on TSFDOM (both logs are Cheddar).
+- **Built (`FM_StraightPullAwayFloor`, off):** `modeld_v2/fm_pull_away.py` + a per-frame hook in `modeld.py`: the 2.5 m/s floor of
+  Calmer Crawl-Speed Steering only while pulling away straight. Usual floor on a blinker, turn desire (last frame's `DH.desire`), steering press, or wheel past 30 deg;
+  once any is seen below 2.5 m/s it holds until 2.5 m/s (floors agree there) or a full stop with nothing set. With Calmer Crawl-Speed Steering on it changes nothing.
+  modeld_v2's own ModelStates only (a Jetlink big model keeps the stock action path).
+- **Offline (open loop, real helper on the logged inputs, angle trigger left out to stand in for the closed loop):** peak request old -> new
+  `--40` +19.7 -0.028 -> -0.009 (wheel est 76 -> 23 deg; the new peak is the model's own right swing), +44.1 -0.032 -> -0.008;
+  `--8` +27.8 -0.013 -> -0.002 (36 -> 6 deg), +48.8 -0.010 -> -0.002. Not replayed: a turn from a stop with a blinker (none in these two logs): the tests
+  cover it. Replay `00000073` --2/--4/--7 (turns from a stop) when the logs are at hand; they must be identical to off.
+- **Watch for:** a no-blinker turn from a stop with the wheel near straight and hands off is softened (garage ramps, item 0j): wheel past 30 deg or a press
+  switches it back. Tests: 14 pull-away + 1 Jetlink wrapper, modeld_v2 suite and jetlink_adapter pass, ruff clean, Sunnylink compiled and validated 10/10.
+- **Test drive:** switch it on, Cheddar, a few stop-and-go pull-aways with no blinker; `modelV2.action` vs `controlsState.desiredCurvature` at +0.3 s should stay under ~0.005.
+  Then turns from a stop with the blinker as before.
+
 ### 0p. Code review of everything above AdventurePilot (Nov 16): fixes on `fm-dev-max2` (code at `040bef2`): built, not driven
 
 - **Scope:** all 157 files / 144 commits since AP `980dd5c`, at `fm-dev-jet` `b627e6a`, with a real build in the cloud
