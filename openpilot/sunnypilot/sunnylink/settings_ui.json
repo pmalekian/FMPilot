@@ -1202,6 +1202,25 @@
               ]
             },
             {
+              "key": "FM_NavAssist",
+              "widget": "toggle",
+              "title": "Nav Assist (map logging)",
+              "description": "Runs the map process while driving. From GPS and a road map stored on the comma (a .pmtiles file in /data/media/0/fmnav) it works out which road you are on and the next street to each side, and writes that to the drive log. By itself it changes nothing about how the truck drives. Without the map file it logs \"no map\"."
+            },
+            {
+              "key": "FM_NavTurnDesire",
+              "widget": "toggle",
+              "title": "Map Turn Desire",
+              "description": "Between 20 and 35 mph a blinker normally means a lane change. With this on, a blinker toward a street the map shows on that side, within about 6 seconds of travel, plans a turn instead, so the model slows and turns without waiting to drop under 20 mph. A blinker that has already changed lanes stays a lane change. Parking and access roads never count. Under 20 mph nothing changes. Needs Nav Assist on.",
+              "enablement": [
+                {
+                  "type": "param",
+                  "key": "FM_NavAssist",
+                  "equals": true
+                }
+              ]
+            },
+            {
               "key": "FM_TurnCarryThrough",
               "widget": "toggle",
               "title": "Finish Turn After Signal Cancels",
