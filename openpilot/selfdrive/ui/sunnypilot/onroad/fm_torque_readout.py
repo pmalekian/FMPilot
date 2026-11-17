@@ -13,11 +13,22 @@ FM Pilot torque readout: one line at the top center of the comma 4 road view.
   it applied: the car reports no applied torque.
 
 Colors: white; amber when sent is at 95% or more of the limit now; red with a cross when steering is on and the EPAS is
-not taking it; grey "--" while steering is off. Always shown on a Rivian; nothing on other cars (no limit reported).
+not taking it; grey "--" while steering is off. Shown on a Rivian (nothing on other cars: no limit reported).
+
+FM_TopReadout picks what the line shows: 0 Off, 1 Torque (above, default), 2 CPU with the average of the other cores,
+3 CPU with the busiest other core:
+
+  4: 99% / A: 68% / 68°C      4: 99% / B: 74% / 68°C
+
+Core 4 is where card, controlsd and selfdrived run; "A" is the average of the other cores, "B" the busiest of them, and
+the temperature is the hottest CPU sensor (deviceState, 2 Hz). Amber when core 4 is at 95% or more.
 """
 from dataclasses import dataclass
 
 AT_CAP_FRAC = 0.95
+READOUT_OFF, READOUT_TORQUE, READOUT_CPU_AVG, READOUT_CPU_BUSIEST = 0, 1, 2, 3
+CONTROL_CORE = 4
+CORE_BUSY = 95
 TURN_NOTICE_TYPES = ("laneTurnLeft/warning", "laneTurnRight/warning")
 
 
@@ -46,3 +57,28 @@ def make_readout(sent: float, steer_cap: int, max_torque: int, toi_active: bool,
   else:
     state = 'normal'
   return Readout(direction, str(abs(value)), cap_txt, str(int(max_torque)), toi_active, state)
+
+
+def parse_readout_mode(value) -> int:
+  try:
+    mode = int(value)
+  except (TypeError, ValueError):
+    return READOUT_TORQUE
+  return mode if mode in (READOUT_OFF, READOUT_TORQUE, READOUT_CPU_AVG, READOUT_CPU_BUSIEST) else READOUT_TORQUE
+
+
+def make_cpu_readout(mode: int, cpu_usage, cpu_temps, max_temp: float) -> tuple[str, bool] | None:
+  """(text, core 4 busy) for the CPU modes; None when there is nothing to show."""
+  usage = [int(u) for u in cpu_usage]
+  if len(usage) <= CONTROL_CORE:
+    return None
+  others = usage[:CONTROL_CORE] + usage[CONTROL_CORE + 1:]
+  if mode == READOUT_CPU_AVG:
+    other = f"A: {round(sum(others) / len(others))}%"
+  else:
+    other = f"B: {max(others)}%"
+  temps = [t for t in cpu_temps if t > 0]
+  temp = max(temps) if temps else max_temp
+  temp_txt = f"{round(temp)}°C" if temp > 0 else "--°C"
+  core = usage[CONTROL_CORE]
+  return f"{CONTROL_CORE}: {core}% / {other} / {temp_txt}", core >= CORE_BUSY

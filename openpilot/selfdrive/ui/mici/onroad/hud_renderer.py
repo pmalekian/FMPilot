@@ -10,7 +10,8 @@ from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.system.ui.widgets import Widget
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.cereal import log
-from openpilot.selfdrive.ui.sunnypilot.onroad.fm_torque_readout import TURN_NOTICE_TYPES, make_readout
+from openpilot.selfdrive.ui.sunnypilot.onroad.fm_torque_readout import (READOUT_CPU_AVG, READOUT_CPU_BUSIEST, READOUT_OFF,
+                                                                      TURN_NOTICE_TYPES, make_cpu_readout, make_readout)
 from openpilot.selfdrive.ui.sunnypilot.onroad import fm_jetlink_icon
 
 EventName = log.OnroadEvent.EventName
@@ -213,7 +214,13 @@ class HudRenderer(Widget):
     ss = sm['selfdriveState']
     turn_notice = (ss.alertSize == log.SelfdriveState.AlertSize.small and ss.alertStatus == log.SelfdriveState.AlertStatus.normal
                    and ss.alertType in TURN_NOTICE_TYPES)
-    if (ss.alertSize != 0 and not turn_notice) or sm.recv_frame['carOutput'] < ui_state.started_frame:
+    mode = ui_state.fm_top_readout
+    if mode == READOUT_OFF or (ss.alertSize != 0 and not turn_notice):
+      return
+    if mode in (READOUT_CPU_AVG, READOUT_CPU_BUSIEST):
+      self._draw_fm_cpu_readout(rect, mode, turn_notice)
+      return
+    if sm.recv_frame['carOutput'] < ui_state.started_frame:
       return
     now = rl.get_time()
     if self._fm_readout is None or now - self._fm_readout_time >= FM_READOUT_PERIOD:
@@ -258,6 +265,24 @@ class HudRenderer(Widget):
       red = FM_READOUT_COLORS['refused']
       rl.draw_line_ex(rl.Vector2(mx + 3, cy - 9), rl.Vector2(mx + 21, cy + 9), 4, red)
       rl.draw_line_ex(rl.Vector2(mx + 3, cy + 9), rl.Vector2(mx + 21, cy - 9), 4, red)
+
+  def _draw_fm_cpu_readout(self, rect: rl.Rectangle, mode: int, turn_notice: bool) -> None:
+    """FM Pilot: core 4 / other cores / temperature, same place and style as the torque readout (fm_torque_readout.py)."""
+    sm = ui_state.sm
+    if sm.recv_frame['deviceState'] < ui_state.started_frame:
+      return
+    ds = sm['deviceState']
+    out = make_cpu_readout(mode, ds.cpuUsagePercent, ds.cpuTempC, ds.maxTempC)
+    if out is None:
+      return
+    text, busy = out
+    font_size = FONT_SIZES.max_speed
+    color = FM_READOUT_COLORS['at_cap' if busy else 'normal']
+    size = measure_text_cached(self._font_semi_bold, text, font_size)
+    x = rect.x + rect.width / 2 - size.x / 2
+    y = rect.y + 16 + (FM_TURN_NOTICE_OFFSET if turn_notice else 0)
+    rl.draw_rectangle_rounded(rl.Rectangle(x - 12, y - 4, size.x + 24, size.y + 8), 0.4, 8, rl.Color(0, 0, 0, 110))
+    rl.draw_text_ex(self._font_semi_bold, text, rl.Vector2(x, y), font_size, 0, color)
 
   def _draw_model_source(self, rect: rl.Rectangle) -> None:
     if ui_state.sm.recv_frame['selfdriveState'] < ui_state.started_frame:

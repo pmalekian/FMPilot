@@ -13,6 +13,7 @@ from openpilot.selfdrive.ui.sunnypilot.layouts.settings.display import OnroadBri
 from openpilot.sunnypilot.models.helpers import ACTIVE_BUNDLE_KEYS, get_active_source
 from openpilot.selfdrive.controls.lib.fm_boost_mode import parse_mode as parse_boost_mode
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_lane_keep_mode import MODE_BLENDFUL, MODE_CENTERING, get_lane_keep_mode
+from openpilot.selfdrive.ui.sunnypilot.onroad.fm_torque_readout import READOUT_TORQUE, parse_readout_mode
 from openpilot.sunnypilot.sunnylink.sunnylink_state import SunnylinkState
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.sunnypilot.widgets.screen_saver import ScreenSaverSP
@@ -58,6 +59,7 @@ class UIStateSP:
     self.blendful_enabled: bool = False
     self.fm_accel_boost_indicator: bool = False
     self.fm_accel_boost_mode: int = 0
+    self.fm_top_readout: int = READOUT_TORQUE  # FM Pilot: Off / Torque / CPU (avg) / CPU (busiest)
     self.onroad_brightness: int = 0
     self.onroad_brightness_timer: int = 0
     self.onroad_brightness_timer_param: int = 0
@@ -178,6 +180,7 @@ class UIStateSP:
     self.blendful_enabled = lane_keep_mode == MODE_BLENDFUL
     self.fm_accel_boost_indicator = self.params.get_bool("FM_AccelBoostIndicator")
     self.fm_accel_boost_mode = parse_boost_mode(self.params.get("FM_AccelBoostMode", return_default=True))
+    self.fm_top_readout = parse_readout_mode(self.params.get("FM_TopReadout", return_default=True))
     self.onroad_brightness = int(float(self.params.get("OnroadScreenOffBrightness", return_default=True)))
     self.onroad_brightness_timer_param = self.params.get("OnroadScreenOffTimer", return_default=True)
     self.rainbow_path = self.params.get_bool("RainbowMode")
