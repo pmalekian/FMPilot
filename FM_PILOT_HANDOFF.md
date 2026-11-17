@@ -1,6 +1,6 @@
 # FM Pilot: handoff for new chats (short)
 
-State as of Nov 16, 2026 (Nav Assist map logging + Map Turn Desire built on `fm-dev-nav`, off, item 0o; code review of everything above AdventurePilot: fixes on `fm-dev-max2`, item 0p; comm warnings traced to hardwared stalls, stall diagnostics built, item 0n; Nov 13: drive `00000073` analyzed, item 0l; Turn Assist logging + fixes A/B/C built, item 0m). This is the current state only. Background findings, past drive analyses and
+State as of Nov 17, 2026 (Nav Assist on `fm-dev-nav`: map logging, Map Turn Desire, Nav Turn Speed, Download Nav Map and the Top Readout CPU option, all off or as before, none on the truck yet, item 0o; code review of everything above AdventurePilot: fixes on `fm-dev-max2`, item 0p; comm warnings traced to hardwared stalls, stall diagnostics built, item 0n; Nov 13: drive `00000073` analyzed, item 0l; Turn Assist logging + fixes A/B/C built, item 0m). This is the current state only. Background findings, past drive analyses and
 the ideas backlog are in `claude/FM_PILOT_FINDINGS.md`: read it only when a task needs that history. Features, settings
 and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 
@@ -11,7 +11,7 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
   (Higher Torque + radar settings) and adding the settings reorganization, Blendful and the boost bar; `fm-dev-torque`
   stays at `bece23e` as the fallback. `fm-dev-max` (`d189ccc`) is the everyday branch, installer `pmalekian/fm-dev-max`. Own fork of AdventurePilot `dev` (last synced `980dd5c`, Oct 31).
   **No more AP syncs**; borrow single pieces only if wanted.
-  **Newest: `fm-dev-nav`** (Nov 16) = `fm-dev-max2` `196f750` + Nav Assist (item 0o), all off by default.
+  **Newest: `fm-dev-nav`** (Nov 17, head `5516cc7`) = `fm-dev-max2` `196f750` + Nav Assist (item 0o), all off by default.
   `fm-dev-max2` (Nov 16) = `fm-dev-jet` `b627e6a` + the code-review fixes (item 0p), code at `040bef2`. `fm-dev-jet`
   stays at `b627e6a` as the fallback.
 - **Keeping this file current:** whenever this handoff is updated, also write the updated copy into the Project with
@@ -77,7 +77,7 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 
 ## Active work
 
-### 0p. Code review of everything above AdventurePilot (Nov 16): fixes on `fm-dev-max2` (code at `a0d71b3`): built, not driven
+### 0p. Code review of everything above AdventurePilot (Nov 16): fixes on `fm-dev-max2` (code at `040bef2`): built, not driven
 
 - **Scope:** all 157 files / 144 commits since AP `980dd5c`, at `fm-dev-jet` `b627e6a`, with a real build in the cloud
   (see Setup). Nothing in panda safety, the torque cap, driver monitoring or any tuning number was changed.
@@ -136,7 +136,7 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
   there) with the new build, and pull the `hardwared_slow_loop` events for item 0n. A Jetlink big-model swap is now
   worth trying parked (it would have taken modeld down before).
 
-### 0o. Nav Assist (Nov 16): map logging + Map Turn Desire built on `fm-dev-nav`, both OFF, not on the device
+### 0o. Nav Assist (Nov 16-17): map logging, Map Turn Desire, Nav Turn Speed, Download Nav Map, Top Readout built on `fm-dev-nav`, all OFF (readout defaults to Torque as before), not on the device
 
 - **Branch `fm-dev-nav`** = `fm-dev-max2` `196f750` + this item. Plan, research and Phase 0 numbers: project doc
   `claude/FM_PILOT_NAV_ASSIST_PLAN.md`; Phase 0 scratch scripts: `claude/nav_phase0_scripts.md`.
@@ -196,6 +196,11 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
   (wrongly parsed: Protomaps uses text yes/no/-1) and `State.first` removed (`d485475`). Checked and fine: the Rivian
   blinker is steady (not flashing) in `carState`, so the blinker latch works; Nav Assist tick in downtown Chicago on a PC:
   3.2 ms median after a 67 ms tile load (Bartlett 0.9 ms); suite and `nav.py` results unchanged.
+- **Open, Nov 17 08:12:** his Sunnylink screenshot showed Download Nav Map on but the "Nav Map" status line blank. Unknown whether
+  `fm_navmapd` ran or Sunnylink doesn't render that info item; he has the diagnostic command (reads `FM_NavMapStatus`, the
+  switch, `LastGPSPositionLLK`, `/data/media/0/fmnav`, the process, swaglog) and hasn't posted the output. If the status is
+  set but not shown, move it into the switch title/description. Also: core 4 at ~100% is old (Nov 16 `0000008e`), not nav's;
+  advised Map Turn Desire and Nav Turn Speed off for the first drives.
 - **To put on the truck** (commands in the Nov 16 chat; repeat if asked):
   1. Map: Sunnylink > Steering > FM Pilot: Turn Tweaks > Download Nav Map, parked with internet (or copy a `.pmtiles`
      to `/data/media/0/fmnav/` with `scp -O`).
