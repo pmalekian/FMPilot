@@ -227,11 +227,15 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
   (wrongly parsed: Protomaps uses text yes/no/-1) and `State.first` removed (`d485475`). Checked and fine: the Rivian
   blinker is steady (not flashing) in `carState`, so the blinker latch works; Nav Assist tick in downtown Chicago on a PC:
   3.2 ms median after a 67 ms tile load (Bartlett 0.9 ms); suite and `nav.py` results unchanged.
-- **Open, Nov 17 08:12:** his Sunnylink screenshot showed Download Nav Map on but the "Nav Map" status line blank. Unknown whether
-  `fm_navmapd` ran or Sunnylink doesn't render that info item; he has the diagnostic command (reads `FM_NavMapStatus`, the
-  switch, `LastGPSPositionLLK`, `/data/media/0/fmnav`, the process, swaglog) and hasn't posted the output. If the status is
-  set but not shown, move it into the switch title/description. Also: core 4 at ~100% is old (Nov 16 `0000008e`), not nav's;
-  advised Map Turn Desire and Nav Turn Speed off for the first drives.
+- **Map check (Nov 17, evening; his ask: a way to confirm the map is loaded):** `FM_NavMapInfo`, Sunnylink item "Map on the comma" under
+  Download Nav Map (`fm_nav/mapinfo.py`): opens the newest `.pmtiles` like Nav Assist, one line: file, size, Protomaps build, area
+  covered, road pieces found around `LastGPSPositionLLK`, starts "Map OK" or says why not (no map / can't read / no roads at the truck /
+  truck outside the area). `fm_navmapd` refreshes it while parked when the file or position changes; `fm_navassistd` when it opens the
+  map. On the comma: `python3 -m openpilot.sunnypilot.fm_nav.mapinfo` (exit 1 when not usable). Tests 8 (`test_mapinfo.py`), nav 57 pass.
+  **Not seen on the device.** His Nov 17 08:12 screenshot had the download switch on and the "Nav Map" status blank; never learned why
+  (the diagnostic output was not posted; the status param may simply have been unset, or the build wasn't `fm-dev-nav` yet). Sunnylink
+  `info` items do show string params elsewhere (`ScreenSaverCustomText`), but whether it shows ours is unverified: use the SSH line if blank.
+  Also: core 4 at ~100% is old (Nov 16 `0000008e`), not nav's; advised Map Turn Desire and Nav Turn Speed off for the first drives.
 - **To put on the truck** (commands in the Nov 16 chat; repeat if asked):
   1. Map: Sunnylink > Steering > FM Pilot: Turn Tweaks > Download Nav Map, parked with internet (or copy a `.pmtiles`
      to `/data/media/0/fmnav/` with `scp -O`).
