@@ -188,6 +188,14 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
   `4: 99% / A: 58% / 68°C` / CPU (Busiest) `4: 99% / B: 80% / 68°C` (core 4; average or busiest other core; hottest
   CPU sensor; amber at core 4 >= 95%). Draw code checked with raylib stubbed (fonts are LFS pointers in the cloud
   chat); not seen on the device. He decided against a logging on/off toggle.
+- **Review Nov 17** (everything since `fm-dev-max2` `196f750`): three fixes, none driven before. (1) Nav Turn Speed handed the
+  planner a deceleration of its own as `a_target`, which goes into the MPC's starting state: now `a_ego` unchanged, like
+  Smart Cruise Control Map (`0193f97`). (2) Download Nav Map read a param `IsOnroad` that doesn't exist here: every
+  download would have failed on the device; now `IsOffroad`, plus a test that checks every params key the nav files use
+  is in `params_keys.h`; Range requests refused unless 206 before any body is read (`80c023a`). (3) Unused `oneway` flag
+  (wrongly parsed: Protomaps uses text yes/no/-1) and `State.first` removed (`d485475`). Checked and fine: the Rivian
+  blinker is steady (not flashing) in `carState`, so the blinker latch works; Nav Assist tick in downtown Chicago on a PC:
+  3.2 ms median after a 67 ms tile load (Bartlett 0.9 ms); suite and `nav.py` results unchanged.
 - **To put on the truck** (commands in the Nov 16 chat; repeat if asked):
   1. Map: Sunnylink > Steering > FM Pilot: Turn Tweaks > Download Nav Map, parked with internet (or copy a `.pmtiles`
      to `/data/media/0/fmnav/` with `scp -O`).
