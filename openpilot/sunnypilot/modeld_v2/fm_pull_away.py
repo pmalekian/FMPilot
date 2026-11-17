@@ -6,38 +6,57 @@ speed squared, with the speed floored at ACTION_SPEED_FLOOR (1.0 m/s). A model t
 at 0.3 m/s: the wheel is pulled to 15-63 deg and then straightened as the speed passes 1 m/s.
 
 sunnypilot #2091 (FM_LowSpeedCurvatureFloor) raises the floor to 2.5 m/s for all driving, which also softens real turns
-from a stop. This module raises it only for a straight pull-away: whenever nothing says the driver is turning, and the
-usual floor everywhere else. At 2.5 m/s and above both floors are identical, so the hand-over is seamless.
+from a stop and crawl-speed turns. This module uses that floor only for a straight pull-away from a stop:
+
+- Decided at a standstill: calm if nothing says turn (blinker, turn desire, a held press, wheel past 30 deg).
+- During the pull-away a blinker, a turn desire or a press held 0.3 s switches to the usual floor for the rest of it.
+  The wheel angle is not checked while moving: the model's own leftover request could wind it past the limit and
+  switch the floor back, which is the jerk again.
+- Every switch toward the usual floor blends over 0.5 s (no one-frame jump in the request).
+- Slowing into crawl speed from above (no stop) keeps the usual floor, so rolling crawl turns are as before.
+- From 2.5 m/s both floors give the same curvature, so the end of the pull-away is seamless.
 """
+import math
 
 STRAIGHT_FLOOR = 2.5       # m/s, sunnypilot #2091's floor
 HANDOVER_SPEED = 2.5       # m/s, at and above this both floors give the same curvature
-STOPPED_SPEED = 0.1        # m/s, at a standstill the decision is taken afresh every frame
-TURNING_ANGLE_DEG = 30.0   # a wheel wound further than this is a turn in progress (stopped mid-turn, no blinker)
+STOPPED_SPEED = 0.1        # m/s, at a standstill the decision is taken afresh every frame (openpilot doesn't steer here)
+TURNING_ANGLE_DEG = 30.0   # at a standstill, a wheel wound further than this is a turn in progress
+PRESS_HOLD_S = 0.3         # a press must last this long to count as steering a turn (not a brush or a wheel reaction)
+BLEND_S = 0.5              # calm -> usual floor over this long
+DT = 0.05                  # modeld's frame (20 Hz)
 
 
 class StraightPullAway:
-  """Decides, once per model frame, which speed floor the action is converted with.
-
-  A turn is any of: a blinker, a turn desire (the model's or Map Turn Desire's), the wheel wound past TURNING_ANGLE_DEG,
-  or the driver pressing on the wheel. While one is true below HANDOVER_SPEED the usual floor is kept, and it stays so
-  until the truck passes HANDOVER_SPEED (the blinker clicking off mid-turn must not drop the request) or stops again.
-  """
+  """Once per model frame: the speed floor the action is converted with."""
 
   def __init__(self):
-    self.turning = False
+    self.usual = 1.0      # 0 = calm floor, 1 = usual floor; in between blends the two curvatures
+    self.target = 1.0
+    self.press_time = 0.0
 
   def update(self, enabled: bool, base_floor: float, v_ego: float, blinker: bool, desire_active: bool,
              wheel_angle_deg: float, steering_pressed: bool) -> float:
-    """The floor to use: base_floor (the usual one) or STRAIGHT_FLOOR."""
-    if not enabled or base_floor >= STRAIGHT_FLOOR:
-      self.turning = False
-      return base_floor
-    trigger = bool(blinker or desire_active or steering_pressed or abs(wheel_angle_deg) > TURNING_ANGLE_DEG)
-    if v_ego >= HANDOVER_SPEED:
-      self.turning = False  # both floors agree from here; the next crawl starts afresh
-    elif v_ego < STOPPED_SPEED:
-      self.turning = trigger
+    """The floor to use: base_floor (the usual one), STRAIGHT_FLOOR, or one between (while blending)."""
+    v_ego = v_ego if math.isfinite(v_ego) else 0.0
+    self.press_time = self.press_time + DT if steering_pressed else 0.0
+    turning = bool(blinker or desire_active or self.press_time >= PRESS_HOLD_S)
+
+    if v_ego < STOPPED_SPEED:
+      # openpilot doesn't steer at a standstill, so the decision can be taken without a blend
+      at_angle = abs(wheel_angle_deg) > TURNING_ANGLE_DEG if math.isfinite(wheel_angle_deg) else True
+      self.target = 1.0 if (not enabled or turning or at_angle) else 0.0
+      self.usual = self.target
+    elif v_ego >= HANDOVER_SPEED:
+      self.target = self.usual = 1.0  # both floors agree here; a slow-down from above keeps the usual floor
     else:
-      self.turning = self.turning or trigger
-    return base_floor if (self.turning or v_ego >= HANDOVER_SPEED) else STRAIGHT_FLOOR
+      if turning or not enabled:
+        self.target = 1.0
+      self.usual = min(self.target, self.usual + DT / BLEND_S) if self.usual < self.target else self.target
+
+    straight = max(STRAIGHT_FLOOR, base_floor)
+    if self.usual >= 1.0 or base_floor >= straight:
+      return base_floor
+    # the floor that gives the blend of the two curvatures (a / max(v, f)^2); >= v_ego, so modeld's max() keeps it
+    inv = self.usual / max(v_ego, base_floor) ** 2 + (1.0 - self.usual) / max(v_ego, straight) ** 2
+    return 1.0 / math.sqrt(inv)

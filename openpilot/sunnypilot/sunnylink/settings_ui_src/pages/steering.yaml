@@ -790,11 +790,12 @@ sections:
     widget: toggle
     title: Calmer Straight Pull-Away
     description: 'Some models (Cheddar especially) are slightly off from straight while stopped, and that is read as a
-      tight curve the moment steering starts, so the wheel jerks to one side and then straightens. With this on, a pull-away
-      from a stop with no blinker, no turn, your hands off the wheel and the wheel near straight asks for much less steering
-      below 5.6 mph (like Calmer Crawl-Speed Steering). Turning on the blinker, a turn already started, steering by hand,
-      or a wheel wound past 30 degrees keeps full steering, so turns from a stop are unchanged. Off: FM Pilot''s previous
-      behavior. Not needed with Calmer Crawl-Speed Steering on.'
+      tight curve the moment steering starts, so the wheel jerks to one side and then straightens. With this on, pulling
+      away from a stop asks for much less steering below 5.6 mph (like Calmer Crawl-Speed Steering) when, at the stop,
+      there was no blinker or turn and the wheel was within 30 degrees of straight. A blinker or turn during the pull-away,
+      or steering it yourself for a moment, brings full steering back over half a second. Turns from a stop with the
+      blinker on, and slowing to crawl speed without stopping, are unchanged. Off: FM Pilot''s previous behavior. Not
+      needed with Calmer Crawl-Speed Steering on.'
   - key: FM_LateralSmoothingEnabled
     widget: toggle
     title: Lateral Smoothing
