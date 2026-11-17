@@ -105,6 +105,8 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
     no turn: 151 -> 20 us a step. `convert_carControlSP`: 110.6 -> 35.7 us a call.
 - **Same behavior, checked:** old against new code on the same random inputs, 160 drives / 229,044 control steps, 0
   differences (FmLateral output, the turnAssist record, Higher Torque, low-speed gain and feedforward, Release Guard).
+  The harnesses (real controlsd on a PC, the Turn Assist fuzz, the finding below) are in the project doc
+  `claude/code_review_scripts.md`.
   Two differences on purpose: Lane Guard switched on *while driving* starts as after a lane change (lines unguarded 1 s);
   the turn desire reaches Turn Assist at most one 10 ms step later.
 - **Also checked, nothing to fix:** Turn Assist fuzzed with 600 random drives incl. NaN / short / missing paths (no
