@@ -697,13 +697,17 @@ sections:
   - key: FM_NavMapStatus
     widget: info
     title: Nav Map
+    description: No download yet. Progress and the result of the last download show here (reload the page to update).
   - key: FM_NavMapInfo
     widget: info
     title: Map on the comma
-    description: What the saved map file holds, checked when the file changes and when Nav Assist starts a drive - file, size,
-      map date, the area it covers and the roads found around where the truck last was. It starts with "Map OK" when the
-      file reads and has roads there. Blank means the check hasn't run yet (the comma has to be off the road and on this
-      build). On the comma over SSH, python3 -m openpilot.sunnypilot.fm_nav.mapinfo prints the same line.
+    description: Not checked yet. Shows here once the comma has been parked on this build (reload the page to update).
+    details: What the saved map file holds, checked while parked whenever the file or the truck's saved GPS position changes,
+      and when Nav Assist starts a drive. File, size, map date, the area it covers and the number of road pieces around
+      where the truck last was. It starts with "Map OK" when the file reads and has roads there; otherwise it says why
+      (no map, can't read the file, no roads where the truck is, or the truck is outside the map's area). The same line
+      over SSH on the comma, from /data/openpilot - PYTHONPATH=/data/openpilot /usr/local/venv/bin/python3 -m
+      openpilot.sunnypilot.fm_nav.mapinfo
   - key: FM_NavTurnDesire
     widget: toggle
     title: Map Turn Desire

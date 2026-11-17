@@ -59,11 +59,44 @@ def _inject_dynamic_options(schema: dict) -> None:
   _walk_all_items(schema, visitor)
 
 
+# FM Pilot: text params whose current value is shown as the item's description, so it reads in Sunnylink whether or
+# not the frontend draws an info item's value. Empty or unreadable: the description from the YAML stays.
+FM_LIVE_TEXT_KEYS = ("FM_NavMapStatus", "FM_NavMapInfo")
+
+
+def _inject_fm_live_text(schema: dict, read: Callable[[str], object] | None = None) -> None:
+  if read is None:
+    try:
+      from openpilot.common.params import Params
+      read = Params().get
+    except Exception:
+      return
+  values: dict[str, str] = {}
+  for key in FM_LIVE_TEXT_KEYS:
+    try:
+      value = read(key)
+    except Exception:
+      continue
+    if isinstance(value, bytes):
+      value = value.decode("utf-8", "replace")
+    if isinstance(value, str) and value.strip():
+      values[key] = value.strip()
+  if not values:
+    return
+
+  def visitor(item: dict) -> None:
+    if item.get("key") in values:
+      item["description"] = values[item["key"]]
+
+  _walk_all_items(schema, visitor)
+
+
 def _load_definition() -> dict:
   """Load settings_ui.json and inject dynamic options sourced from runtime data files."""
   with open(DEFINITION_PATH) as f:
     schema = json.load(f)
   _inject_dynamic_options(schema)
+  _inject_fm_live_text(schema)
   return schema
 
 

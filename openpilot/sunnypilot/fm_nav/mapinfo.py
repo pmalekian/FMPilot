@@ -7,7 +7,10 @@ the Protomaps build it came from, the area it covers and how many roads it has a
 FM_NavMapInfo carries that line to Sunnylink: fm_navmapd refreshes it while parked (so it is there after a download or a
 file copy), fm_navassistd once it has opened the map for a drive.
 
-On the comma:  python3 -m openpilot.sunnypilot.fm_nav.mapinfo   (prints the same line plus the file's details)
+On the comma (SSH), from /data/openpilot:
+  PYTHONPATH=/data/openpilot /usr/local/venv/bin/python3 -m openpilot.sunnypilot.fm_nav.mapinfo
+prints the same line plus the file's path and time; exit status 1 when the map isn't usable.
+Sunnylink shows the line as the item's description (generate_settings_schema._inject_fm_live_text).
 """
 import datetime
 import glob
