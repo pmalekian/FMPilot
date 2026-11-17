@@ -2,8 +2,8 @@
 """
 FM Pilot Nav Assist process: publishes fmNavTurn, the next road leaving the truck's road to each side.
 
-Reads GPS, speed and yaw rate and a road map stored on the device (the first *.pmtiles in MAP_DIR, a Protomaps basemap
-extract). It sends nothing to the car and nothing to the model; whether anything acts on its message is another
+Reads GPS, speed and yaw rate and a road map stored on the device (the newest *.pmtiles in MAP_DIR: Download Nav Map's
+fm-nav.pmtiles, or a copied Protomaps extract). It sends nothing to the car and nothing to the model; whether anything acts on its message is another
 setting's business (Map Turn Desire). It runs on the small cores at normal priority, away from the control loops.
 
 No map file: it keeps publishing status noMap, so the log says why nothing was found.
@@ -24,7 +24,8 @@ MAP_RETRY_S = 30.0
 
 
 def open_map(directory: str = MAP_DIR) -> RoadMap | None:
-  for path in sorted(glob.glob(os.path.join(directory, "*.pmtiles"))):
+  """The newest readable *.pmtiles in the folder (Download Nav Map writes fm-nav.pmtiles; a copied file works too)."""
+  for path in sorted(glob.glob(os.path.join(directory, "*.pmtiles")), key=os.path.getmtime, reverse=True):
     try:
       return RoadMap(path)
     except Exception:

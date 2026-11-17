@@ -191,6 +191,7 @@ procs += [
 
   # FM Pilot Nav Assist
   PythonProcess("fm_navassistd", "openpilot.sunnypilot.fm_nav.navassistd", fm_nav_assist),
+  PythonProcess("fm_navmapd", "openpilot.sunnypilot.fm_nav.navmapd", only_offroad),
 
   # mapd
   NativeProcess("mapd", Paths.mapd_root(), ["bash", "-c", f"{MAPD_PATH} > /dev/null 2>&1"], mapd_ready),
