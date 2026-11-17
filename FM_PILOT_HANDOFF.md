@@ -11,7 +11,7 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
   (Higher Torque + radar settings) and adding the settings reorganization, Blendful and the boost bar; `fm-dev-torque`
   stays at `bece23e` as the fallback. `fm-dev-max` (`d189ccc`) is the everyday branch, installer `pmalekian/fm-dev-max`. Own fork of AdventurePilot `dev` (last synced `980dd5c`, Oct 31).
   **No more AP syncs**; borrow single pieces only if wanted.
-  **Newest: `fm-dev-max2`** (Nov 16) = `fm-dev-jet` `b627e6a` + the code-review fixes (item 0p), code at `a0d71b3`. `fm-dev-jet`
+  **Newest: `fm-dev-max2`** (Nov 16) = `fm-dev-jet` `b627e6a` + the code-review fixes (item 0p), code at `040bef2`. `fm-dev-jet`
   stays at `b627e6a` as the fallback.
 - **Keeping this file current:** whenever this handoff is updated, also write the updated copy into the Project with
   `project_write` (path `FM_PILOT_HANDOFF (3).md`, replacing the old one) in the same turn, so Frankie doesn't have to re-upload it.
@@ -116,16 +116,21 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 - **Tests:** 2297 pass off-device at `a0d71b3` (2269 at `b627e6a`: 27 new tests plus the jetlink seam test that failed before; nothing that passed before fails), the same 3 non-FM failures and 1 AP collection error as
   the baseline (Setup); `openpilot/selfdrive/car/tests` 293 pass (run separately, 5 min); tools 48.
 - **Found, not changed (his call):**
-  - **Turn Hold can pick up the wheel's angle as its peak while lateral is off.** When openpilot stops steering during a
-    held turn (e.g. the truck stops: no steering under 0.3 m/s), Turn Assist fades over 0.5 s, and in that time controlsd
-    passes the truck's own curvature as "the request", so the hold's peak rises to it. Reproduced on the module: request
-    0.03 before the stop, wheel at 0.12 at the stop -> 0.084-0.090 asked after pulling away, model still at 0.03, hands
-    off, Hold Adds Your Steering on or off. Needs the wheel wound tighter than anything asked during those 0.5 s, so it
-    should be rare. Fix would be one condition (no hold bookkeeping while lateral is off); it changes turn behavior, so
-    replay it on his logs first.
+  - **Turn Hold can pick up the wheel's angle as its peak while lateral is off: fixed, see "Built after" below.**
   - FmLateral re-reads 25 params in one control step once a second (156 us on a PC). Left as is.
   - Item 0n's hardwared stalls: still need the drive on the diagnostics build (they are in `fm-dev-max2`).
-- **Test drive:** a normal drive on `fm-dev-max2`, everything as on `00000073`. Nothing should feel different. Then send
+- **Built after (his call, Nov 16), `040bef2`: Hold Only Counts While Steering** (`FM_TurnHoldSteeringOnly`, Turn Hold Settings, **on**
+  by default). When openpilot stops steering during a held turn (the truck stops: no steering under 0.3 m/s; a steering
+  fault; lateral paused), controlsd passes the truck's own curvature as the request and Turn Assist takes 0.5 s to fade,
+  so the hold's peak could rise to the wheel's angle. On the module: 0.03 asked before a stop, wheel at 0.12 at the stop
+  -> 0.084-0.090 asked after pulling away with the model at 0.03, hands off, Hold Adds on or off; with the option on the
+  peak stays 0.03 and the request is the model's. With it on the hold block doesn't run while lateral is off: peak, 8 s,
+  75 deg, releases and the floor all wait. Identical while openpilot steers (test: 5000 random steps, on = off). Not seen
+  in a log yet and **not replayed on his logs** (none in the session): replay `00000073` --2/--4/--5/--7 (turns from a
+  stop) on vs off when the logs are at hand. Possibly related, unchecked: the garage lockouts (item 3) switch lateral
+  off with the wheel near lock. Tests: turn assist 174 pass (166); Sunnylink compiled and validated 10/10.
+- **Test drive:** a normal drive on `fm-dev-max2`, everything as on `00000073`. Nothing should feel different, except
+  possibly turns after a stop where the wheel was wound in tighter than the model asked (watch those). Then send
   one rlog segment: compare core 4 (card ~47 / controlsd ~28 / selfdrived ~24 % in `0000008e`) and controlsd's rate (70-89 Hz
   there) with the new build, and pull the `hardwared_slow_loop` events for item 0n. A Jetlink big-model swap is now
   worth trying parked (it would have taken modeld down before).
@@ -643,7 +648,7 @@ From `0000005e--e26703ace2--2` (Nov 9 build, Cheddar, Road Edge Turn Desire on):
 ## Next steps
 
 00000. Item 0p: put `fm-dev-max2` on the comma, one normal drive, send one rlog segment (core 4 load, controlsd rate) and
-   the `hardwared_slow_loop` events; decide on the Turn Hold lateral-off finding (replay first).
+   the `hardwared_slow_loop` events; replay Hold Only Counts While Steering on vs off on `00000073`'s turns from a stop.
 0000. Item 0n: drive `fm-dev-jet` `eb7550f` normally; pull `hardwared_slow_loop` events with `stack` from the
    qlogs; fix what they name. Later: core 4 load (card / controlsd / selfdrived).
 000. Item 0m: drive the same corners as `00000073` with A/B/C on (default) and the new logging; send rlogs; `turns.py`
