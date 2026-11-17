@@ -1120,3 +1120,77 @@ def test_controlsd_ext_logs_turn_assist_and_low_speed():
   host = SimpleNamespace(LaC=SimpleNamespace(), lane_centering=lc, get_lead_data=lambda *x: None)  # angle / PID steering
   cc = ControlsExt.state_control_ext(host, sm)
   assert cc.turnAssist.sign == 0 and cc.fmLowSpeed.gainScale == 1.0
+
+
+class TestHoldOnlyCountsWhileSteering:
+  """Hold Only Counts While Steering (FM_TurnHoldSteeringOnly, on by default): while openpilot isn't steering, controlsd
+  passes the truck's own curvature as the request and Turn Assist takes 0.5 s to fade out. Turn Hold must not take the
+  wheel's angle in that time as the turn's peak, nor run its clock or its degrees."""
+  KEY = "FM_TurnHoldSteeringOnly"
+
+  def _assist(self, on, **extra):
+    return FmTurnAssist(FakeParams(**({PARAM_HOLD: True, self.KEY: on} | extra)))
+
+  def _stop_with_the_wheel_wound_in(self, a):
+    run(a, 0.03, RIGHT, mph=3, steps=150)  # rolling up, openpilot steering, the model asks 33 m
+    assert a.peak == pytest.approx(0.03)
+    run(a, 0.12, RIGHT, mph=0.2, steps=50, actual=0.12, lat=False)  # stopped: the request is now the wheel's own 8 m
+    run(a, 0.12, RIGHT, mph=0.0, steps=300, actual=0.12, lat=False)  # waiting
+    return [run(a, 0.03, RIGHT, mph=3.4, actual=0.05) for _ in range(100)]  # pulling away, the model asks 33 m again
+
+  def test_off_takes_the_wheels_angle_as_the_peak(self):
+    a = self._assist(False)
+    after = self._stop_with_the_wheel_wound_in(a)
+    assert a.peak == pytest.approx(0.12)
+    assert after[-1] > 0.08  # about 11 m asked while the model asks 33 m
+
+  @pytest.mark.parametrize("extra", [{}, {PARAM_HOLD_DRIVER: True}, {PARAM_PHASE_IN: True, PARAM_HOLD_DEBOUNCE: True,
+                                                                      PARAM_HOLD_AT_TURN_IN: True}])
+  def test_on_keeps_the_peak_from_before_the_stop(self, extra):
+    a = self._assist(True, **extra)
+    after = self._stop_with_the_wheel_wound_in(a)
+    assert a.peak == pytest.approx(0.03)
+    assert all(o == pytest.approx(0.03) for o in after)
+    assert not a.hold_released
+
+  def test_on_adds_nothing_and_counts_nothing_while_not_steering(self):
+    a = self._assist(True)
+    run(a, 0.05, RIGHT, mph=8, steps=100)
+    peak, since, turn_time, heading = a.peak, a.since_peak, a.turn_time, a.heading
+    for _ in range(20):  # inside the 0.5 s fade: the request (the truck's curve) passes through untouched
+      assert run(a, 0.01, RIGHT, mph=8, actual=0.01, lat=False) == 0.01
+    assert (a.peak, a.since_peak, a.turn_time, a.heading) == (peak, since, turn_time, heading)
+    assert a.log_floor == 0.0 and not a.hold_released
+    # and with it off, the same 20 steps keep the clock and the degrees running
+    b = self._assist(False)
+    run(b, 0.05, RIGHT, mph=8, steps=100)
+    run(b, 0.01, RIGHT, mph=8, steps=20, actual=0.01, lat=False)
+    assert b.turn_time > turn_time and b.heading > heading
+
+  def test_on_a_press_against_the_turn_while_not_steering_does_not_release(self):
+    a = self._assist(True)
+    run(a, 0.05, RIGHT, mph=8, steps=100)
+    run(a, 0.02, RIGHT, mph=8, steps=30, actual=0.02, lat=False, pressed=True, torque=2.0)
+    assert not a.hold_released
+    # back to steering: the floor from the turn's own peak is there again
+    assert run(a, 0.01, RIGHT, mph=8, steps=FADE_STEPS, actual=0.02) > 0.02
+
+  def test_on_changes_nothing_while_steering(self):
+    import random
+    rng = random.Random(5)
+    on, off = self._assist(True, **{PARAM_HOLD_DRIVER: True}), self._assist(False, **{PARAM_HOLD_DRIVER: True})
+    direction, pressed, torque = RIGHT, False, 0.0
+    for i in range(5000):
+      if rng.random() < 0.01:
+        direction = rng.choice([NONE, LEFT, RIGHT])
+      if rng.random() < 0.02:
+        pressed, torque = not pressed, rng.uniform(-3, 3)
+      k, actual, mph = 0.05 * math.sin(i / 60), 0.04 * math.sin((i - 20) / 60), 6 + 4 * math.sin(i / 300)
+      args = {"mph": mph, "actual": actual, "pressed": pressed, "torque": torque}
+      assert run(on, k, direction, **args) == run(off, k, direction, **args)
+
+  def test_hold_adds_your_steering_still_takes_your_curve_while_steering(self):
+    a = self._assist(True, **{PARAM_HOLD_DRIVER: True})
+    run(a, 0.03, RIGHT, mph=5, steps=100)
+    run(a, 0.03, RIGHT, mph=5, steps=50, actual=0.10, pressed=True, torque=-2.0)  # pressing into the right turn
+    assert a.peak == pytest.approx(0.10)

@@ -46,6 +46,12 @@ them still applies.
     less than half of the hold's peak (it is letting go of the turn) and you aren't pressing into the turn, Turn Hold
     fades out over half a second instead of keeping its floor until 75 degrees. In 00000073 (--8 +34.8 s, --8 +46.5 s,
     --2 +45.8 s) the floor kept the request 1 to 2.5 s tighter than the model until he steered out.
+    Option Hold Only Counts While Steering (on by default): while openpilot isn't steering (the truck stopped: no
+    steering under 0.3 m/s; a steering fault; lateral paused) Turn Hold keeps no books: its peak, its 8 s and its 75
+    degrees stay as they were and it adds nothing. controlsd passes the truck's own curvature as the request then, and
+    Turn Assist takes half a second to fade out, so without this the hold could take the wheel's angle as the turn's
+    peak: asked 33 m before a stop with the wheel at 8 m, it asked about 11 m after pulling away while the model still
+    asked 33 m (reproduced on this module, Nov 16, 2026; not yet seen in a log).
   - Turn Lead starts the turn on time when a model turns in late. Between Turn Lead Min Speed (2 to 7 mph, default 7;
     full strength about 2.2 mph above it) and about 16 mph it reads the curve of the planned path 1.3 s ahead (4 to
     14 m) and, if that bends harder toward the turn than the model's request, asks for 85% of it instead. It fades out
@@ -117,6 +123,7 @@ PARAM_LEAD_GATE_DIST = "FM_TurnLeadGateDist"  # m
 PARAM_CARRY_TURN_IN = "FM_TurnCarryTurnInOnly"
 PARAM_HOLD_FOLLOW_EXIT = "FM_TurnHoldFollowExit"
 PARAM_HOLD_AT_TURN_IN = "FM_TurnHoldStartsAtTurnIn"
+PARAM_HOLD_STEERING_ONLY = "FM_TurnHoldSteeringOnly"
 
 BOOST_LIMITS = (1.0, 1.5)
 FULL_SPEED = 15 * CV.MPH_TO_MS
@@ -337,6 +344,7 @@ class FmTurnAssist:
     self.carry_turn_in_only = False
     self.hold_follow_exit = False
     self.hold_at_turn_in = False
+    self.hold_steering_only = False
     self.amount = 0.0  # 0..1 fade
     self._reset_turn(0)
     self._clear_log(0.0)
@@ -373,6 +381,7 @@ class FmTurnAssist:
     self.carry_turn_in_only = self.params.get_bool(PARAM_CARRY_TURN_IN)
     self.hold_follow_exit = self.params.get_bool(PARAM_HOLD_FOLLOW_EXIT)
     self.hold_at_turn_in = self.params.get_bool(PARAM_HOLD_AT_TURN_IN)
+    self.hold_steering_only = self.params.get_bool(PARAM_HOLD_STEERING_ONLY)
     try:
       gate = float(self.params.get(PARAM_LEAD_GATE_DIST, return_default=True) or LEAD_GATE_DIST_DEFAULT)
     except (TypeError, ValueError):
@@ -549,7 +558,10 @@ class FmTurnAssist:
 
     before_hold = out
     model_toward = sign * desired_curvature
-    if self.hold_enabled and not self.hold_released:
+    # Hold Only Counts While Steering: with lateral off the request coming in is the truck's own curvature, not a
+    # request, so the hold neither learns from it nor adds to it
+    hold_runs = lat_active or not self.hold_steering_only
+    if self.hold_enabled and not self.hold_released and hold_runs:
       clock_runs = not self.hold_at_turn_in or self.turned >= HOLD_CLOCK_TURNED
       if v_ego >= HOLD_MOVING_SPEED and clock_runs:
         self.turn_time += DT_CTRL  # time stopped (waiting to turn) doesn't count toward the 8 s

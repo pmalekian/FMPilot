@@ -876,6 +876,18 @@ sections:
       - type: param
         key: FM_TurnHoldEnabled
         equals: true
+    - key: FM_TurnHoldSteeringOnly
+      widget: toggle
+      title: Hold Only Counts While Steering
+      description: While openpilot isn't steering (the truck is stopped, or steering is paused or faulted), Turn Hold
+        ignores where the wheel is and its 8 seconds and 75 degrees don't count. Off, it can take the wheel's angle in
+        the half second after steering stops as the turn to hold, and turn in harder than the model asks when you pull
+        away. Hold Adds Your Steering still takes your curve when you press the wheel in while openpilot steers. On by
+        default.
+      enablement:
+      - type: param
+        key: FM_TurnHoldEnabled
+        equals: true
   - id: turn_lead_settings
     label: Turn Lead Settings
     trigger_key: FM_TurnLeadEnabled
