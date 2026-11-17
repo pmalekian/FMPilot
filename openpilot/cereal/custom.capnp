@@ -582,7 +582,41 @@ struct ModelDataV2SP @0xa1680744031fdb2d {
   }
 }
 
-struct CustomReserved10 @0xcb9fd56c7057593a {
+# FM Pilot Nav Assist: where the truck is on the stored road map and the next road leaving its road to each side
+# (openpilot/sunnypilot/fm_nav). Streets and service roads (parking and access roads) are reported apart.
+struct FmNavTurn @0xcb9fd56c7057593a {
+  status @0 :Status;
+  heading @1 :Float32;  # deg clockwise from north
+  gpsAccuracy @2 :Float32;  # m, as the receiver reports it
+  roadName @3 :Text;  # the road the truck is on
+  roadKind @4 :Text;
+  onService @5 :Bool;
+  crossTrack @6 :Float32;  # m from that road's centreline
+  left @7 :Pick;
+  right @8 :Pick;
+  leftService @9 :Pick;
+  rightService @10 :Pick;
+  tiles @11 :UInt8;
+  computeMs @12 :Float32;
+
+  struct Pick {
+    valid @0 :Bool;
+    distance @1 :Float32;  # m to the junction
+    angle @2 :Float32;  # deg, + right, the side road against the truck's heading
+    name @3 :Text;
+    kind @4 :Text;
+    count @5 :UInt8;  # roads found to this side within range
+    nextGap @6 :Float32;  # m from this junction to the next one (0 = none)
+  }
+
+  enum Status {
+    noFix @0;
+    ok @1;
+    noMap @2;
+    noHeading @3;
+    offRoad @4;
+    tooFast @5;
+  }
 }
 
 struct CustomReserved11 @0xc2243c65e0340384 {

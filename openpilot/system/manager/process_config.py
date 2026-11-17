@@ -100,6 +100,10 @@ def is_stock_model(started, params, CP: car.CarParams) -> bool:
   """Check if the active model runner is stock."""
   return bool(get_active_model_runner(params, not started) == custom.ModelManagerSP.Runner.stock)
 
+def fm_nav_assist(started: bool, params: Params, CP: car.CarParams) -> bool:
+  """FM Pilot Nav Assist: the map process runs only while driving with its setting on."""
+  return started and params.get_bool("FM_NavAssist")
+
 def mapd_ready(started: bool, params: Params, CP: car.CarParams) -> bool:
   return bool(os.path.exists(Paths.mapd_root()))
 
@@ -184,6 +188,9 @@ procs += [
 
   # Backup
   PythonProcess("backup_manager", "openpilot.sunnypilot.sunnylink.backups.manager", and_(only_offroad, sunnylink_ready_shim)),
+
+  # FM Pilot Nav Assist
+  PythonProcess("fm_navassistd", "openpilot.sunnypilot.fm_nav.navassistd", fm_nav_assist),
 
   # mapd
   NativeProcess("mapd", Paths.mapd_root(), ["bash", "-c", f"{MAPD_PATH} > /dev/null 2>&1"], mapd_ready),
