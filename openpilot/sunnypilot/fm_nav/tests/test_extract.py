@@ -69,7 +69,7 @@ def build_source(path, radius_m=6000, empty_every=7):
 
 class RangeServer:
   def __init__(self, files):
-    self.files, self.requests = files, []
+    self.files, self.requests, self.ignore_range, self.full_bodies = files, [], False, 0
     outer = self
 
     class H(BaseHTTPRequestHandler):
@@ -92,6 +92,14 @@ class RangeServer:
 
       def do_GET(self):
         p = self._file()
+        if outer.ignore_range:  # a server that sends the whole file
+          self.send_response(200)
+          self.send_header('Content-Length', str(os.path.getsize(p)))
+          self.end_headers()
+          outer.full_bodies += 1
+          with open(p, 'rb') as f:
+            self.wfile.write(f.read())
+          return
         a, b = (int(v) for v in self.headers['Range'].split('=')[1].split('-'))
         outer.requests.append((a, b))
         with open(p, 'rb') as f:
@@ -170,6 +178,18 @@ class TestExtract:
       srv.close()
 
 
+  def test_a_server_that_ignores_range_is_refused(self, source):
+    path, _, _ = source
+    srv = RangeServer({"world.pmtiles": str(path)})
+    srv.ignore_range = True
+    try:
+      src = X.HttpSource(srv.url + "world.pmtiles")
+      with pytest.raises(ValueError, match="answered 200"):
+        src.read(0, 127)
+    finally:
+      srv.close()
+
+
 class FakeParams:
   def __init__(self, **kv):
     self.kv = dict(kv)
@@ -194,8 +214,8 @@ class TestDownloader:
     monkeypatch.setattr(navmapd, "BUILD_URL", srv.url + "{}.pmtiles")
     monkeypatch.setattr(navmapd, "RADIUS_MI", 2)
     p = FakeParams(FM_NavMapDownload=True, LastGPSPositionLLK=json.dumps({"latitude": LAT, "longitude": LON}), **params)
-    d = navmapd.Downloader(p, map_dir=str(tmp_path / "fmnav"), now=lambda: datetime.datetime(2026, 11, 16, 7, 0),
-                           onroad=lambda: bool(p.kv.get("IsOnroad")))
+    p.kv.setdefault("IsOffroad", True)
+    d = navmapd.Downloader(p, map_dir=str(tmp_path / "fmnav"), now=lambda: datetime.datetime(2026, 11, 16, 7, 0))
     return d, p, srv
 
   def test_downloads_and_replaces_the_old_map(self, source, tmp_path, monkeypatch):
@@ -220,10 +240,10 @@ class TestDownloader:
       srv.close()
     assert p.kv["FM_NavMapStatus"].startswith("Failed: no position") and p.kv["FM_NavMapDownload"] is False
 
-  def test_older_position_param_is_used(self):
-    p = FakeParams(LastGPSPosition=json.dumps({"latitude": 42.0, "longitude": -88.0}))
-    assert navmapd.last_position(p) == (42.0, -88.0)
-    assert navmapd.last_position(FakeParams(LastGPSPositionLLK='{"latitude": 0, "longitude": 0}')) is None
+  def test_position_param(self):
+    assert navmapd.last_position(FakeParams(LastGPSPositionLLK='{"latitude": 42.0, "longitude": -88.0, "altitude": 200}')) == (42.0, -88.0)
+    for bad in ('{"latitude": 0, "longitude": 0}', '{"latitude": 42.0}', 'not json', None):
+      assert navmapd.last_position(FakeParams(LastGPSPositionLLK=bad)) is None
 
   def test_no_build_keeps_the_old_map(self, source, tmp_path, monkeypatch):
     d, p, srv = self.make(source, tmp_path, monkeypatch)
@@ -238,7 +258,7 @@ class TestDownloader:
     assert p.kv["FM_NavMapStatus"].startswith("Failed: no Protomaps build") and p.kv["FM_NavMapDownload"] is False
 
   def test_driving_stops_it_and_leaves_the_setting_on(self, source, tmp_path, monkeypatch):
-    d, p, srv = self.make(source, tmp_path, monkeypatch, IsOnroad=True)
+    d, p, srv = self.make(source, tmp_path, monkeypatch, IsOffroad=False)
     try:
       d.step()
     finally:
@@ -287,3 +307,21 @@ def test_newest_map_is_used(tmp_path):
   m = navassistd.open_map(str(tmp_path))
   assert m.archive.source.f.name == str(new) or math.isclose(os.path.getmtime(m.archive.source.f.name), os.path.getmtime(new))
   m.close()
+
+
+def test_every_param_the_nav_features_use_exists():
+  """A key missing from params_keys.h raises on the device; the fakes in these tests would hide it."""
+  import re
+  root = os.path.join(os.path.dirname(__file__), "..", "..", "..")
+  keys = set(re.findall(r'\{"(\w+)", \{', open(os.path.join(root, "common", "params_keys.h")).read()))
+  files = ["sunnypilot/fm_nav/navmapd.py", "sunnypilot/fm_nav/navassistd.py", "system/manager/process_config.py",
+           "sunnypilot/selfdrive/controls/lib/fm_nav_turn_desire.py", "sunnypilot/selfdrive/controls/lib/fm_nav_turn_speed.py",
+           "selfdrive/ui/sunnypilot/ui_state.py"]
+  used = set()
+  for f in files:
+    text = open(os.path.join(root, f)).read()
+    used |= set(re.findall(r'params\.(?:get_bool|get|put|put_bool)\("(\w+)"', text))
+    used |= set(re.findall(r'^PARAM_\w+ = "(\w+)"', text, re.M)) | set(re.findall(r'^POSITION_PARAM = "(\w+)"', text, re.M))
+  assert {"FM_NavAssist", "FM_NavTurnDesire", "FM_NavTurnSpeed", "FM_NavTurnSpeedMph", "FM_NavMapDownload", "FM_NavMapStatus",
+          "FM_TopReadout", "IsOffroad", "LastGPSPositionLLK"} <= used
+  assert used - keys == set()  # every key these files read or write, FM's or not

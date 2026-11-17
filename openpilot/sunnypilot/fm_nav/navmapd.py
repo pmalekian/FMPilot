@@ -3,7 +3,7 @@
 FM Pilot Nav Assist: Download Nav Map.
 
 Runs only while parked. When FM_NavMapDownload is turned on (Sunnylink), it downloads the roads within RADIUS_MI miles of
-where the truck last was (locationd's LastGPSPositionLLK, written once a minute while driving) from the newest daily
+where the truck last was (locationd's LastGPSPositionLLK, written once a minute while it has GPS) from the newest daily
 Protomaps world build, and saves them as MAP_DIR/fm-nav.pmtiles for Nav Assist. Progress and the result are shown in
 FM_NavMapStatus. Then it turns FM_NavMapDownload off again.
 
@@ -30,22 +30,19 @@ MAP_NAME = "fm-nav.pmtiles"
 PART_NAME = ".fm-nav.pmtiles.part"
 SPACE_MARGIN = 100 * 1024 * 1024
 STATUS_PERIOD = 2.0
-POSITION_PARAMS = ("LastGPSPositionLLK", "LastGPSPosition")
+POSITION_PARAM = "LastGPSPositionLLK"  # locationd, once a minute while it has GPS
 
 
 def last_position(params) -> tuple[float, float] | None:
-  for key in POSITION_PARAMS:
-    try:
-      raw = params.get(key)
-      if not raw:
-        continue
-      pos = json.loads(raw) if isinstance(raw, (str, bytes)) else raw
-      lat, lon = float(pos["latitude"]), float(pos["longitude"])
-      if -85 < lat < 85 and -180 <= lon <= 180 and (lat, lon) != (0.0, 0.0):
-        return lat, lon
-    except (KeyError, TypeError, ValueError):
-      continue
-  return None
+  try:
+    raw = params.get(POSITION_PARAM)
+    if not raw:
+      return None
+    pos = json.loads(raw) if isinstance(raw, (str, bytes)) else raw
+    lat, lon = float(pos["latitude"]), float(pos["longitude"])
+  except (KeyError, TypeError, ValueError):
+    return None
+  return (lat, lon) if -85 < lat < 85 and -180 <= lon <= 180 and (lat, lon) != (0.0, 0.0) else None
 
 
 def newest_build(open_source, today: datetime.date):
@@ -70,7 +67,7 @@ class Downloader:
     self.map_dir = map_dir
     self.open_source = open_source or extract.HttpSource
     self.now = now or datetime.datetime.now
-    self.onroad = onroad or (lambda: params.get_bool("IsOnroad"))
+    self.onroad = onroad or (lambda: not params.get_bool("IsOffroad"))
     self.status_t = 0.0
 
   def status(self, text: str, force: bool = True) -> None:

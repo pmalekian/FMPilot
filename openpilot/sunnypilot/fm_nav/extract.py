@@ -13,17 +13,18 @@ import json
 import math
 import os
 import struct
+from bisect import bisect_left
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 
-from openpilot.sunnypilot.fm_nav.pmtiles import HEADER_LENGTH, PMTiles, decode_directory, tile_id
+from openpilot.sunnypilot.fm_nav.pmtiles import HEADER_LENGTH, PMTiles, tile_id
 from openpilot.sunnypilot.fm_nav.vector_tile import fields
 
 ZOOM = 15
 MILE = 1609.344
 EARTH_RADIUS = 6371008.8
 MERGE_GAP = 256 * 1024  # bytes between two wanted tiles below which one request reads both
-MAX_REQUEST = 8 * 1024 * 1024  # bytes per range request
+MAX_REQUEST = 4 * 1024 * 1024  # bytes per range request; THREADS * 2 of them are in memory at most
 ROOT_MAX = 16384 - HEADER_LENGTH  # PMTiles: header and root directory fit in the first 16 KiB
 LEAF_ENTRIES = 4096
 KEEP_LAYERS = (b'roads',)
@@ -118,7 +119,7 @@ def locate_all(archive: PMTiles, ids: list[int]) -> list[tuple[int, int, int]]:
   wanted = sorted(set(ids))
   found = []
 
-  def walk(offset, length, lo, hi, depth):
+  def walk(offset, length, depth):
     if depth > 3:
       raise ValueError("PMTiles directory nesting exceeds four levels")
     dir_ids, entries = archive.directory(offset, length)
@@ -127,18 +128,13 @@ def locate_all(archive: PMTiles, ids: list[int]) -> list[tuple[int, int, int]]:
       nxt = dir_ids[i + 1] if i + 1 < len(dir_ids) else 1 << 62
       if run:
         # tiles tid .. tid + run - 1 share these bytes
-        for w in wanted[_bisect(wanted, tid):_bisect(wanted, min(tid + run, nxt))]:
+        for w in wanted[bisect_left(wanted, tid):bisect_left(wanted, min(tid + run, nxt))]:
           found.append((w, archive.data_offset + off, ln))
-      elif _bisect(wanted, nxt) > _bisect(wanted, tid):
-        walk(archive.leaf_offset + off, ln, tid, nxt, depth + 1)
+      elif bisect_left(wanted, nxt) > bisect_left(wanted, tid):
+        walk(archive.leaf_offset + off, ln, depth + 1)
 
-  walk(archive.root_offset, archive.root_length, 0, 1 << 62, 0)
+  walk(archive.root_offset, archive.root_length, 0)
   return found
-
-
-def _bisect(a, x):
-  from bisect import bisect_left
-  return bisect_left(a, x)
 
 
 def extract(archive: PMTiles, lat: float, lon: float, radius: float, out_path: str,
@@ -161,8 +157,8 @@ def extract(archive: PMTiles, lat: float, lon: float, radius: float, out_path: s
   downloaded = 0
   try:
     with open(data_path, 'wb') as data, ThreadPoolExecutor(max_workers=threads) as pool:
-      for start in range(0, len(requests), threads * 4):
-        batch = requests[start:start + threads * 4]
+      for start in range(0, len(requests), threads * 2):
+        batch = requests[start:start + threads * 2]
         if cancelled is not None and cancelled():
           raise Cancelled()
         for (offset, length, members), blob in zip(batch, pool.map(lambda r: archive.read(r[0], r[1]), batch), strict=True):
@@ -251,7 +247,7 @@ class HttpSource:
     import requests
     self.url, self.timeout, self.retries = url, timeout, retries
     self.session = requests.Session()
-    r = self.session.head(url, timeout=timeout, allow_redirects=True)
+    r = self.session.head(url, timeout=timeout, allow_redirects=True, headers={"Accept-Encoding": "identity"})
     r.raise_for_status()
     self.size = int(r.headers['Content-Length'])
 
@@ -259,10 +255,19 @@ class HttpSource:
     last = None
     for _ in range(self.retries):
       try:
-        r = self.session.get(self.url, headers={"Range": f"bytes={offset}-{offset + length - 1}"}, timeout=self.timeout)
-        if r.status_code == 206 and len(r.content) == length:
-          return r.content
-        last = ValueError(f"range request returned {r.status_code}, {len(r.content)} of {length} bytes")
+        # streamed, so a server that ignores Range (200, the whole 100+ GB file) is refused before any body is read
+        headers = {"Range": f"bytes={offset}-{offset + length - 1}", "Accept-Encoding": "identity"}
+        with self.session.get(self.url, headers=headers, timeout=self.timeout, stream=True) as r:
+          if r.status_code >= 500:
+            raise ConnectionError(f"server error {r.status_code}")
+          if r.status_code != 206:
+            raise ValueError(f"range request answered {r.status_code}")
+          body = r.raw.read(length + 1, decode_content=True)
+        if len(body) == length:
+          return body
+        last = ValueError(f"range request returned {len(body)} of {length} bytes")
+      except ValueError:
+        raise
       except Exception as e:  # network errors: retry
         last = e
     raise last
@@ -292,11 +297,3 @@ def check_archive(path: str, lat: float, lon: float) -> int:
   finally:
     a.close()
 
-
-def decode_check(path):
-  """Every directory and tile of an archive decodes (tests)."""
-  from openpilot.sunnypilot.fm_nav.pmtiles import LocalFile
-  a = PMTiles(LocalFile(path))
-  ids, entries = decode_directory(gzip.decompress(a.read(a.root_offset, a.root_length)))
-  a.close()
-  return len(ids)
