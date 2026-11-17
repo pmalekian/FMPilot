@@ -1,6 +1,6 @@
 # FM Pilot: handoff for new chats (short)
 
-State as of Nov 16, 2026 (code review of everything above AdventurePilot: fixes on `fm-dev-max2`, item 0p; Nav Assist plan, item 0o; comm warnings traced to hardwared stalls, stall diagnostics built, item 0n; Nov 13: drive `00000073` analyzed, item 0l; Turn Assist logging + fixes A/B/C built, item 0m). This is the current state only. Background findings, past drive analyses and
+State as of Nov 16, 2026 (Nav Assist map logging + Map Turn Desire built on `fm-dev-nav`, off, item 0o; code review of everything above AdventurePilot: fixes on `fm-dev-max2`, item 0p; comm warnings traced to hardwared stalls, stall diagnostics built, item 0n; Nov 13: drive `00000073` analyzed, item 0l; Turn Assist logging + fixes A/B/C built, item 0m). This is the current state only. Background findings, past drive analyses and
 the ideas backlog are in `claude/FM_PILOT_FINDINGS.md`: read it only when a task needs that history. Features, settings
 and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 
@@ -11,7 +11,8 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
   (Higher Torque + radar settings) and adding the settings reorganization, Blendful and the boost bar; `fm-dev-torque`
   stays at `bece23e` as the fallback. `fm-dev-max` (`d189ccc`) is the everyday branch, installer `pmalekian/fm-dev-max`. Own fork of AdventurePilot `dev` (last synced `980dd5c`, Oct 31).
   **No more AP syncs**; borrow single pieces only if wanted.
-  **Newest: `fm-dev-max2`** (Nov 16) = `fm-dev-jet` `b627e6a` + the code-review fixes (item 0p), code at `040bef2`. `fm-dev-jet`
+  **Newest: `fm-dev-nav`** (Nov 16) = `fm-dev-max2` `196f750` + Nav Assist (item 0o), all off by default.
+  `fm-dev-max2` (Nov 16) = `fm-dev-jet` `b627e6a` + the code-review fixes (item 0p), code at `040bef2`. `fm-dev-jet`
   stays at `b627e6a` as the fallback.
 - **Keeping this file current:** whenever this handoff is updated, also write the updated copy into the Project with
   `project_write` (path `FM_PILOT_HANDOFF (3).md`, replacing the old one) in the same turn, so Frankie doesn't have to re-upload it.
@@ -135,33 +136,47 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
   there) with the new build, and pull the `hardwared_slow_loop` events for item 0n. A Jetlink big-model swap is now
   worth trying parked (it would have taken modeld down before).
 
-### 0o. Nav Assist for the small models (Nov 16): researched and planned, nothing built
+### 0o. Nav Assist (Nov 16): map logging + Map Turn Desire built on `fm-dev-nav`, both OFF, not on the device
 
-- Plan: `claude/FM_PILOT_NAV_ASSIST_PLAN.md` (project doc). His goal: map/nav data helps TSFDOM-class models start turns on
-  time and shape sharp turns they can't see; full nav assist if reachable; no map curve speed.
-- State of the art (Nov 16): openpilot master has the nav alpha (navd, mapsd, athena `setNavDestination`, developer
-  toggle); only big chestnut models on the unmerged `nav-model-integration` branch take map input (`nav_map` 256x256 +
-  47-float `navigation`). Connect's destination UI is an unmerged branch and prime only. sunnypilot master has the
-  same daemons, not wired; contributor branch `turn-plan-floor` tried signal routes, a 0.75x plan floor and a turn
-  template (open-loop only; stacking turn layers made turns unreliable on the road). StarPilot Dom: phone nav (Galaxy,
-  share links), turn desire when the blinker matches a nav turn (< 14 m/s), turn speed ceiling; no map steering.
-- Key fact: the small model's wide input spans ~59° (sbigmodel focal 455, 512 px), so in a 90° turn the exit lane
-  enters view only after ~55-60° turned. His Loop A turns (R 12-14 m rolling, turn-in ~11 m before the corner
-  middle) match a straight-arc-straight template with tangent length R x tan(angle / 2).
-- Proposal: `fm_navassistd` (offline Protomaps roads + optional Mapbox route; GPS + odometry; corner fused with the
-  plan's corner) publishes `fmNavTurn`; Map Turn Desire + desire timing; Map Turn Profile as a toward-the-turn floor in
-  `FmTurnAssist`, handing back to the model at ~55-60° turned, replacing (not stacking on) Lead's gate and Hold's
-  timer when confident; blinker required; phone destinations via share sheet -> comma. Track B: comma's RL nav model
-  through a Jetlink fork on the Mac (replaces TSFDOM while selected: his call). Track C: learned adapter.
-- **Phase 0 on Loop A `00000032` (Nov 16, plan section 8):** map `C:\FMPilot\maps\fm-chicagoland.pmtiles` (Protomaps
-  20261116, 118 MB). u-blox GPS 10 Hz, ~2 m, 0.2 m jitter; his turn-in point repeats within 1-3 m of the map corner;
-  map turn angle |err| p50 6° / p90 12°; signal mode picked the right street 33/33 (few side streets on Loop A). TSFDOM
-  was roughly on time on these rolling turns, and a generic map arc did **not** beat its action (RMS 18.0 vs 15.9e-3
-  1/m vs his line). Decision: map for intent/timing/hold release; map path only when the model clearly
-  under-commits, preferably from his own recorded line per corner ("corner memory").
-- Next: Phase 0 on `00000073--9033a9dddc` --0..--8 (turns from a stop) and a drive with dense side streets. Scripts:
-  project doc `claude/nav_phase0_scripts.md`. The Nav session had no push permission: its plan and scripts are project
-  docs only; this handoff item reached GitHub with the code-review session's push to `fm-dev-max2`.
+- **Branch `fm-dev-nav`** = `fm-dev-max2` `196f750` + this item. Plan, research and Phase 0 numbers: project doc
+  `claude/FM_PILOT_NAV_ASSIST_PLAN.md`; Phase 0 scratch scripts: `claude/nav_phase0_scripts.md`.
+- **Built:**
+  - **Nav Assist** (`FM_NavAssist`, Steering > FM Pilot: Turn Tweaks): process `fm_navassistd` (`sunnypilot/fm_nav/`), only
+    while driving with the setting on, small cores, normal priority. GPS (u-blox) + speed + yaw rate + the road map in
+    `/data/media/0/fmnav/*.pmtiles` -> `fmNavTurn` at 5 Hz: road the truck is on, next road to each side within 80 m
+    (streets and service roads apart), status ok / noMap / noFix / noHeading / offRoad / tooFast. No destination, no
+    model input, nothing to the car. Runs the same with Jetlink (own process; it doesn't touch modeld).
+  - **Map Turn Desire** (`FM_NavTurnDesire`, same page): 20-35 mph, blinker toward a mapped **street** on that side:
+    no lane change while it is in range, turn desire once the junction is within ~6 s (35-80 m), held until the blinker
+    is cancelled; needs lateral on and a clear blind spot; a blinker that already changed lanes never becomes a turn;
+    under 20 mph unchanged. In `DesireHelper` (both modeld's, so with a Jetlink big model too). Logged:
+    `modelDataV2SP.fmNavTurnArmed/Active`.
+  - **`tools/fm/nav.py`**: per blinker, the pick vs where the truck went, and what Map Turn Desire did or would do
+    (the real class on the logged inputs). Logged `fmNavTurn` if present, else replay with `--map`.
+- **Offline, the real code on his logs** (~95 min: Loop A `00000032`, `00000073`, Nov 16 `00000089`/`0000008d`, Nov 3
+  `0000002d` incl. highway): street turns 46 right / 0 wrong / 1 none (a 51 deg bend onto an unnamed road); Map Turn
+  Desire would have started on 17 blinkers: 16 toward the street he took on that blinker (2.8-25 s before turn-in) and
+  1 on a blinker that lapsed before the turn (`00000073--2` +31.8, toward Gerber, which he took 12 s later on a new
+  blinker); 0 on the other 15 no-turn blinks. Before the lane-change latch it started once wrongly (`0000002d--50` +5.5: lane change at 42 mph,
+  blinker left on braking for a light, Euclid Avenue 80 m ahead): that case is now a test. As a real process on a PC
+  (segment replayed in real time): 5.0 Hz, 1.4 ms median per update, 166 ms once when a map tile loads.
+  **Not measured: CPU on the comma, GPS in a garage, dense side streets.**
+- **Phase 0 findings that shaped it** (plan sections 8-10): u-blox GPS 10 Hz, ~2 m reported, 0.2 m jitter; his turn-in
+  is ~10-12 m before the map corner and repeats within ~2-3 m across days; TSFDOM's own action asked 30-58% of the
+  turning driven on turns from a stop / onto service roads (`00000073`) vs 88% rolling; OPM16D on the same corners
+  (Nov 16) asked 93-121% rolling and on service roads, 59-70% from a full stop (one pass each). A generic map arc was no
+  better than TSFDOM's action on rolling turns, so **no map steering was built**. 4 of 7 problem turns on `00000073` are
+  onto unnamed OSM `service` roads: logged (`leftService`/`rightService`) but never used, because turning them on gave a
+  wrong aisle in the same lot twice and one false trigger.
+- **To put on the truck** (commands in the Nov 16 chat; repeat if asked):
+  1. PowerShell: `ssh comma@192.168.1.246 "mkdir -p /data/media/0/fmnav"` then
+     `scp -O C:\FMPilot\maps\fm-chicagoland.pmtiles comma@192.168.1.246:/data/media/0/fmnav/` (118 MB).
+  2. Switch the comma to `fm-dev-nav`; first boot rebuilds (cereal and params changed).
+  3. Nav Assist on, Map Turn Desire off. Drive normally a few days, alternating TSFDOM / OPM16D if he likes.
+  4. Send rlogs: `nav.py` (picks vs turns), `fmNavTurn.computeMs`, per-process CPU and core 4 vs item 0n's numbers.
+  5. Only then Map Turn Desire on, on roads where he signals above 20 mph for a turn.
+- **Next after a week of logs:** street mix-ups in dense areas; a gate for service roads (already on one, or slowing
+  under ~12 mph); desire timing by distance to turn-in; then decide on any steering help for turns from a stop.
 
 ### 0n. "Low Communication Rate" warnings = hardwared stalls (Nov 16); stall diagnostics on `fm-dev-jet` `eb7550f`: built, always on, not driven
 
@@ -665,8 +680,8 @@ From `0000005e--e26703ace2--2` (Nov 9 build, Cheddar, Road Edge Turn Desire on):
 3. Smoother stops: his answers to item 5, then decide whether to build the taper (off by default).
 4. Older: analyze Nov 4 routes `0000002e`, `0000002f`, `00000030`, `00000033`, `00000034`, `00000035` (Turn Assist with
    fixes) and the Camera Offset pull test (`C:\fmlogs\2026-11-04`). Turn Boost / Hold speed limit to 20 → 25 mph.
-5. Nav Assist (item 0o): Phase 0 first (map extract on his PC, GPS check, map replay of logged turns). The old
-   `claude/FM_PILOT_NAV_PLAN.md` is retired (he asked to start fresh Nov 16).
+5. Nav Assist (item 0o): map file onto the comma, `fm-dev-nav`, Nav Assist on / Map Turn Desire off for a few days,
+   then `tools/fm/nav.py` on the rlogs. The old `claude/FM_PILOT_NAV_PLAN.md` is retired.
 
 ## Key facts in one line each (details in claude/FM_PILOT_FINDINGS.md)
 
@@ -681,4 +696,5 @@ From `0000005e--e26703ace2--2` (Nov 9 build, Cheddar, Road Edge Turn Desire on):
   (`fm_apply_model_settings`), never to `model`; a new hook call needs an answer in `jetlink_adapter._Off` (tests hold both).
 - Code on the 100 Hz loops (controlsd, card): no SubMaster updates inside the step, no numpy scalar calls or log writes
   when there is nothing to do (`fm_math.step_toward`, `test_fm_step_cost.py`).
+- Nav Assist only reads the map and logs; Map Turn Desire is the only thing that acts on it, and only on streets.
 - For other assistants (ChatGPT, Gemini), paste `claude/FM_PILOT_BRIEF_FOR_OTHER_AIS.md`. Check their claims before use.
