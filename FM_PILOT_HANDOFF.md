@@ -231,10 +231,14 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
   Download Nav Map (`fm_nav/mapinfo.py`): opens the newest `.pmtiles` like Nav Assist, one line: file, size, Protomaps build, area
   covered, road pieces found around `LastGPSPositionLLK`, starts "Map OK" or says why not (no map / can't read / no roads at the truck /
   truck outside the area). `fm_navmapd` refreshes it while parked when the file or position changes; `fm_navassistd` when it opens the
-  map. On the comma: `python3 -m openpilot.sunnypilot.fm_nav.mapinfo` (exit 1 when not usable). Tests 8 (`test_mapinfo.py`), nav 57 pass.
-  **Not seen on the device.** His Nov 17 08:12 screenshot had the download switch on and the "Nav Map" status blank; never learned why
-  (the diagnostic output was not posted; the status param may simply have been unset, or the build wasn't `fm-dev-nav` yet). Sunnylink
-  `info` items do show string params elsewhere (`ScreenSaverCustomText`), but whether it shows ours is unverified: use the SSH line if blank.
+  map. **Shown as the item's description:** whether Sunnylink's web app draws an `info` item's value is not in the repo (his Nov 17
+  08:12 screenshot: "Nav Map" row blank, cause never learned), so `generate_settings_schema._inject_fm_live_text` puts the current
+  `FM_NavMapStatus` / `FM_NavMapInfo` text in the description at each `getParamsMetadata` (checked through the real RPC on a PC);
+  blank keeps the YAML text, reload the page to refresh. Over SSH, from `/data/openpilot`:
+  `PYTHONPATH=/data/openpilot /usr/local/venv/bin/python3 -m openpilot.sunnypilot.fm_nav.mapinfo` (exit 1 when not usable; full venv
+  path because jetlink's on-device scripts use it, bare `python3` over SSH unverified). Checked on a PC with real `Params` (note:
+  `put` without `block=True` lands a moment later) and locationd's `LastGPSPositionLLK` format. Tests 9 (`test_mapinfo.py`), nav +
+  sunnylink 135 pass. **Not seen on the device.**
   Also: core 4 at ~100% is old (Nov 16 `0000008e`), not nav's; advised Map Turn Desire and Nav Turn Speed off for the first drives.
 - **To put on the truck** (commands in the Nov 16 chat; repeat if asked):
   1. Map: Sunnylink > Steering > FM Pilot: Turn Tweaks > Download Nav Map, parked with internet (or copy a `.pmtiles`
