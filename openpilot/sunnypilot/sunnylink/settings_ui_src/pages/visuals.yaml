@@ -44,6 +44,22 @@ sections:
       This displays what the car is currently doing, not what the planner is requesting.
     visibility:
     - $ref: '#/macros/hide_on_mici'
+  - key: FM_TopReadout
+    widget: option
+    title: 'FM Pilot: Top Readout'
+    description: 'The line at the top center of the comma 4 road view. Torque: sent / limit now / Max Torque and whether
+      the steering is taking it. CPU (Avg): core 4 (where the control loops run) / average of the other cores / hottest
+      CPU temperature, like "4: 99% / A: 68% / 68°C". CPU (Busiest): the same with the busiest other core, "B: 74%".
+      Core 4 turns amber at 95%.'
+    options:
+    - value: 0
+      label: 'Off'
+    - value: 1
+      label: Torque (Default)
+    - value: 2
+      label: CPU (Avg)
+    - value: 3
+      label: CPU (Busiest)
   - key: ChevronInfo
     widget: option
     title: Display Metrics Below Chevron

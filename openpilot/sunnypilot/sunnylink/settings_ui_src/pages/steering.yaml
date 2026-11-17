@@ -687,6 +687,16 @@ sections:
     description: Runs the map process while driving. From GPS and a road map stored on the comma (a .pmtiles file in
       /data/media/0/fmnav) it works out which road you are on and the next street to each side, and writes that to the
       drive log. By itself it changes nothing about how the truck drives. Without the map file it logs "no map".
+  - key: FM_NavMapDownload
+    widget: toggle
+    title: Download Nav Map
+    description: Turn on while parked with internet (Wi-Fi or your phone's hotspot) to download the roads within 50 miles
+      of where the truck last was, for Nav Assist. Uses roughly 150-300 MB of data; the saved map is much smaller. It
+      turns itself off when done. If you start driving first, it starts over the next time you park. Progress and the
+      result show below.
+  - key: FM_NavMapStatus
+    widget: info
+    title: Nav Map
   - key: FM_NavTurnDesire
     widget: toggle
     title: Map Turn Desire

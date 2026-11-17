@@ -1208,6 +1208,17 @@
               "description": "Runs the map process while driving. From GPS and a road map stored on the comma (a .pmtiles file in /data/media/0/fmnav) it works out which road you are on and the next street to each side, and writes that to the drive log. By itself it changes nothing about how the truck drives. Without the map file it logs \"no map\"."
             },
             {
+              "key": "FM_NavMapDownload",
+              "widget": "toggle",
+              "title": "Download Nav Map",
+              "description": "Turn on while parked with internet (Wi-Fi or your phone's hotspot) to download the roads within 50 miles of where the truck last was, for Nav Assist. Uses roughly 150-300 MB of data; the saved map is much smaller. It turns itself off when done. If you start driving first, it starts over the next time you park. Progress and the result show below."
+            },
+            {
+              "key": "FM_NavMapStatus",
+              "widget": "info",
+              "title": "Nav Map"
+            },
+            {
               "key": "FM_NavTurnDesire",
               "widget": "toggle",
               "title": "Map Turn Desire",
@@ -2720,6 +2731,30 @@
                     "field": "device_type",
                     "equals": "mici"
                   }
+                }
+              ]
+            },
+            {
+              "key": "FM_TopReadout",
+              "widget": "option",
+              "title": "FM Pilot: Top Readout",
+              "description": "The line at the top center of the comma 4 road view. Torque: sent / limit now / Max Torque and whether the steering is taking it. CPU (Avg): core 4 (where the control loops run) / average of the other cores / hottest CPU temperature, like \"4: 99% / A: 68% / 68\u00b0C\". CPU (Busiest): the same with the busiest other core, \"B: 74%\". Core 4 turns amber at 95%.",
+              "options": [
+                {
+                  "value": 0,
+                  "label": "Off"
+                },
+                {
+                  "value": 1,
+                  "label": "Torque (Default)"
+                },
+                {
+                  "value": 2,
+                  "label": "CPU (Avg)"
+                },
+                {
+                  "value": 3,
+                  "label": "CPU (Busiest)"
                 }
               ]
             },
