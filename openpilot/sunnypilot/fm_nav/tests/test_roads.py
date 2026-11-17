@@ -103,7 +103,7 @@ def field(number, value):
 
 
 def road_tile():
-  # one named vertical line from (2048, 0) to (2048, 4096), tagged oneway, and one non-road layer
+  # one named vertical line from (2048, 0) to (2048, 4096), and one non-road layer
   geometry = b''.join(varint(v) for v in [9, 4096, 0, 10, 0, 8192])
   feature = field(2, b'\x00\x00\x01\x01\x02\x02') + field(3, 2) + field(4, geometry)
   roads = field(15, 2) + field(1, b'roads') + field(2, feature)
@@ -125,9 +125,9 @@ def make_archive(z=0, x=0, y=0):
 
 
 class TestArchive:
-  def test_road_names_and_oneway(self):
+  def test_road_names(self):
     roads = decode_roads(road_tile())
-    assert [(r.kind, r.name, r.oneway) for r in roads] == [("minor_road", "Oak Lane", True)]
+    assert [(r.kind, r.name) for r in roads] == [("minor_road", "Oak Lane")]
     np.testing.assert_array_equal(roads[0].points, [[0.5, 0], [0.5, 1]])
 
   def test_archive_on_disk(self, tmp_path):

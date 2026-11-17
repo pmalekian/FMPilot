@@ -2,7 +2,7 @@
 FM Pilot: road polylines from Protomaps MVT tiles, decoded without a protobuf runtime.
 
 From commaai/openpilot master (`selfdrive/navigation/vector_tile.py`, nav alpha #39066, Oct-Nov 2026, Adeeb Shihadeh and
-contributors, MIT). FM changes: each Road also carries its name and oneway tag.
+contributors, MIT). FM changes: each Road also carries its name.
 """
 from dataclasses import dataclass
 
@@ -19,7 +19,6 @@ class Road:
   tunnel: bool
   bridge: bool
   name: str = ''
-  oneway: bool = False
 
 
 def fields(data: bytes):
@@ -136,6 +135,6 @@ def decode_roads(data: bytes) -> list[Road]:
       kind = properties.get('kind', '')
       if kind in ('highway', 'major_road', 'minor_road', 'other'):
         roads.extend(Road(points / extent, kind, properties.get('kind_detail', ''), properties.get('is_tunnel') is True,
-                          properties.get('is_bridge') is True, str(properties.get('name') or ''),
-                          bool(properties.get('oneway'))) for points in decode_lines(geometry))
+                          properties.get('is_bridge') is True,
+                          str(properties.get('name') or '')) for points in decode_lines(geometry))
   return roads

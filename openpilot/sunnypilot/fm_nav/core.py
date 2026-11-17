@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from openpilot.sunnypilot.fm_nav.roads import RoadMap, Picks, Turn
+from openpilot.sunnypilot.fm_nav.roads import RoadMap, Picks
 
 HEADING_MIN_SPEED = 3.0  # m/s, GPS course trusted above this
 HEADING_GAIN = 0.03  # share of each fix's course taken into the heading offset (10 Hz fixes: ~3 s)
@@ -31,10 +31,6 @@ class State:
   left: Picks = field(default_factory=Picks)
   right: Picks = field(default_factory=Picks)
   tiles: int = 0
-
-  @staticmethod
-  def first(turns: list[Turn]) -> Turn | None:
-    return turns[0] if turns else None
 
 
 class NavAssist:
