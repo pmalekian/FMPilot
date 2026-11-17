@@ -298,6 +298,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"FM_NavAssist", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"FM_NavMapDownload", {PERSISTENT, BOOL, "0"}},
     {"FM_NavMapStatus", {PERSISTENT, STRING}},
+    {"FM_NavMapInfo", {PERSISTENT, STRING}},
     {"FM_NavTurnDesire", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"FM_NavTurnSpeed", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"FM_TopReadout", {PERSISTENT | BACKUP, INT, "1"}},

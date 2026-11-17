@@ -5,6 +5,7 @@ From commaai/openpilot master (`selfdrive/navigation/pmtiles.py`, nav alpha #390
 contributors, MIT). FM changes: LocalFile, a source that reads an archive stored on the device.
 """
 import gzip
+import json
 import struct
 from bisect import bisect_right
 from functools import lru_cache
@@ -79,7 +80,8 @@ class PMTiles:
       header = self.read(0, HEADER_LENGTH)
       if header[:8] != b'PMTiles\x03':
         raise ValueError("Expected a PMTiles v3 archive")
-      self.root_offset, self.root_length, _, _, self.leaf_offset, self.leaf_length, self.data_offset, self.data_length = struct.unpack_from('<8Q', header, 8)
+      (self.root_offset, self.root_length, self.meta_offset, self.meta_length,
+       self.leaf_offset, self.leaf_length, self.data_offset, self.data_length) = struct.unpack_from('<8Q', header, 8)
       compression, tile_type, self.min_zoom, self.max_zoom = header[97:99], header[99], header[100], header[101]
       if compression != b'\x02\x02' or tile_type != 1:
         raise ValueError("Expected gzip-compressed MVT vector tiles")
@@ -93,6 +95,15 @@ class PMTiles:
     except Exception:
       self.source.close()
       raise
+
+  def metadata(self) -> dict:
+    """The archive's JSON metadata ({} when it has none or can't be read)."""
+    try:
+      if self.meta_length and self.meta_offset + self.meta_length <= self.size:
+        return json.loads(gzip.decompress(self.read(self.meta_offset, self.meta_length)))
+    except (ValueError, OSError, EOFError):
+      pass
+    return {}
 
   def read(self, offset: int, length: int) -> bytes:
     if offset < 0 or length < 0 or offset + length > self.size:

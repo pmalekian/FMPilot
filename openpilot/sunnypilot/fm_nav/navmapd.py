@@ -19,7 +19,7 @@ import time
 
 from openpilot.common.params import Params
 from openpilot.common.swaglog import cloudlog
-from openpilot.sunnypilot.fm_nav import extract
+from openpilot.sunnypilot.fm_nav import extract, mapinfo
 from openpilot.sunnypilot.fm_nav.navassistd import MAP_DIR
 from openpilot.sunnypilot.fm_nav.pmtiles import PMTiles
 
@@ -143,9 +143,18 @@ def main() -> None:
     os.nice(10)
   except OSError:
     pass
-  d = Downloader(Params())
+  params = Params()
+  d = Downloader(params)
+  seen = None
   while True:
     d.step()
+    try:  # what is on the comma now, for Sunnylink: refreshed when the file or the saved position changes
+      sig = mapinfo.signature(params)
+      if sig != seen:
+        mapinfo.publish(params)
+        seen = sig
+    except Exception:
+      cloudlog.exception("fm_navmapd: map check failed")
     time.sleep(1.0)
 
 

@@ -1219,6 +1219,12 @@
               "title": "Nav Map"
             },
             {
+              "key": "FM_NavMapInfo",
+              "widget": "info",
+              "title": "Map on the comma",
+              "description": "What the saved map file holds, checked when the file changes and when Nav Assist starts a drive - file, size, map date, the area it covers and the roads found around where the truck last was. It starts with \"Map OK\" when the file reads and has roads there. Blank means the check hasn't run yet (the comma has to be off the road and on this build). On the comma over SSH, python3 -m openpilot.sunnypilot.fm_nav.mapinfo prints the same line."
+            },
+            {
               "key": "FM_NavTurnDesire",
               "widget": "toggle",
               "title": "Map Turn Desire",

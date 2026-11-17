@@ -314,14 +314,14 @@ def test_every_param_the_nav_features_use_exists():
   import re
   root = os.path.join(os.path.dirname(__file__), "..", "..", "..")
   keys = set(re.findall(r'\{"(\w+)", \{', open(os.path.join(root, "common", "params_keys.h")).read()))
-  files = ["sunnypilot/fm_nav/navmapd.py", "sunnypilot/fm_nav/navassistd.py", "system/manager/process_config.py",
+  files = ["sunnypilot/fm_nav/navmapd.py", "sunnypilot/fm_nav/navassistd.py", "sunnypilot/fm_nav/mapinfo.py", "system/manager/process_config.py",
            "sunnypilot/selfdrive/controls/lib/fm_nav_turn_desire.py", "sunnypilot/selfdrive/controls/lib/fm_nav_turn_speed.py",
            "selfdrive/ui/sunnypilot/ui_state.py"]
   used = set()
   for f in files:
     text = open(os.path.join(root, f)).read()
     used |= set(re.findall(r'params\.(?:get_bool|get|put|put_bool)\("(\w+)"', text))
-    used |= set(re.findall(r'^PARAM_\w+ = "(\w+)"', text, re.M)) | set(re.findall(r'^POSITION_PARAM = "(\w+)"', text, re.M))
-  assert {"FM_NavAssist", "FM_NavTurnDesire", "FM_NavTurnSpeed", "FM_NavTurnSpeedMph", "FM_NavMapDownload", "FM_NavMapStatus",
+    used |= set(re.findall(r'^PARAM_\w+ = "(\w+)"', text, re.M)) | set(re.findall(r'^\w*PARAM = "(\w+)"', text, re.M))
+  assert {"FM_NavAssist", "FM_NavTurnDesire", "FM_NavTurnSpeed", "FM_NavTurnSpeedMph", "FM_NavMapDownload", "FM_NavMapStatus", "FM_NavMapInfo",
           "FM_TopReadout", "IsOffroad", "LastGPSPositionLLK"} <= used
   assert used - keys == set()  # every key these files read or write, FM's or not

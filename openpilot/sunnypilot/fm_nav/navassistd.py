@@ -13,6 +13,7 @@ import os
 import time
 
 import openpilot.cereal.messaging as messaging
+from openpilot.common.params import Params
 from openpilot.common.swaglog import cloudlog
 from openpilot.sunnypilot.fm_nav.core import NavAssist, State
 from openpilot.sunnypilot.fm_nav.roads import RoadMap, Turn
@@ -31,6 +32,15 @@ def open_map(directory: str = MAP_DIR) -> RoadMap | None:
     except Exception:
       cloudlog.exception(f"fm_navassistd: can't read {path}")
   return None
+
+
+def publish_map_info(params) -> None:
+  """FM_NavMapInfo for Sunnylink: what the map file holds, as of now (a failure here must not stop the process)."""
+  try:
+    from openpilot.sunnypilot.fm_nav import mapinfo
+    mapinfo.publish(params)
+  except Exception:
+    cloudlog.exception("fm_navassistd: map check failed")
 
 
 def fill_pick(pick, turns: list[Turn]) -> None:
@@ -71,7 +81,9 @@ def main() -> None:
 
   pm = messaging.PubMaster(["fmNavTurn"])
   sm = messaging.SubMaster(["liveLocationKalman", "gpsLocationExternal", "carState"], poll="liveLocationKalman")
+  params = Params()
   nav = NavAssist(open_map())
+  publish_map_info(params)
   next_map_try = time.monotonic() + MAP_RETRY_S
   last_publish = 0.0
   failures = 0
@@ -95,6 +107,8 @@ def main() -> None:
       if nav.map is None and now > next_map_try:
         nav.map = open_map()
         next_map_try = now + MAP_RETRY_S
+        if nav.map is not None:
+          publish_map_info(params)
       t0 = time.perf_counter()
       try:
         state = nav.tick(now)
