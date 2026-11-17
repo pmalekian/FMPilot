@@ -9,7 +9,9 @@ PASSED_BY metres behind without a turn (3x that in any case), or the turn desire
 
 It only ever lowers the cruise target (one more source in sunnypilot's min() of speed targets, like Smart Cruise
 Control), so a lead, a stop or the model asking for less still win, and it never adds speed (from a stop it doesn't
-make the truck pull away any faster). Only while openpilot controls speed. Service roads (parking and access roads)
+make the truck pull away any faster). Like Smart Cruise Control Map it hands back the planner's own acceleration
+unchanged: the slowing comes from the lower cruise target through the planner's cruise accel (its limits and jerk),
+never from a deceleration written into the planner's state. Only while openpilot controls speed. Service roads (parking and access roads)
 never count. StarPilot's nav turn speeds (`starpilot/navigation/intent.py`, MIT) gave the idea and the default; no code
 taken.
 """
@@ -26,7 +28,6 @@ PARAM_SPEED = "FM_NavTurnSpeedMph"
 SPEED_RANGE = (10, 20)  # mph
 DEFAULT_SPEED = 14
 A_PLAN = 1.0  # m/s^2, the deceleration the target speed profile assumes
-A_MIN = -1.2  # m/s^2, the planner's cruise limit (A_CRUISE_MIN)
 TURN_IN_BEFORE = 10.0  # m before the map's junction where the turn speed must be reached (his turn-ins: 6-19 m)
 TURN_DONE_DEG = 60.0  # deg turned since the cap engaged: the turn is done
 PASSED_BY = 20.0  # m past the junction without turning: not this street
@@ -109,6 +110,3 @@ class FmNavTurnSpeed:
 
     # the profile, lowered by what the cruise accel lags it, never below the turn speed
     self.output_v_target = max(turn_speed_limit(self.distance - TURN_IN_BEFORE, self.v_turn) - A_PLAN * CRUISE_LAG, self.v_turn)
-    if v_ego > self.output_v_target:
-      need = (v_ego ** 2 - self.v_turn ** 2) / (2.0 * max(self.distance - TURN_IN_BEFORE, 1.0))
-      self.output_a_target = max(min(a_ego, -need), A_MIN)

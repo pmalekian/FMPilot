@@ -52,7 +52,7 @@ class TestNavTurnSpeed:
     cap = self.run(ts, 0.0, 13.4, RIGHT, nav(right=60))
     assert cap == pytest.approx(turn_speed_limit(60 - TURN_IN_BEFORE, 14 * MPH) - A_PLAN * CRUISE_LAG)
     assert 14 * MPH < cap < 13.4  # 30 mph is too fast 50 m from turn-in
-    assert ts.output_a_target < 0
+    assert ts.output_a_target == 0.0  # the planner's own acceleration, handed back unchanged
     assert self.run(ts, 0.2, 7.0, RIGHT, nav(right=TURN_IN_BEFORE)) == pytest.approx(14 * MPH)
     assert self.run(ts, 0.4, 6.0, RIGHT, nav(right=0)) == pytest.approx(14 * MPH)  # through the corner
 
