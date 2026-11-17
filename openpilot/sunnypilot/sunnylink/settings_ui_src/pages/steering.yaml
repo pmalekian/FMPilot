@@ -786,6 +786,15 @@ sections:
       16% at 2.2 mph), as sunnypilot and openpilot now do. Calms twitchy steering near a stop, but turns pulled out from
       a stop may start softer. Applies to all driving, not only blinker turns. Off: FM Pilot''s previous behavior. From
       sunnypilot #2091.'
+  - key: FM_StraightPullAwayFloor
+    widget: toggle
+    title: Calmer Straight Pull-Away
+    description: 'Some models (Cheddar especially) are slightly off from straight while stopped, and that is read as a
+      tight curve the moment steering starts, so the wheel jerks to one side and then straightens. With this on, a pull-away
+      from a stop with no blinker, no turn, your hands off the wheel and the wheel near straight asks for much less steering
+      below 5.6 mph (like Calmer Crawl-Speed Steering). Turning on the blinker, a turn already started, steering by hand,
+      or a wheel wound past 30 degrees keeps full steering, so turns from a stop are unchanged. Off: FM Pilot''s previous
+      behavior. Not needed with Calmer Crawl-Speed Steering on.'
   - key: FM_LateralSmoothingEnabled
     widget: toggle
     title: Lateral Smoothing

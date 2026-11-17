@@ -53,6 +53,7 @@ from openpilot.sunnypilot.modeld_v2.model_adapters import get_model_adapter
 from openpilot.sunnypilot.models.helpers import get_active_bundle
 from openpilot.sunnypilot.selfdrive.controls.lib.relc import RoadEdgeLaneChangeController
 from openpilot.sunnypilot import jetlink_adapter
+from openpilot.sunnypilot.modeld_v2.fm_pull_away import StraightPullAway
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_lane_keep_mode import MODE_BLENDFUL, get_lane_keep_mode
 
 # FM Pilot: sunnypilot #2091 (James Vecellio-Grant, Nov 4 2026, MIT), as a setting. Action-head models output a lateral
@@ -61,6 +62,7 @@ from openpilot.sunnypilot.selfdrive.controls.lib.fm_lane_keep_mode import MODE_B
 ACTION_SPEED_FLOOR = 1.0
 ACTION_SPEED_FLOOR_LOW_SPEED_FIX = 2.5
 PARAM_LOW_SPEED_FLOOR = "FM_LowSpeedCurvatureFloor"
+PARAM_STRAIGHT_PULL_AWAY = "FM_StraightPullAwayFloor"  # the same floor, only while nothing says the driver is turning
 
 
 def fm_action_speed_floor(params) -> float:
@@ -81,6 +83,13 @@ def fm_lat_smooth_seconds(params, bundle_seconds: float) -> float:
     return bundle_seconds
   seconds = float(params.get(PARAM_LAT_SMOOTH_SECONDS, return_default=True))
   return min(max(seconds, 0.0), LAT_SMOOTH_MAX) if math.isfinite(seconds) else bundle_seconds
+
+
+def fm_set_action_floor(model, small_model, action_speed_floor: float) -> None:
+  """FM Pilot: the speed floor for this frame, on modeld_v2's own ModelStates only (per frame, so it is cheap: no params)."""
+  for m in fm_own_model_states(model, small_model):
+    if m.action_speed_floor != action_speed_floor:
+      m.action_speed_floor = action_speed_floor
 
 
 def fm_own_model_states(model, small_model) -> list:
@@ -437,6 +446,8 @@ def main(demo=False):
   blendful = Blendful()
   blendful_enabled = get_lane_keep_mode(params) == MODE_BLENDFUL  # FM Pilot: FM_LaneKeepMode picks Blendful
   action_speed_floor = fm_action_speed_floor(params)  # FM Pilot: FM_LowSpeedCurvatureFloor (sunnypilot #2091)
+  pull_away = StraightPullAway()  # FM Pilot: FM_StraightPullAwayFloor
+  straight_pull_away = params.get_bool(PARAM_STRAIGHT_PULL_AWAY)
 
   while True:
     # Keep receiving frames until we are at least 1 frame ahead of previous extra frame
@@ -483,9 +494,15 @@ def main(demo=False):
       camera_offset_helper.set_offset(params.get("CameraOffset", return_default=True))
       blendful_enabled = get_lane_keep_mode(params) == MODE_BLENDFUL
       action_speed_floor = fm_action_speed_floor(params)
+      straight_pull_away = params.get_bool(PARAM_STRAIGHT_PULL_AWAY)
       # on the ModelStates themselves, never on `model`: a Jetlink joining model keeps a plain write to itself (the
       # small model then never saw the setting) and has no bundle value once the big model drives (AttributeError)
       fm_apply_model_settings(params, model, small_model, action_speed_floor)
+    # the floor for this frame: the usual one, or 2.5 m/s while pulling away straight (the desire is last frame's)
+    cs = sm["carState"]
+    fm_set_action_floor(model, small_model, pull_away.update(
+      straight_pull_away, action_speed_floor, v_ego, bool(cs.leftBlinker or cs.rightBlinker),
+      desire != log.Desire.none, cs.steeringAngleDeg, bool(cs.steeringPressed)))
     lat_delay = model.lat_delay + model.LAT_SMOOTH_SECONDS
     if sm.updated["extrinsicsCalibration"] and sm.seen['narrowRoadCameraState'] and sm.seen['deviceState']:
       device_from_calib_euler = np.array(sm["extrinsicsCalibration"].rpyCalib, dtype=np.float32)

@@ -18,7 +18,7 @@ from jetlink.openpilot.joining import JoiningModelState
 
 from openpilot.common.test import OpenpilotTestCase
 from openpilot.sunnypilot.modeld_v2.modeld import (ACTION_SPEED_FLOOR, ACTION_SPEED_FLOOR_LOW_SPEED_FIX, ModelState,
-                                                   fm_apply_model_settings, fm_own_model_states)
+                                                   fm_apply_model_settings, fm_own_model_states, fm_set_action_floor)
 
 
 class FakeParams:
@@ -92,6 +92,15 @@ class TestFmModelSettingsWithJetlink(OpenpilotTestCase):
     self.assertEqual(big.LAT_SMOOTH_SECONDS, 0.05)
     self.assertEqual(self.small.LAT_SMOOTH_SECONDS, 0.2)  # ready for the hand-back
     self.assertFalse(hasattr(big, "action_speed_floor"))
+
+  def test_the_per_frame_floor_goes_to_the_small_model_and_never_the_wrapper_or_a_big_model(self):
+    big = self.big_drives()
+    fm_set_action_floor(self.joining, self.small, ACTION_SPEED_FLOOR_LOW_SPEED_FIX)  # FM_StraightPullAwayFloor, every frame
+    self.assertEqual(self.small.action_speed_floor, ACTION_SPEED_FLOOR_LOW_SPEED_FIX)
+    self.assertNotIn("action_speed_floor", vars(self.joining))
+    self.assertFalse(hasattr(big, "action_speed_floor"))
+    fm_set_action_floor(self.joining, self.small, ACTION_SPEED_FLOOR)
+    self.assertEqual(self.small.action_speed_floor, ACTION_SPEED_FLOOR)
 
   def test_own_model_states(self):
     big = model_state(0.1)
