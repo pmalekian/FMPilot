@@ -177,14 +177,21 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
   better than TSFDOM's action on rolling turns, so **no map steering was built**. 4 of 7 problem turns on `00000073` are
   onto unnamed OSM `service` roads: logged (`leftService`/`rightService`) but never used, because turning them on gave a
   wrong aisle in the same lot twice and one false trigger.
-- **Map file on the comma 4:** no download button yet. sunnypilot's "Download maps" (OSM page) exists only in the comma
-  3X UI (`selfdrive/ui/sunnypilot/layouts/settings/osm.py`), not in the comma 4 UI or Sunnylink, and those OSM files are
-  mapd's (speed limits / map curve speed), not Nav Assist's. Nav Assist's `.pmtiles` goes on by `scp -O` (below).
-  Offered Nov 17: an on-device download (comma fetches the region extract itself). Not built.
+- **Download Nav Map** (`FM_NavMapDownload` + status `FM_NavMapStatus`, Nov 17; his call: 50-mile circle around the
+  truck, not a fixed box): `fm_navmapd` (parked only) cuts the roads layer of the zoom 15 tiles in the circle out of
+  the newest Protomaps daily build over HTTP range requests (`fm_nav/extract.py`, own PMTiles v3 writer) into
+  `/data/media/0/fmnav/fm-nav.pmtiles`; Nav Assist opens the newest `.pmtiles` there. Tested against his Chicagoland
+  extract served over local HTTP: 15 mi = 21 MB read / 5.7 MB stored, roads identical, `nav.py` picks identical on
+  Loop A + `00000073`. **Not run against build.protomaps.com (blocked from the cloud chat) or on the comma.** 50 mi size
+  unmeasured (estimate 150-300 MB downloaded). sunnypilot's own "Download maps" (OSM for mapd) is comma 3X UI only.
+- **Top Readout** (`FM_TopReadout`, Visuals > HUD Elements, Nov 17): Off / Torque (default, as before) / CPU (Avg)
+  `4: 99% / A: 58% / 68°C` / CPU (Busiest) `4: 99% / B: 80% / 68°C` (core 4; average or busiest other core; hottest
+  CPU sensor; amber at core 4 >= 95%). Draw code checked with raylib stubbed (fonts are LFS pointers in the cloud
+  chat); not seen on the device. He decided against a logging on/off toggle.
 - **To put on the truck** (commands in the Nov 16 chat; repeat if asked):
-  1. PowerShell: `ssh comma@192.168.1.246 "mkdir -p /data/media/0/fmnav"` then
-     `scp -O C:\FMPilot\maps\fm-chicagoland.pmtiles comma@192.168.1.246:/data/media/0/fmnav/` (118 MB).
-  2. Switch the comma to `fm-dev-nav`; first boot rebuilds (cereal and params changed).
+  1. Map: Sunnylink > Steering > FM Pilot: Turn Tweaks > Download Nav Map, parked with internet (or copy a `.pmtiles`
+     to `/data/media/0/fmnav/` with `scp -O`).
+  2. Switch the comma to `fm-dev-nav` first (step 1 needs it); first boot rebuilds (cereal and params changed).
   3. Nav Assist on, Map Turn Desire off. Drive normally a few days, alternating TSFDOM / OPM16D if he likes.
   4. Send rlogs: `nav.py` (picks vs turns), `fmNavTurn.computeMs`, per-process CPU and core 4 vs item 0n's numbers.
   5. Only then Map Turn Desire on, on roads where he signals above 20 mph for a turn.
