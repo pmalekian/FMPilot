@@ -27,6 +27,10 @@ NO_RECORD = -1.0
 RECORD_PERIOD = 1.0
 ACTIVE_FRESH = 2 * RECORD_PERIOD
 OUTPUT_FRESH = 0.25
+# and a record older than this is no live modeld at all (gadget.HEARTBEAT_TIMEOUT, which status.runtime also applies):
+# a modeld that froze or stopped writing reads as none rather than keeping its last state
+HEARTBEAT_TIMEOUT = 3.0
+STAND_IN = 16  # Jetlink writes a model's name as its hash's first 16 characters when the comma's index lists none
 
 TEXT_LIMIT = 160  # a log message with a runaway string must not grow the rlog
 
@@ -64,6 +68,11 @@ def text(value) -> str:
 
 def count(value) -> int:
   return min(max(int(value), 0), 65535) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0
+
+
+def real_name(name: str, sha: str) -> str:
+  """name, or "" when it is Jetlink's stand-in for one (the hash's start, Models.name_for)."""
+  return "" if not name or (sha and name == sha[:STAND_IN]) else name
 
 
 def pid_alive(pid) -> bool:
@@ -133,9 +142,9 @@ class Reader:
 
     modeld = read_record(self.root / "modeld.json") or {}
     at = modeld.get("at") if isinstance(modeld.get("at"), (int, float)) and not isinstance(modeld.get("at"), bool) else None
-    live = at is not None and not modeld.get("stopping") and self.alive(modeld.get("pid"))
     if at is not None:
       out["recordAge"] = round(max(now - at, 0.0), 2)
+    live = at is not None and now - at < HEARTBEAT_TIMEOUT and not modeld.get("stopping") and self.alive(modeld.get("pid"))
     if live:
       last = modeld.get("last_output_at")
       answered = isinstance(last, (int, float)) and at - last < OUTPUT_FRESH
@@ -148,13 +157,13 @@ class Reader:
         sha = text(modeld.get("sha256"))
         out["drivingSha256"] = sha
         out["drivingCheckpoint"] = text(modeld.get("checkpoint"))
-        out["drivingName"] = text(modeld.get("name")) or self.names.of(sha)
+        out["drivingName"] = real_name(text(modeld.get("name")), sha) or self.names.of(sha)
 
     server = read_record(self.root / "server.json") or {}
     out["device"], out["backend"] = text(server.get("device")), text(server.get("backend"))
     pick = server.get("pick") if isinstance(server.get("pick"), dict) else {}
     out["serverPickSha256"] = text(pick.get("sha256"))
-    out["serverPickName"] = text(pick.get("name")) or self.names.of(out["serverPickSha256"])
+    out["serverPickName"] = real_name(text(pick.get("name")), out["serverPickSha256"]) or self.names.of(out["serverPickSha256"])
 
     owner = read_record(self.root / "status.json") or {}
     out["linkKind"] = text(owner.get("link"))
@@ -165,6 +174,13 @@ class Reader:
     out["builtSha256"] = text(spec.get("sha256"))
     out["builtReady"] = spec.get("ready") is True
     out["builtName"] = self.names.of(out["builtSha256"])
+
+    # a model the comma's index copy doesn't list yet (one released after its last refresh) is still named by the Mac's
+    # pick when it is the same weights
+    pick_sha, pick_name = out["serverPickSha256"], out["serverPickName"]
+    for name_key, sha_key in (("drivingName", "drivingSha256"), ("builtName", "builtSha256")):
+      if not out[name_key] and out[sha_key] and out[sha_key] == pick_sha:
+        out[name_key] = pick_name
 
     slot = self._param("ModelManager_ActiveBundleChestnut")
     out["slotName"] = text(slot.get("displayName") or slot.get("internalName"))

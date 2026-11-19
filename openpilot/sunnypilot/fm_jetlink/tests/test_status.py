@@ -3,7 +3,7 @@ import json
 import pytest
 
 from openpilot.cereal import log
-from openpilot.sunnypilot.fm_jetlink.status import ACTIVE_FRESH, ChangeLog, Names, Reader, fill_message
+from openpilot.sunnypilot.fm_jetlink.status import ACTIVE_FRESH, HEARTBEAT_TIMEOUT, ChangeLog, Names, Reader, fill_message
 
 LS2 = "909a140019050a9d7f00db22dd4f4085928d2af9474a82244672ddab964f95a8"
 FTM = "bc125a9af33033ded89ac1886e27dbbe296da285275b2eb8fc0b5edb35b56c41"
@@ -100,6 +100,25 @@ class TestReader:
   def test_a_name_missing_from_the_record_comes_from_the_index(self, root):
     write(root, "modeld.json", modeld(name=None))
     assert reader(root).read()["drivingName"] == "Fairy tale model (November 18, 2026)"
+
+  def test_a_record_past_the_heartbeat_is_no_modeld(self, root):
+    # Jetlink's own status.runtime: a modeld that froze or stopped writing keeps no state
+    write(root, "modeld.json", modeld(at=NOW - HEARTBEAT_TIMEOUT - 0.1))
+    d = reader(root).read()
+    assert d["state"] == "" and d["handovers"] == 0 and d["recordAge"] == round(HEARTBEAT_TIMEOUT + 0.1, 2)
+
+  def test_jetlinks_hash_stand_in_is_not_taken_for_a_name(self, root):
+    # a model the comma's index copy doesn't list: Jetlink writes the hash's first 16 characters as its name
+    (root / "index.json").write_text(json.dumps({"models": []}))
+    write(root, "modeld.json", modeld(name=FTM[:16]))
+    assert reader(root).read()["drivingName"] == ""
+    # the Mac's pick of the same weights names it
+    write(root, "server.json", {"pick": {"sha256": FTM, "name": "Fairy tale model (November 18, 2026)"}})
+    d = reader(root, Params(JetlinkSpec={"sha256": FTM, "ready": True})).read()
+    assert d["drivingName"] == d["builtName"] == d["serverPickName"] == "Fairy tale model (November 18, 2026)"
+    # but never a different model's name
+    write(root, "server.json", {"pick": {"sha256": LS2, "name": "Light Speed 2"}})
+    assert reader(root).read()["drivingName"] == ""
 
   def test_junk_records_read_as_defaults(self, root):
     write(root, "modeld.json", "{not json")

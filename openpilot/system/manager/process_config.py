@@ -106,7 +106,7 @@ def fm_nav_assist(started: bool, params: Params, CP: car.CarParams) -> bool:
 
 def fm_jetlink_status(started: bool, params: Params, CP: car.CarParams) -> bool:
   """FM Pilot Jetlink Status: the log process runs while driving with the Jetlink link on."""
-  return started and bool(params.get("JetlinkLink"))
+  return started and jetlink_adapter.link_on()
 
 def mapd_ready(started: bool, params: Params, CP: car.CarParams) -> bool:
   return bool(os.path.exists(Paths.mapd_root()))
