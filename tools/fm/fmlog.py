@@ -23,9 +23,24 @@ SEG_RE = re.compile(r"([0-9a-f]{8}--[0-9a-f]{10}|\d{4}-\d{2}-\d{2}--\d{2}-\d{2}-
 GAP_S = 2.0  # a jump in time longer than this is a missing piece of the drive, never bridged
 
 
+# the fields a report needs of modelV2 to tell the small model from a Jetlink big model and time it: with keep, a modelV2
+# is kept as a copy of only these (a whole one is about 8 KB at 20 Hz, five times everything else events.py keeps)
+SLIM = {"modelV2": ("big", "modelExecutionTime")}
+
+
+def _slim(e, fields):
+  out = log.Event.new_message()
+  out.logMonoTime, out.valid = e.logMonoTime, e.valid
+  src, dst = getattr(e, e.which()), out.init(e.which())
+  for f in fields:
+    setattr(dst, f, getattr(src, f))
+  return out.as_reader()
+
+
 def read(path, keep=None):
   """All events of one log file. keep: a set of message types to keep; the rest are dropped and the kept ones copied
-  out, so the file's whole buffer can be freed (an hour of logs otherwise runs out of memory)."""
+  out, so the file's whole buffer can be freed (an hour of logs otherwise runs out of memory). With keep, the types in
+  SLIM keep only SLIM's fields."""
   with open(path, "rb") as f:
     data = f.read()
   if data[:4] == b"\x28\xb5\x2f\xfd":
@@ -39,7 +54,8 @@ def read(path, keep=None):
     evs = list(evs)
   else:
     # copies sized to the message (the default first segment is 8 KB each, which an hour of small messages can't afford)
-    evs = [e.as_builder(num_first_segment_words=e.total_size.word_count + 1).as_reader() for e in evs if e.which() in keep]
+    evs = [_slim(e, SLIM[e.which()]) if e.which() in SLIM else
+           e.as_builder(num_first_segment_words=e.total_size.word_count + 1).as_reader() for e in evs if e.which() in keep]
   # rlogs are not strictly in time order (00000073--8: a modelDataV2SP sent at 13.440 s is stored after a carState
   # from 13.469 s), so put them in the order they were sent; a stable sort keeps same-time messages as stored
   evs.sort(key=lambda e: e.logMonoTime)

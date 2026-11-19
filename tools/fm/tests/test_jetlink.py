@@ -110,3 +110,15 @@ class TestMacLog:
       evs.append(e.as_reader())
     assert abs(maclog.wall_offset(evs) - (1.7e9 + 5)) < 1e-3
     assert maclog.wall_offset([]) is None
+
+
+class TestSlimRead:
+  def test_modelv2_keeps_only_big_and_time_and_still_names_the_model(self, tmp_path):
+    import zstandard
+    full = drive(status(1, True, "Fairy tale"), model(1, True, 0.0295))
+    p = tmp_path / f"{'0' * 8}--{'0' * 10}--0--rlog.zst"
+    p.write_bytes(zstandard.ZstdCompressor().compress(b"".join((e.to_bytes() if hasattr(e, "to_bytes") else e.as_builder().to_bytes()) for e in full)))
+    evs = fmlog.read(str(p), {"initData", "fmJetlinkStatus", "modelV2"})
+    m = next(e for e in evs if e.which() == "modelV2").modelV2
+    assert m.big and abs(m.modelExecutionTime - 0.0295) < 1e-6 and len(m.position.x) == 0
+    assert fmlog.model_name(evs) == "Fairy tale (Jetlink big model)"

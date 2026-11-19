@@ -89,7 +89,14 @@ about 29 ms Fairy Tale against about 41 ms Lebowski, show it). The ramp log `a8-
 - Found while testing: `drivingModelData.big` is always 0 in these logs; `modelV2.big` is the real flag (fixed in `fmlog.big_frames`).
 - Not done: the Mac's per-frame GPU time can't be logged without a Jetlink change. The stuck slot (Fairy Tale never taken by the
   comma's selector, slot a drive behind) is a separate fix Frankie deferred; diagnose with the swaglog and HuggingFace check from the chat.
-- Checks run: 17 tests for the daemon logic, 67 for `tools/fm`, ruff. Not run: the native `messaging`/`opendbc` repo tests, the build, or anything on the comma.
+- Double-checked Nov 19 against Jetlink 0.9.0's writers (`joining._runtime`, `owner.status_record`, `owner.note_server`,
+  `models.name_for`): field names match. Fixes after the check: a modeld record over 3 s old is no modeld (Jetlink's own
+  rule); Jetlink's stand-in name (the hash's first 16 characters, for a model the comma's index copy doesn't list) is not
+  taken for a name, and the Mac's pick names the model when it is the same weights; the process runs on `jetlink_adapter.link_on()`;
+  `events.py` keeps only `modelV2.big`/`modelExecutionTime` (whole messages made it load 5x the memory: 0.66 vs 0.15 GB an hour).
+- Checks run: 19 tests for the daemon logic, 68 for `tools/fm`, ruff, and `statusd.main()` run for real (messaging, Params and
+  cloudlog stubbed) through a Lebowski to Fairy Tale swap: 9 messages in 5 s, the right log lines, Fairy Tale named while the
+  slot said Lebowski. Not run: the native `messaging`/`opendbc` repo tests, the build, or anything on the comma.
 - Next: pull, build, drive once with a mid-drive Jetlink pick change, send the rlog; confirm `fmJetlinkStatus` appears and the swap shows.
 
 ### 0q. Pull-away jerk to the left (Nov 17, logs `00000097--40` and `0000009a--8`, Cheddar, build `5516cc7`): Calmer Straight Pull-Away built on `fm-dev-nav`, OFF, not driven

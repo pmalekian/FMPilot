@@ -44,7 +44,7 @@ def main(drive):
 
 if __name__ == "__main__":
   args = log_args(__doc__).parse_args()
-  # only what this report reads: keeps an hour of logs in memory
+  # only what this report reads: keeps an hour of logs in memory (modelV2 only its big flag and time, for the model name)
   keep = {"initData", "carState", "selfdriveState", "onroadEvents", "onroadEventsSP", "logMessage", "fmJetlinkStatus", "modelV2"}
   for d in load_drives(args.rlog, args.each, keep):
     main(d)

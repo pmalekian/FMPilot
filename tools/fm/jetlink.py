@@ -11,6 +11,8 @@ usage: jetlink.py rlog.zst [rlog.zst ...] [--each] [--mac-log server.log] [--mac
   Note the settings an rlog records at its top (initData) are a copy from when the drive started; they can't show a model
   picked in the Jetlink app afterwards, so the model named here is the one that actually drove.
 """
+import json
+
 import numpy as np
 import maclog
 from fmlog import big_frames, big_model_label, jetlink_status, load_drives, log_args, params
@@ -45,6 +47,15 @@ def changes(st, T):
   return out
 
 
+def bundle_name(init, key):
+  """A model bundle param's display name, or '-' when it isn't set."""
+  try:
+    b = json.loads(init.get(key) or "null")
+  except ValueError:
+    return "?"
+  return (b.get("displayName") or b.get("internalName") or "?") if isinstance(b, dict) else "-"
+
+
 def frame_ms(evs, kind):
   return np.array([getattr(e, kind).modelExecutionTime for e in evs if e.which() == kind and getattr(e, kind).big]) * 1000
 
@@ -65,9 +76,10 @@ def main(drive, mac_lines=None, tz=None):
 
   st = jetlink_status(evs)
   n_big, n = big_frames(evs)
-  bundle = params(evs, {"ModelManager_ActiveBundle"}).get("ModelManager_ActiveBundle", "?")[:60]
+  init = params(evs, {"ModelManager_ActiveBundle", "ModelManager_ActiveBundleChestnut"})
   print(f"{drive.label()}: {n_big}/{n} model frames from a big model" if n else f"{drive.label()}: no model frames read")
-  print(f"  model per the log's start-of-drive settings (stale for a Jetlink pick made later): {bundle}")
+  print(f"  start-of-drive settings (not updated by a Jetlink pick made later): small model {bundle_name(init, 'ModelManager_ActiveBundle')},"
+        f" big-model slot {bundle_name(init, 'ModelManager_ActiveBundleChestnut')}")
   if not st:
     print("  no fmJetlinkStatus in this log (a build from before Nov 19, 2026, or the Jetlink link was off)")
   else:
