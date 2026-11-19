@@ -625,7 +625,34 @@ struct FmNavTurn @0xcb9fd56c7057593a {
   }
 }
 
-struct CustomReserved11 @0xc2243c65e0340384 {
+# FM Pilot Jetlink Status: what the Jetlink big-model link is doing and which model is driving, read from Jetlink's own
+# records on the comma (/dev/shm/jetlink/*.json) and the comma's params (openpilot/sunnypilot/fm_jetlink). initData's
+# copy of the params is taken once when the drive starts, so it can't show a model picked later or a swap mid-drive; this
+# is the live value, published at 1 Hz and at once on a change. Text fields are "" when unknown.
+struct FmJetlinkStatus @0xc2243c65e0340384 {
+  recordAge @0 :Float32;       # s since modeld's runtime record was written; -1 = no record (no modeld with the link since boot)
+  bigDriving @1 :Bool;         # the big model drives modeld's frames now (Jetlink's own test: record alive, answered in the last 0.25 s)
+  state @2 :Text;              # the joining model's state in modeld (Jetlink's own words: ready, joining, running, retrying, ...)
+  drivingName @3 :Text;        # the model the Mac is running, while the big model drives (Jetlink's model index name)
+  drivingSha256 @4 :Text;      # ... and its weights' hash
+  drivingCheckpoint @5 :Text;
+  serverPickName @6 :Text;     # the pick the Mac last answered the comma's hello with (a pick made in the Jetlink app)
+  serverPickSha256 @7 :Text;
+  slotName @8 :Text;           # the comma's own big-model slot (ModelManager_ActiveBundleChestnut), what its selector shows
+  builtName @9 :Text;          # the last engine the Mac built (JetlinkSpec): it drives until a newer pick is built
+  builtSha256 @10 :Text;
+  builtReady @11 :Bool;
+  progressStage @12 :Text;     # JetlinkProgress: provisioning or joining stage (ready, connect, building, ...)
+  progressMsg @13 :Text;
+  linkKind @14 :Text;          # usb or cable (the iPhone), "" with no owner record
+  linkSpeed @15 :Text;         # the USB speed the owner reports
+  hostPresent @16 :Bool;       # a host is on the gadget now
+  device @17 :Text;            # what the host calls itself in its hello (ane-Apple_M2_Pro)
+  backend @18 :Text;
+  handovers @19 :UInt16;       # drive counts, from modeld's record
+  drops @20 :UInt16;
+  lags @21 :UInt16;
+  held @22 :Bool;              # the last frame was a held (repeated) output
 }
 
 struct CustomReserved12 @0x9ccdc8676701b412 {

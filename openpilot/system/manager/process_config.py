@@ -104,6 +104,10 @@ def fm_nav_assist(started: bool, params: Params, CP: car.CarParams) -> bool:
   """FM Pilot Nav Assist: the map process runs only while driving with its setting on."""
   return started and params.get_bool("FM_NavAssist")
 
+def fm_jetlink_status(started: bool, params: Params, CP: car.CarParams) -> bool:
+  """FM Pilot Jetlink Status: the log process runs while driving with the Jetlink link on."""
+  return started and bool(params.get("JetlinkLink"))
+
 def mapd_ready(started: bool, params: Params, CP: car.CarParams) -> bool:
   return bool(os.path.exists(Paths.mapd_root()))
 
@@ -192,6 +196,9 @@ procs += [
   # FM Pilot Nav Assist
   PythonProcess("fm_navassistd", "openpilot.sunnypilot.fm_nav.navassistd", fm_nav_assist),
   PythonProcess("fm_navmapd", "openpilot.sunnypilot.fm_nav.navmapd", only_offroad),
+
+  # FM Pilot Jetlink Status (which model drives, into the rlog)
+  PythonProcess("fm_jetlinkstatusd", "openpilot.sunnypilot.fm_jetlink.statusd", fm_jetlink_status),
 
   # mapd
   NativeProcess("mapd", Paths.mapd_root(), ["bash", "-c", f"{MAPD_PATH} > /dev/null 2>&1"], mapd_ready),
