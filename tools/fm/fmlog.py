@@ -69,14 +69,70 @@ def _pkl_name(path):
   return name
 
 
-def model_info(evs):
-  """(name, confirmed) of the driving model this drive ran.
+def jetlink_status(evs):
+  """[(logMonoTime ns, {field: value})] of the fmJetlinkStatus messages, in time order: what the Jetlink big-model link
+  was doing and which model drove, live (FM Pilot builds from Nov 19, 2026 on). Empty before that."""
+  out = []
+  for e in evs:
+    if e.which() == "fmJetlinkStatus":
+      m = e.fmJetlinkStatus
+      out.append((e.logMonoTime, {f: getattr(m, f) for f in m.schema.fieldnames}))
+  return out
 
-  Every segment carries initData, a copy of the params taken when the drive started (the same in every segment), so
-  the model is worked out from those the way modeld picks it: the selected bundle, or, in drives on builds that still had
-  the custom (splice) model (removed Nov 8, 2026), the FM custom file when FM_CustomModelEnabled was on and
-  FM_CustomModelBaseRef was the selected bundle. modeld's own "loading combined pkl"
-  line is only in the first segment (--0); when it's there it confirms (or overrides) the answer."""
+
+def big_model_label(d):
+  """'Fairy tale model (November 18, 2026)' for a status dict, else its hash prefix, else '?'."""
+  return d["drivingName"] or (d["drivingSha256"][:8] if d["drivingSha256"] else "?")
+
+
+def big_models(evs):
+  """The Jetlink big models that drove this log, in the order they started: names (or hash prefixes) from the status
+  message. [] when none drove or the log has no status message."""
+  seen = []
+  for _, d in jetlink_status(evs):
+    if d["bigDriving"]:
+      label = big_model_label(d)
+      if label not in seen:
+        seen.append(label)
+  return seen
+
+
+def big_frames(evs):
+  """(frames the big model drove, frames) from modelV2.big (drivingModelData.big stays 0 in these logs, so it is only the
+  fallback when modelV2 wasn't read); (0, 0) when neither was read."""
+  kind = next((k for k in ("modelV2", "drivingModelData") if any(e.which() == k for e in evs)), None)
+  if kind is None:
+    return 0, 0
+  frames = [getattr(e, kind).big for e in evs if e.which() == kind]
+  return sum(frames), len(frames)
+
+
+def model_info(evs):
+  """(name, confirmed) of the driving model this log ran.
+
+  initData, in every segment, is a copy of the params taken when the drive started, so it can name only what was picked
+  before the drive: the selected bundle, or, in drives on builds that still had the custom (splice) model (removed Nov 8,
+  2026), the FM custom file when FM_CustomModelEnabled was on and FM_CustomModelBaseRef was the selected bundle.
+  modeld's own "loading combined pkl" line is only in the first segment (--0); when it's there it confirms (or overrides)
+  the answer. That is the small model: with the Jetlink link on, a big model drives instead whenever modelV2.big is set,
+  and the settings can't say which (the Jetlink pick is made in the app, mid-drive if you like). So the answer is the
+  big model fmJetlinkStatus names when the log has it; a log from before that message that still shows big frames says
+  so rather than naming the small model."""
+  name, confirmed = small_model_info(evs)
+  bigs = big_models(evs)
+  n_big, n = big_frames(evs)
+  if bigs:
+    names = " > ".join(bigs)
+    if n and n_big < n:
+      return f"{names} (Jetlink big model on {100 * n_big / n:.0f}% of frames; small model {name})", True
+    return f"{names} (Jetlink big model)", True
+  if n_big:
+    return f"Jetlink big model, not named in this log (small model {name})", True
+  return name, confirmed
+
+
+def small_model_info(evs):
+  """model_info for the model modeld runs itself: the settings, confirmed by the load line when the segment has one."""
   p = raw_params(evs)
   bundle = _bundle(p.get("ModelManager_ActiveBundle", b""))
   name = base = None

@@ -77,6 +77,21 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 
 ## Active work
 
+### 0r. Jetlink Status log (Nov 19): built on `fm-dev-nav`, ON whenever the link is on, not driven
+
+Why: the rlog's settings are a copy from the start of the drive, so they named the wrong model when the Jetlink pick changed
+afterwards (logs `000000a9`/`aa`/`ab`: Fairy Tale drove, the settings said Lebowski; `modelV2.big` and the per-frame time,
+about 29 ms Fairy Tale against about 41 ms Lebowski, show it). The ramp log `a8--15/16` was the small model (Cheddar), not a big one.
+- New message `fmJetlinkStatus` (`sunnypilot/fm_jetlink/`), process `fm_jetlinkstatusd`, 1 Hz and on change, one log line per change.
+  Read only. Needs the on-device `scons` build after pulling (cereal changed, same as `fmNavTurn`).
+- `tools/fm/jetlink.py rlog... [--mac-log server.log --mac-tz Zone]`: driving-model timeline, link changes, big-frame timing, Mac log merged
+  by the rlog's `clocks` wall time (the GPS time in these logs is unreliable). `model_name` now names the big model.
+- Found while testing: `drivingModelData.big` is always 0 in these logs; `modelV2.big` is the real flag (fixed in `fmlog.big_frames`).
+- Not done: the Mac's per-frame GPU time can't be logged without a Jetlink change. The stuck slot (Fairy Tale never taken by the
+  comma's selector, slot a drive behind) is a separate fix Frankie deferred; diagnose with the swaglog and HuggingFace check from the chat.
+- Checks run: 17 tests for the daemon logic, 67 for `tools/fm`, ruff. Not run: the native `messaging`/`opendbc` repo tests, the build, or anything on the comma.
+- Next: pull, build, drive once with a mid-drive Jetlink pick change, send the rlog; confirm `fmJetlinkStatus` appears and the swap shows.
+
 ### 0q. Pull-away jerk to the left (Nov 17, logs `00000097--40` and `0000009a--8`, Cheddar, build `5516cc7`): Calmer Straight Pull-Away built on `fm-dev-nav`, OFF, not driven
 
 - **What he felt:** stopped in traffic, then moving off, the wheel jerks left before straightening. Noticed since Cheddar.
