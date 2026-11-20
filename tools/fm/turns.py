@@ -239,11 +239,11 @@ def assist_series(drive):
     ta = e.carControlSP.turnAssist
     rows.append((drive.t(e), ta.sign, str(ta.source), ta.requestIn, ta.requestOut, ta.lead, ta.driverAdds, ta.holdPath,
                  ta.holdFloor, ta.boost, ta.nudge, ta.exitFade, ta.holdActive, str(ta.releaseReason), ta.turned,
-                 ta.earlyCorrection))
+                 ta.earlyCorrection, ta.leadYield, ta.restarts))
   if not rows or not any(r[3] != 0.0 or r[1] != 0 for r in rows):
     return None
   names = ("t", "sign", "source", "requestIn", "requestOut", "lead", "driverAdds", "holdPath", "holdFloor", "boost", "nudge",
-           "exitFade", "holdActive", "releaseReason", "turned", "earlyCorrection")
+           "exitFade", "holdActive", "releaseReason", "turned", "earlyCorrection", "leadYield", "restarts")
   cols = list(zip(*rows, strict=True))
   return {n: np.array(c, dtype=object if n in ("source", "releaseReason") else float) for n, c in zip(names, cols, strict=True)}
 
@@ -269,6 +269,11 @@ def assist_summary(ta, lo, hi, turn_sign, truck_in_t, peak_t):
     i = rel[0]
     out["release"] = (t[i], str(q["releaseReason"][i]), float(q["turned"][i]))
   out["early_s"] = float(np.sum(mine & (q["earlyCorrection"] > 0.5)) * np.median(np.diff(t))) if len(t) > 1 else 0.0
+  # Turn Lead Yields to Your Hands (1 paused, 2 off) and Stop Before Turning Starts Over (count), Nov 20 2026 logs on
+  paused, off = mine & (q["leadYield"] == 1), mine & (q["leadYield"] == 2)
+  out["lead_paused"] = t[paused][0] if paused.any() else None
+  out["lead_off"] = t[off][0] if off.any() else None
+  out["restarts"] = int(q["restarts"][mine].max()) if mine.any() else 0
   # at the truck's turn-in: model alone, or which part added the most
   i = int(np.clip(np.searchsorted(t, truck_in_t), 0, len(t) - 1))
   adds = [(float(q[k][i]), name) for k, name in ASSIST_PARTS if mine[i]]
@@ -384,6 +389,12 @@ def print_assist(drive, ta, t, a, b, turn_lp, truck_in_t, peak_t):
     line += f" | hold released {drive.where(rt)} ({RELEASE_NAMES.get(why, why)}, {deg:.0f} deg turned)"
   if q["early_s"] >= 0.05:
     line += f" | early correction {q['early_s']:.1f} s"
+  if q["lead_paused"] is not None:
+    line += f" | Turn Lead paused by your hands {drive.where(q['lead_paused'])}"
+  if q["lead_off"] is not None:
+    line += f" | Turn Lead off by your hands {drive.where(q['lead_off'])}"
+  if q["restarts"]:
+    line += f" | started over after a stop x{q['restarts']}"
   line += f" | kept past the model {q['kept_past_s']:.1f} s"
   print(line)
 

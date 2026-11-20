@@ -486,6 +486,17 @@ class TestAssistLine:
     assert "carry --1 + 2.0s..+2.0 s" in line
     assert "kept past the model" in line
 
+  def test_lead_yield_and_restarts(self, tmp_path):
+    def fill(t, ta):
+      self.fill(t, ta)
+      if 6.0 <= t < 14.0:
+        ta.leadYield = 1 if 8.0 <= t < 8.5 else (2 if t >= 10.0 else 0)
+        ta.restarts = 2
+    line = next(x for x in run(turns.main, self.drive(tmp_path, fill)).splitlines() if "assist:" in x)
+    assert "Turn Lead paused by your hands --0 + 8.0s" in line
+    assert "Turn Lead off by your hands --0 +10.0s" in line
+    assert "started over after a stop x2" in line
+
   def test_no_turn_desire(self, tmp_path):
     def fill(t, ta):
       ta.requestIn = ta.requestOut = curvature_at(t)
