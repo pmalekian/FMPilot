@@ -93,6 +93,7 @@ Hold, so Turn Hold holds whatever Turn Lead asked for.
     the cap, then briefly steered out of the left turn at +25.4 s). The model's own request is never filtered.
 """
 import math
+from collections import deque
 
 import numpy as np
 
@@ -124,6 +125,7 @@ PARAM_CARRY_TURN_IN = "FM_TurnCarryTurnInOnly"
 PARAM_HOLD_FOLLOW_EXIT = "FM_TurnHoldFollowExit"
 PARAM_HOLD_AT_TURN_IN = "FM_TurnHoldStartsAtTurnIn"
 PARAM_HOLD_STEERING_ONLY = "FM_TurnHoldSteeringOnly"
+PARAM_HOLD_STEADY_PEAK = "FM_TurnHoldSteadyPeak"
 
 BOOST_LIMITS = (1.0, 1.5)
 FULL_SPEED = 15 * CV.MPH_TO_MS
@@ -153,6 +155,12 @@ HOLD_START_TURNED = math.radians(10.)  # before this, a press against the turn p
 HOLD_AGAINST_TORQUE_FIRM = 1.5  # Nm: with it on, a press against the turn this firm releases at once (else 0.25 s)
 HOLD_START_RELEASE_TIME = 1.5  # s: before HOLD_START_TURNED, a press against the turn this long still releases (you
                                # aren't turning after all); 00000073's pre-turn presses lasted up to 0.97 s
+# Hold Ignores Crawl Spikes: below this speed Turn Hold's peak only learns what has been asked for HOLD_STEADY_TIME.
+# 000000af--3 +35.8 s: pulling away at 1.9-4 mph Cheddar's request swung -94/-190/-78/-122/-49 e-3 1/m in 0.5 s; the
+# peak took 0.149 and the floor held the request at twice the model's for 1.5 s, across the lane line.
+HOLD_STEADY_MAX_SPEED = 5 * CV.MPH_TO_MS
+HOLD_STEADY_TIME = 0.3  # s
+HOLD_STEADY_FRAMES = int(round(HOLD_STEADY_TIME / DT_CTRL))
 
 # Finish Turn After Signal Cancels: keep the turn going while the truck is still turning that way
 CARRY_START_CURVATURE = 0.01  # 1/m (100 m): the truck must be turning at least this tightly when the turn desire ends
@@ -345,6 +353,7 @@ class FmTurnAssist:
     self.hold_follow_exit = False
     self.hold_at_turn_in = False
     self.hold_steering_only = False
+    self.hold_steady_peak = False
     self.amount = 0.0  # 0..1 fade
     self._reset_turn(0)
     self._clear_log(0.0)
@@ -382,6 +391,7 @@ class FmTurnAssist:
     self.hold_follow_exit = self.params.get_bool(PARAM_HOLD_FOLLOW_EXIT)
     self.hold_at_turn_in = self.params.get_bool(PARAM_HOLD_AT_TURN_IN)
     self.hold_steering_only = self.params.get_bool(PARAM_HOLD_STEERING_ONLY)
+    self.hold_steady_peak = self.params.get_bool(PARAM_HOLD_STEADY_PEAK)
     try:
       gate = float(self.params.get(PARAM_LEAD_GATE_DIST, return_default=True) or LEAD_GATE_DIST_DEFAULT)
     except (TypeError, ValueError):
@@ -417,6 +427,7 @@ class FmTurnAssist:
     self.exit_fade = 0.0  # Hold Follows the Model's Exit: 1 -> 0 while the released hold fades out
     self.exit_fade_curvature = 0.0  # toward: what was applied when it started
     self.applied = 0.0  # toward: what the last frame applied (after Smooth Turn Start)
+    self.steady = deque(maxlen=HOLD_STEADY_FRAMES)  # Hold Ignores Crawl Spikes: the last 0.3 s of the hold's input
 
   def _clear_log(self, desired_curvature: float) -> None:
     """Per-frame record of what Turn Assist did, for carControlSP.turnAssist. Nothing here feeds back into control."""
@@ -609,8 +620,14 @@ class FmTurnAssist:
             out = sign * (toward + (path - toward) * self.amount)
             self.log_path = sign * out - toward
             toward = sign * out
-        if toward >= self.peak:
-          self.peak, self.since_peak = toward, 0.0
+        learn = toward
+        if self.hold_steady_peak:
+          # Hold Ignores Crawl Spikes: under 5 mph the peak only learns what has been asked for 0.3 s
+          self.steady.append(toward)
+          if v_ego < HOLD_STEADY_MAX_SPEED:
+            learn = min(self.steady)
+        if learn >= self.peak:
+          self.peak, self.since_peak = learn, 0.0
         else:
           self.since_peak += DT_CTRL
         floor = self.peak * max(HOLD_RATIO - HOLD_DECAY * self.since_peak, 0.0)

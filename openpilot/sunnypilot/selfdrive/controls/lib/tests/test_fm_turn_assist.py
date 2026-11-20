@@ -1,6 +1,7 @@
 import math
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 from openpilot.common.constants import CV
@@ -1194,3 +1195,50 @@ class TestHoldOnlyCountsWhileSteering:
     run(a, 0.03, RIGHT, mph=5, steps=100)
     run(a, 0.03, RIGHT, mph=5, steps=50, actual=0.10, pressed=True, torque=-2.0)  # pressing into the right turn
     assert a.peak == pytest.approx(0.10)
+
+
+class TestHoldSteadyPeak:
+  """Hold Ignores Crawl Spikes (FM_TurnHoldSteadyPeak, off by default): under 5 mph the hold's peak only learns a request
+  kept up for 0.3 s (000000af--3 +35.8 s: a 0.5 s swing at 2-4 mph became the peak and the floor doubled the request)."""
+  KEY = "FM_TurnHoldSteadyPeak"
+
+  def _assist(self, on):
+    return FmTurnAssist(FakeParams(**{PARAM_HOLD: True, self.KEY: on}))
+
+  def _spike(self, a, mph):
+    run(a, 0.03, RIGHT, mph=mph, steps=50)
+    run(a, 0.15, RIGHT, mph=mph, steps=5)  # 50 ms: one model frame
+    run(a, 0.04, RIGHT, mph=mph, steps=50)
+
+  def test_off_takes_a_crawl_spike_as_the_peak(self):
+    a = self._assist(False)
+    self._spike(a, 3)
+    assert a.peak == pytest.approx(0.15)
+
+  def test_on_ignores_a_crawl_spike(self):
+    a = self._assist(True)
+    self._spike(a, 3)
+    assert a.peak == pytest.approx(0.04)
+    assert run(a, 0.02, RIGHT, mph=3) < 0.04  # the floor is 90% of 0.04, not of 0.15
+
+  def test_on_learns_a_steady_crawl_request(self):
+    a = self._assist(True)
+    run(a, 0.03, RIGHT, mph=3, steps=50)
+    run(a, 0.12, RIGHT, mph=3, steps=40)  # 0.4 s
+    assert a.peak == pytest.approx(0.12)
+
+  def test_on_left_turn(self):
+    a = self._assist(True)
+    run(a, -0.03, LEFT, mph=3, steps=50)
+    run(a, -0.15, LEFT, mph=3, steps=5)
+    run(a, -0.04, LEFT, mph=3, steps=50)
+    assert a.peak == pytest.approx(0.04)
+
+  def test_above_5_mph_unchanged(self):
+    rng = np.random.default_rng(3)
+    off, on = self._assist(False), self._assist(True)
+    for _ in range(2000):
+      k = float(rng.uniform(-0.01, 0.15))
+      mph = float(rng.uniform(5.5, 14.0))
+      assert run(off, k, RIGHT, mph=mph) == run(on, k, RIGHT, mph=mph)
+    assert off.peak == on.peak

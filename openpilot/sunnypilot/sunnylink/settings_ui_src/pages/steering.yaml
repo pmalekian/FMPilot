@@ -968,6 +968,17 @@ sections:
       - type: param
         key: FM_TurnHoldEnabled
         equals: true
+    - key: FM_TurnHoldSteadyPeak
+      widget: toggle
+      title: Hold Ignores Crawl Spikes
+      description: Below 5 mph, Turn Hold only remembers a request the model has kept up for 0.3 seconds. Pulling away
+        from a stop, a model's request can jump for a split second; without this Turn Hold keeps that jump as the turn to
+        hold and turns in about twice as hard as the model wants (Nov 20, a left from a stop sign that crossed the center
+        line). Above 5 mph it works as before. Off by default.
+      enablement:
+      - type: param
+        key: FM_TurnHoldEnabled
+        equals: true
   - id: turn_lead_settings
     label: Turn Lead Settings
     trigger_key: FM_TurnLeadEnabled
