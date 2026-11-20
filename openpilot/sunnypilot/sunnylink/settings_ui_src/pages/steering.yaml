@@ -779,6 +779,14 @@ sections:
       steers toward the turn. With this on, once you are stopped with a car within 8 m ahead, the turn waits (no steering
       toward it, and the Turning alert goes away) until that car is more than 10 m ahead or gone, or you reach 5 mph; then
       the turn starts fresh. A turn the truck has already started (10 degrees or more) is never held. Off by default.
+  - key: FM_TurnSettle
+    widget: toggle
+    title: Settle After Turn
+    description: For up to 6 seconds after a blinker turn, between 8 and 30 mph, gently steers toward the middle of the
+      lane using lane lines the model is only 30% sure of, before Blendful or lane centering trust them. After a left
+      turn it only moves away from the center line, never toward it. Road edges only keep it from aiming too close to
+      the curb. It lets go as soon as Blendful takes over, you steer, a new blinker or lane change starts, or you pass
+      30 mph. Works with any model, the same way Blendful does. Off by default.
   - key: FM_TurnPathMinRadius
     widget: option
     title: Turn Path Tightest Radius

@@ -335,6 +335,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"FM_TurnPulseOnPullAway", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"FM_TurnQueueGuard", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"FM_TurnRestartAfterStop", {PERSISTENT | BACKUP, BOOL, "0"}},
+    {"FM_TurnSettle", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"LaneGuardEnabled", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"RivianOfftrackCompensationEnabled", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"RivianOfftrackCompensationGain", {PERSISTENT | BACKUP, FLOAT, "0.5"}},

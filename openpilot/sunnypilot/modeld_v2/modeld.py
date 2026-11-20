@@ -54,6 +54,7 @@ from openpilot.sunnypilot.models.helpers import get_active_bundle
 from openpilot.sunnypilot.selfdrive.controls.lib.relc import RoadEdgeLaneChangeController
 from openpilot.sunnypilot import jetlink_adapter
 from openpilot.sunnypilot.modeld_v2.fm_pull_away import StraightPullAway
+from openpilot.sunnypilot.modeld_v2.fm_turn_settle import PARAM as PARAM_TURN_SETTLE, TurnSettle, settle_from_model
 from openpilot.sunnypilot.modeld_v2.fm_big_model_smoothing import PARAM_BIG_MODEL_SMOOTHING, big_lat_smooth_seconds, smooth_curvature
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_lane_keep_mode import MODE_BLENDFUL, get_lane_keep_mode
 
@@ -451,6 +452,8 @@ def main(demo=False):
   pull_away = StraightPullAway()  # FM Pilot: FM_StraightPullAwayFloor
   straight_pull_away = params.get_bool(PARAM_STRAIGHT_PULL_AWAY)
   big_model_smoothing = params.get_bool(PARAM_BIG_MODEL_SMOOTHING)  # FM Pilot: Lateral Smoothing (Big Models)
+  settle = TurnSettle()  # FM Pilot: Settle After Turn
+  turn_settle = params.get_bool(PARAM_TURN_SETTLE)
 
   while True:
     # Keep receiving frames until we are at least 1 frame ahead of previous extra frame
@@ -499,6 +502,7 @@ def main(demo=False):
       action_speed_floor = fm_action_speed_floor(params)
       straight_pull_away = params.get_bool(PARAM_STRAIGHT_PULL_AWAY)
       big_model_smoothing = params.get_bool(PARAM_BIG_MODEL_SMOOTHING)
+      turn_settle = params.get_bool(PARAM_TURN_SETTLE)
       # on the ModelStates themselves, never on `model`: a Jetlink joining model keeps a plain write to itself (the
       # small model then never saw the setting) and has no bundle value once the big model drives (AttributeError)
       fm_apply_model_settings(params, model, small_model, action_speed_floor)
@@ -587,8 +591,14 @@ def main(demo=False):
         prev_action.desiredCurvature = sm['controlsState'].curvature
       # Blendful only acts with no desire and no lane change (turns, lane changes stay the model's own)
       blendful_active = desire == log.Desire.none and DH.lane_change_state == log.LaneChangeState.off
-      action = model.get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego,
-                                           partial(blendful.update, model_output, v_ego, blendful_active, enabled=blendful_enabled))
+      blend = partial(blendful.update, model_output, v_ego, blendful_active, enabled=blendful_enabled)
+
+      def lane_keep(curvature, blend=blend, model_output=model_output, v_ego=v_ego, desire=desire, turn_settle=turn_settle):
+        # Blendful, then FM Pilot's Settle After Turn (which hands over to Blendful's trust); exactly 0.0 when both are off
+        return blend(curvature) + settle_from_model(settle, turn_settle, desire, DH.lane_change_state, v_ego, sm,
+                                                    blendful.trust, model_output)
+
+      action = model.get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego, lane_keep)
       # FM Pilot: Lateral Smoothing (Big Models); after run(), so a Jetlink swap inside it is already reflected
       smooth_curvature(action, prev_action, big_lat_smooth_seconds(big_model_smoothing, model))
       prev_action = action
@@ -613,6 +623,8 @@ def main(demo=False):
       mdv2sp_send.modelDataV2SP.fmNavTurnArmed = DH.fm_nav_turn.armed
       mdv2sp_send.modelDataV2SP.fmNavTurnActive = DH.fm_nav_turn.active
       mdv2sp_send.modelDataV2SP.fmQueueGuard = DH.fm_queue_hold
+      mdv2sp_send.modelDataV2SP.fmTurnSettle = float(settle.curvature)
+      mdv2sp_send.modelDataV2SP.fmTurnSettleOffset = float(settle.offset)
       mdv2sp_send.modelDataV2SP.blendfulCurvature = blendful.curvature
       mdv2sp_send.modelDataV2SP.blendfulTrust = float(blendful.trust)
       mdv2sp_send.modelDataV2SP.modelCurvature = float(blendful.model_curvature)

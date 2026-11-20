@@ -584,6 +584,9 @@ struct ModelDataV2SP @0xa1680744031fdb2d {
   fmNavTurnActive @11 :Bool;
   # FM Pilot: Queue Guard (the turn is waiting behind a car; laneTurnDirection is none meanwhile)
   fmQueueGuard @12 :Bool;
+  # FM Pilot: Settle After Turn: curvature it added (1/m, positive right) and the lane center minus the plan 6 m ahead (m)
+  fmTurnSettle @13 :Float32;
+  fmTurnSettleOffset @14 :Float32;
 
   enum TurnDirection {
     none @0;
