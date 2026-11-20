@@ -1354,8 +1354,14 @@
             {
               "key": "FM_LateralSmoothingEnabled",
               "widget": "toggle",
-              "title": "Lateral Smoothing",
-              "description": "Replaces the model's own built-in lateral smoothing value (each model sets its own, often 0 or 0.1 s) with the one you pick in Lateral Smoothing Settings. It does two things at once. Higher smooths the model's steering request more, which calms jitter but answers a little later. Higher also reads the model's plan slightly further ahead, which starts steering earlier. Which one you feel more depends on the model and the road. Applies to all driving, not only turns. Off: each model uses its own value."
+              "title": "Lateral Smoothing (Small Models)",
+              "description": "Replaces the small model's own built-in lateral smoothing value (each model sets its own, often 0 or 0.1 s) with the one you pick in Lateral Smoothing Settings. It does two things at once. Higher smooths the model's steering request more, which calms jitter but answers a little later. Higher also reads the model's plan slightly further ahead, which starts steering earlier. Which one you feel more depends on the model and the road. Applies to all driving, not only turns. Does not affect a big model (see Lateral Smoothing (Big Models)). Off: each model uses its own value."
+            },
+            {
+              "key": "FM_BigModelSmoothing",
+              "widget": "toggle",
+              "title": "Lateral Smoothing (Big Models)",
+              "description": "Gives a big model (comma's large model over Jetlink) the 0.1 s steering smoothing many small models use. Big models smooth nothing on their own, which can leave a small side-to-side wiggle on straight roads. Unlike the small-model setting, it does not change how far ahead the plan is read, so it only calms, and answers about 0.1 s later. Applies to all driving while the big model drives. Off: the big model's raw steering. From zoompilot."
             }
           ],
           "sub_panels": [

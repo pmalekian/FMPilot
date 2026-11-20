@@ -43,6 +43,7 @@ from openpilot.selfdrive.modeld.constants import ModelConstants, Plan
 from openpilot.selfdrive.modeld.helpers import MODELS_DIR, chestnut_present, chestnut_compiled, modeld_pkl_path, load_oob, wait_for_chestnut
 from openpilot.sunnypilot.livedelay.helpers import get_lat_delay
 from openpilot.sunnypilot.modeld_v2.modeld_base import ModelStateBase
+from openpilot.sunnypilot.modeld_v2.fm_big_model_smoothing import PARAM_BIG_MODEL_SMOOTHING, big_lat_smooth_seconds, smooth_curvature
 from openpilot.sunnypilot.selfdrive.controls.lib.relc import RoadEdgeLaneChangeController
 from openpilot.sunnypilot import jetlink_adapter
 
@@ -349,6 +350,7 @@ def main(demo=False):
 
   DH = DesireHelper()
   RELC = RoadEdgeLaneChangeController()
+  big_model_smoothing = params.get_bool(PARAM_BIG_MODEL_SMOOTHING)  # FM Pilot: Lateral Smoothing (Big Models)
 
   while True:
     # Keep receiving frames until we are at least 1 frame ahead of previous extra frame
@@ -389,6 +391,8 @@ def main(demo=False):
     frame_id = sm["narrowRoadCameraState"].frameId
     v_ego = max(sm["carState"].vEgo, 0.)
     model.lat_delay = get_lat_delay(params, sm["lateralDelay"].lateralDelay)
+    if sm.frame % 60 == 0:
+      big_model_smoothing = params.get_bool(PARAM_BIG_MODEL_SMOOTHING)
     lat_delay = sm["lateralDelay"].lateralDelay + LAT_SMOOTH_SECONDS
     if sm.updated["extrinsicsCalibration"] and sm.seen['narrowRoadCameraState'] and sm.seen['deviceState']:
       device_from_calib_euler = np.array(sm["extrinsicsCalibration"].rpyCalib, dtype=np.float32)
@@ -461,6 +465,8 @@ def main(demo=False):
       if not sm['carControl'].latActive:
         prev_action.desiredCurvature = sm['controlsState'].curvature
       action = get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego)
+      # FM Pilot: Lateral Smoothing (Big Models); stock modeld's LAT_SMOOTH_SECONDS is 0, so every big model qualifies
+      smooth_curvature(action, prev_action, big_lat_smooth_seconds(big_model_smoothing, model))
       prev_action = action
       fill_model_msg(modelv2_send, model_output, action,
                      publish_state, meta_main.frame_id, meta_extra.frame_id, frame_id,

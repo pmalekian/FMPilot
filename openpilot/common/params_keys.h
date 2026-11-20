@@ -281,6 +281,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"FM_LaneKeepMode", {PERSISTENT | BACKUP, INT}},  // no default: params_migration seeds it from the older toggles
     {"FM_LateralSmoothingEnabled", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"FM_LateralSmoothingSeconds", {PERSISTENT | BACKUP, FLOAT, "0.1"}},
+    {"FM_BigModelSmoothing", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"FM_LeadDetectionThreshold", {PERSISTENT | BACKUP, INT, "50"}},
     {"FM_LowSpeedCurvatureFloor", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"FM_StraightPullAwayFloor", {PERSISTENT | BACKUP, BOOL, "0"}},

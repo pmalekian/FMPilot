@@ -54,6 +54,7 @@ from openpilot.sunnypilot.models.helpers import get_active_bundle
 from openpilot.sunnypilot.selfdrive.controls.lib.relc import RoadEdgeLaneChangeController
 from openpilot.sunnypilot import jetlink_adapter
 from openpilot.sunnypilot.modeld_v2.fm_pull_away import StraightPullAway
+from openpilot.sunnypilot.modeld_v2.fm_big_model_smoothing import PARAM_BIG_MODEL_SMOOTHING, big_lat_smooth_seconds, smooth_curvature
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_lane_keep_mode import MODE_BLENDFUL, get_lane_keep_mode
 
 # FM Pilot: sunnypilot #2091 (James Vecellio-Grant, Nov 4 2026, MIT), as a setting. Action-head models output a lateral
@@ -448,6 +449,7 @@ def main(demo=False):
   action_speed_floor = fm_action_speed_floor(params)  # FM Pilot: FM_LowSpeedCurvatureFloor (sunnypilot #2091)
   pull_away = StraightPullAway()  # FM Pilot: FM_StraightPullAwayFloor
   straight_pull_away = params.get_bool(PARAM_STRAIGHT_PULL_AWAY)
+  big_model_smoothing = params.get_bool(PARAM_BIG_MODEL_SMOOTHING)  # FM Pilot: Lateral Smoothing (Big Models)
 
   while True:
     # Keep receiving frames until we are at least 1 frame ahead of previous extra frame
@@ -495,6 +497,7 @@ def main(demo=False):
       blendful_enabled = get_lane_keep_mode(params) == MODE_BLENDFUL
       action_speed_floor = fm_action_speed_floor(params)
       straight_pull_away = params.get_bool(PARAM_STRAIGHT_PULL_AWAY)
+      big_model_smoothing = params.get_bool(PARAM_BIG_MODEL_SMOOTHING)
       # on the ModelStates themselves, never on `model`: a Jetlink joining model keeps a plain write to itself (the
       # small model then never saw the setting) and has no bundle value once the big model drives (AttributeError)
       fm_apply_model_settings(params, model, small_model, action_speed_floor)
@@ -585,6 +588,8 @@ def main(demo=False):
       blendful_active = desire == log.Desire.none and DH.lane_change_state == log.LaneChangeState.off
       action = model.get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego,
                                            partial(blendful.update, model_output, v_ego, blendful_active, enabled=blendful_enabled))
+      # FM Pilot: Lateral Smoothing (Big Models); after run(), so a Jetlink swap inside it is already reflected
+      smooth_curvature(action, prev_action, big_lat_smooth_seconds(big_model_smoothing, model))
       prev_action = action
       fill_model_msg(drivingdata_send, modelv2_send, model_output, action,
                      publish_state, meta_main.frame_id, meta_extra.frame_id, frame_id,
