@@ -1242,3 +1242,58 @@ class TestHoldSteadyPeak:
       mph = float(rng.uniform(5.5, 14.0))
       assert run(off, k, RIGHT, mph=mph) == run(on, k, RIGHT, mph=mph)
     assert off.peak == on.peak
+
+
+class TestRestartAfterStop:
+  """Stop Before Turning Starts Over (FM_TurnRestartAfterStop, off by default): a stop before the truck has turned 10 deg
+  starts the turn over (000000af--3 +24.8 s: a creep in a queue set a 0.12 peak that came back on the next creep 7 s
+  later as 0.087 added to a model asking 0.007)."""
+  KEY = "FM_TurnRestartAfterStop"
+
+  def _assist(self, on, **extra):
+    return FmTurnAssist(FakeParams(**({PARAM_HOLD: True, self.KEY: on, "FM_TurnHoldSteeringOnly": True} | extra)))
+
+  def _creep_stop_creep(self, a):
+    run(a, -0.10, LEFT, mph=2, steps=60, actual=-0.03)  # creep: the model asks for the turn
+    run(a, -0.03, LEFT, mph=0.0, steps=500, actual=-0.03, lat=False)  # stopped behind the car ahead
+    return run(a, -0.007, LEFT, mph=2, steps=60, actual=-0.03)  # next creep: the model asks nearly straight
+
+  def test_off_carries_the_creeps_peak(self):
+    a = self._assist(False)
+    assert self._creep_stop_creep(a) < -0.05
+
+  def test_on_starts_over(self):
+    a = self._assist(True)
+    out = self._creep_stop_creep(a)
+    assert out == pytest.approx(-0.007)
+    assert a.restarts == 1
+
+  def test_on_keeps_a_turn_paused_past_10_deg(self):
+    a = self._assist(True)
+    run(a, -0.10, LEFT, mph=4, steps=60, actual=-0.10)
+    a.turned = math.radians(15.0)  # well into the turn
+    run(a, -0.10, LEFT, mph=0.0, steps=300, actual=-0.10, lat=False)
+    assert a.peak == pytest.approx(0.10)
+    assert a.restarts == 0
+
+  def test_on_rearms_a_hold_released_on_the_creep(self):
+    a = self._assist(True, **{PARAM_HOLD_DEBOUNCE: True})
+    run(a, -0.10, LEFT, mph=2, steps=30, actual=-0.03)
+    run(a, -0.10, LEFT, mph=2, steps=40, actual=-0.03, pressed=True, torque=-1.0)  # against a left turn: right
+    assert a.hold_released
+    run(a, -0.03, LEFT, mph=0.0, steps=100, actual=-0.03, lat=False)
+    assert not a.hold_released
+
+  def test_slowing_without_stopping_does_not_start_over(self):
+    a = self._assist(True)
+    run(a, -0.10, LEFT, mph=2, steps=60, actual=-0.03)
+    run(a, -0.03, LEFT, mph=1.5, steps=200, actual=-0.03)
+    assert a.peak == pytest.approx(0.10)
+    assert a.restarts == 0
+
+  def test_logged(self):
+    a = self._assist(True)
+    self._creep_stop_creep(a)
+    msg = SimpleNamespace()
+    a.fill_log(msg)
+    assert msg.restarts == 1

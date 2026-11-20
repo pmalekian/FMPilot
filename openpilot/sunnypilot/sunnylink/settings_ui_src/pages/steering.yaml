@@ -979,6 +979,17 @@ sections:
       - type: param
         key: FM_TurnHoldEnabled
         equals: true
+    - key: FM_TurnRestartAfterStop
+      widget: toggle
+      title: Stop Before Turning Starts Over
+      description: If the truck stops before it has turned 10 degrees (waiting in a line, creeping up to the stop line),
+        the turn starts over when you pull away. Nothing from the creep carries into the real turn - not Turn Hold's
+        remembered curve, not a hold you released, not Turn Lead switched off by your hands. A turn you pause partway
+        through (past 10 degrees) keeps everything. Off by default.
+      enablement:
+      - type: param
+        key: FM_TurnHoldEnabled
+        equals: true
   - id: turn_lead_settings
     label: Turn Lead Settings
     trigger_key: FM_TurnLeadEnabled

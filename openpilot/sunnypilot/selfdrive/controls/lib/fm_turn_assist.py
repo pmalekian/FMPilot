@@ -126,6 +126,7 @@ PARAM_HOLD_FOLLOW_EXIT = "FM_TurnHoldFollowExit"
 PARAM_HOLD_AT_TURN_IN = "FM_TurnHoldStartsAtTurnIn"
 PARAM_HOLD_STEERING_ONLY = "FM_TurnHoldSteeringOnly"
 PARAM_HOLD_STEADY_PEAK = "FM_TurnHoldSteadyPeak"
+PARAM_RESTART_AFTER_STOP = "FM_TurnRestartAfterStop"
 
 BOOST_LIMITS = (1.0, 1.5)
 FULL_SPEED = 15 * CV.MPH_TO_MS
@@ -354,6 +355,8 @@ class FmTurnAssist:
     self.hold_at_turn_in = False
     self.hold_steering_only = False
     self.hold_steady_peak = False
+    self.restart_after_stop = False
+    self.restarts = 0  # Stop Before Turning Starts Over: times this turn was started over (logged)
     self.amount = 0.0  # 0..1 fade
     self._reset_turn(0)
     self._clear_log(0.0)
@@ -392,6 +395,7 @@ class FmTurnAssist:
     self.hold_at_turn_in = self.params.get_bool(PARAM_HOLD_AT_TURN_IN)
     self.hold_steering_only = self.params.get_bool(PARAM_HOLD_STEERING_ONLY)
     self.hold_steady_peak = self.params.get_bool(PARAM_HOLD_STEADY_PEAK)
+    self.restart_after_stop = self.params.get_bool(PARAM_RESTART_AFTER_STOP)
     try:
       gate = float(self.params.get(PARAM_LEAD_GATE_DIST, return_default=True) or LEAD_GATE_DIST_DEFAULT)
     except (TypeError, ValueError):
@@ -539,6 +543,13 @@ class FmTurnAssist:
 
     if sign != self.sign or self.turn_ended:
       self._reset_turn(sign)
+      self.restarts = 0
+    elif (self.restart_after_stop and sign != 0 and not lat_active and v_ego < HOLD_MOVING_SPEED
+          and self.turned < HOLD_START_TURNED and (self.peak > 0.0 or self.hold_released or self.turned > 0.0)):
+      # Stop Before Turning Starts Over: stopped before the truck has turned 10 degrees (a queue, a creep to the line):
+      # nothing learned on the way (hold peak, a release) carries into the turn
+      self._reset_turn(sign)
+      self.restarts = min(self.restarts + 1, 255)
     if sign != 0:
       self.turned += sign * actual_curvature * v_ego * DT_CTRL
       self.peak_actual = max(self.peak_actual, sign * actual_curvature)
@@ -688,6 +699,7 @@ class FmTurnAssist:
       ("releaseReason", int(self.release_reason)),
       ("earlyCorrection", bool(self.log_early)),
       ("againstTime", float(self.against_time)),
+      ("restarts", int(self.restarts)),
     ):
       if value:
         setattr(msg, name, value)

@@ -449,6 +449,7 @@ struct CarControlSP @0xa5cd762cd951a455 {
     releaseReason @19 :ReleaseReason;  # why Turn Hold let go of this turn (stays set for the rest of the turn)
     earlyCorrection @20 :Bool;  # a press against the turn is passing through without releasing the hold
     againstTime @21 :Float32;   # s the current press against the turn has lasted
+    restarts @22 :UInt8;        # Stop Before Turning Starts Over: times this turn was started over by a stop
 
     enum Source {
       none @0;
