@@ -6,6 +6,7 @@ from openpilot.sunnypilot.selfdrive.controls.lib.lane_turn_desire import LaneTur
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_desire import FmTurnDesire
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_pulse import FmTurnPulse
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_nav_turn_desire import FmNavTurnDesire
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_queue_guard import FmQueueGuard
 
 LaneChangeState = log.LaneChangeState
 LaneChangeDirection = log.LaneChangeDirection
@@ -35,12 +36,16 @@ class DesireHelper:
     self.fm_turn = FmTurnDesire()  # FM Pilot: road-edge turn desire and the held-turn rule
     self.fm_turn_pulse = FmTurnPulse()  # FM Pilot: fresh turn pulse to the model when pulling away from a stop
     self.fm_nav_turn = FmNavTurnDesire()  # FM Pilot: a blinker toward a mapped street is a turn, above the lane-turn speed too
+    self.fm_queue_guard = FmQueueGuard()  # FM Pilot: a turn waits while stopped close behind a car
+    self.fm_queue_hold = False
 
   @staticmethod
   def get_lane_change_direction(CS):
     return LaneChangeDirection.left if CS.leftBlinker else LaneChangeDirection.right
 
-  def update(self, carstate, lateral_active, lane_change_prob, left_edge_detected=False, right_edge_detected=False, nav_turn=None):
+  def update(self, carstate, lateral_active, lane_change_prob, left_edge_detected=False, right_edge_detected=False, nav_turn=None,
+             lead=None, curvature=0.0):
+    """lead: radarState.leadOne (or None); curvature: controlsState.curvature, both for FM Pilot's Queue Guard."""
     self.alc.update_params()
     self.lane_turn_controller.update_params()
     v_ego = carstate.vEgo
@@ -67,6 +72,15 @@ class DesireHelper:
     if self.fm_nav_turn.enabled and self.lane_turn_direction == TurnDirection.none:
       self.lane_turn_direction = self.fm_nav_turn.turn_direction
       fm_turn_armed = fm_turn_armed or self.fm_nav_turn.armed
+
+    # FM Pilot: Queue Guard. Stopped close behind a car, the turn waits (withheld from the model, Turn Assist and the
+    # alert) until that car pulls away; then it comes back as a fresh turn.
+    turn_sign = 1 if self.lane_turn_direction == TurnDirection.turnRight else (-1 if self.lane_turn_direction == TurnDirection.turnLeft else 0)
+    lead_present = bool(lead is not None and lead.present)
+    self.fm_queue_hold = self.fm_queue_guard.update(turn_sign, v_ego, float(curvature), DT_MDL, lead_present,
+                                                    float(lead.dRel) if lead_present else float('inf'))
+    if self.fm_queue_hold:
+      self.lane_turn_direction = TurnDirection.none
 
     if fm_turn_armed or not lateral_active or self.lane_change_timer > LANE_CHANGE_TIME_MAX or \
        self.alc.lane_change_set_timer == AutoLaneChangeMode.OFF:

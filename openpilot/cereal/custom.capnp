@@ -582,6 +582,8 @@ struct ModelDataV2SP @0xa1680744031fdb2d {
   # FM Pilot: Map Turn Desire (the map found a street on the blinker's side)
   fmNavTurnArmed @10 :Bool;
   fmNavTurnActive @11 :Bool;
+  # FM Pilot: Queue Guard (the turn is waiting behind a car; laneTurnDirection is none meanwhile)
+  fmQueueGuard @12 :Bool;
 
   enum TurnDirection {
     none @0;

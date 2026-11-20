@@ -1313,6 +1313,12 @@
               ]
             },
             {
+              "key": "FM_TurnQueueGuard",
+              "widget": "toggle",
+              "title": "Queue Guard",
+              "description": "Waiting in a line of cars with the blinker on, the turn normally starts right away, so every creep forward steers toward the turn. With this on, once you are stopped with a car within 8 m ahead, the turn waits (no steering toward it, and the Turning alert goes away) until that car is more than 10 m ahead or gone, or you reach 5 mph; then the turn starts fresh. A turn the truck has already started (10 degrees or more) is never held. Off by default."
+            },
+            {
               "key": "FM_TurnPathMinRadius",
               "widget": "option",
               "title": "Turn Path Tightest Radius",

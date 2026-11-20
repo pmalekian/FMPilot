@@ -317,8 +317,9 @@ def main(demo=False):
   pub_socks = ["modelV2", "drivingModelData", "cameraOdometry", "modelDataV2SP"] + (["chestnutGpuState"] if CHESTNUT else [])
   pm = PubMaster(pub_socks)
   sm = SubMaster(["deviceState", "carState", "narrowRoadCameraState", "extrinsicsCalibration", "driverMonitoringState",
-                  "carControl", "controlsState", "lateralDelay", "fmNavTurn"],
-                 ignore_alive=["fmNavTurn"], ignore_avg_freq=["fmNavTurn"], ignore_valid=["fmNavTurn"])  # FM Pilot: only with Nav Assist on
+                  "carControl", "controlsState", "lateralDelay", "fmNavTurn", "radarState"],
+                 ignore_alive=["fmNavTurn", "radarState"], ignore_avg_freq=["fmNavTurn", "radarState"],
+                 ignore_valid=["fmNavTurn", "radarState"])  # FM Pilot: Nav Assist only when on; radarState for Queue Guard
 
   publish_state = PublishState()
   params = Params()
@@ -479,13 +480,16 @@ def main(demo=False):
       lane_change_prob = l_lane_change_prob + r_lane_change_prob
       left_edge, right_edge = RELC.update_and_fill(modelv2_send.modelV2, mdv2sp_send.modelDataV2SP, v_ego)
       nav_turn = sm['fmNavTurn'] if sm.alive['fmNavTurn'] and sm.valid['fmNavTurn'] else None  # FM Pilot: Map Turn Desire
-      DH.update(sm['carState'], sm['carControl'].latActive, lane_change_prob, left_edge, right_edge, nav_turn)
+      queue_lead = sm['radarState'].leadOne if sm.alive['radarState'] else None  # FM Pilot: Queue Guard
+      DH.update(sm['carState'], sm['carControl'].latActive, lane_change_prob, left_edge, right_edge, nav_turn,
+                lead=queue_lead, curvature=sm['controlsState'].curvature)
       modelv2_send.modelV2.meta.laneChangeState = DH.lane_change_state
       modelv2_send.modelV2.meta.laneChangeDirection = DH.lane_change_direction
       mdv2sp_send.valid = modelv2_send.valid
       mdv2sp_send.modelDataV2SP.laneTurnDirection = DH.lane_turn_direction
       mdv2sp_send.modelDataV2SP.fmNavTurnArmed = DH.fm_nav_turn.armed
       mdv2sp_send.modelDataV2SP.fmNavTurnActive = DH.fm_nav_turn.active
+      mdv2sp_send.modelDataV2SP.fmQueueGuard = DH.fm_queue_hold
 
       fill_driving_model_data(drivingdata_send, modelv2_send)
       fill_pose_msg(posenet_send, model_output, meta_main.frame_id, vipc_dropped_frames, meta_main.timestamp_eof, extrinsics_calibration_seen)
