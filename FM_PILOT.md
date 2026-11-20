@@ -4,7 +4,8 @@ Frankie Malekian's personal fork of [AdventurePilot](https://github.com/Adventur
 2022 Rivian R1S (Gen 1) with a comma 4. Branches: `fm-dev-set` (current development), `fm-dev-jet` (`fm-dev-set`
 plus Jetlink) and `fm-dev-max2` (`fm-dev-jet` plus the Nov 16, 2026 code-review fixes: two Jetlink bugs and less work
 per control step, no feature or tuning change) and `fm-dev-nav` (`fm-dev-max2` plus Nav Assist, Map Turn Desire, Nav Turn Speed and
-Download Nav Map, all off by default, and the Top Readout setting); `fm-dev-max` is the older everyday branch. Everything AdventurePilot does is kept; FM Pilot adds the
+Download Nav Map, all off by default, and the Top Readout setting; since Nov 20 also Hold Ignores Crawl Spikes, Stop Before
+Turning Starts Over, Turn Lead Yields to Your Hands, Queue Guard and Settle After Turn, all off by default); `fm-dev-max` is the older everyday branch. Everything AdventurePilot does is kept; FM Pilot adds the
 features below. Every FM Pilot commit starts with "FM Pilot".
 
 ## Features

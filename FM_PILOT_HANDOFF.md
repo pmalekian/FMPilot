@@ -1,6 +1,6 @@
 # FM Pilot: handoff for new chats (short)
 
-State as of Nov 19, 2026 (Lateral Smoothing (Big Models) on `fm-dev-nav`, off, item 0s; Jetlink Status log, item 0r; Calmer Straight Pull-Away for Cheddar's pull-away jerk, item 0q; Nav Assist on `fm-dev-nav`: map logging, Map Turn Desire, Nav Turn Speed, Download Nav Map and the Top Readout CPU option, all off or as before, none on the truck yet, item 0o; code review of everything above AdventurePilot: fixes on `fm-dev-max2`, item 0p; comm warnings traced to hardwared stalls, stall diagnostics built, item 0n; Nov 13: drive `00000073` analyzed, item 0l; Turn Assist logging + fixes A/B/C built, item 0m). This is the current state only. Background findings, past drive analyses and
+State as of Nov 20, 2026 (Nov 20 drive `000000af` turn analysis and five off-by-default fixes built, item 0t; Lateral Smoothing (Big Models) on `fm-dev-nav`, off, item 0s; Jetlink Status log, item 0r; Calmer Straight Pull-Away for Cheddar's pull-away jerk, item 0q; Nav Assist on `fm-dev-nav`: map logging, Map Turn Desire, Nav Turn Speed, Download Nav Map and the Top Readout CPU option, all off or as before, none on the truck yet, item 0o; code review of everything above AdventurePilot: fixes on `fm-dev-max2`, item 0p; comm warnings traced to hardwared stalls, stall diagnostics built, item 0n; Nov 13: drive `00000073` analyzed, item 0l; Turn Assist logging + fixes A/B/C built, item 0m). This is the current state only. Background findings, past drive analyses and
 the ideas backlog are in `claude/FM_PILOT_FINDINGS.md`: read it only when a task needs that history. Features, settings
 and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 
@@ -11,7 +11,8 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
   (Higher Torque + radar settings) and adding the settings reorganization, Blendful and the boost bar; `fm-dev-torque`
   stays at `bece23e` as the fallback. `fm-dev-max` (`d189ccc`) is the everyday branch, installer `pmalekian/fm-dev-max`. Own fork of AdventurePilot `dev` (last synced `980dd5c`, Oct 31).
   **No more AP syncs**; borrow single pieces only if wanted.
-  **Newest: `fm-dev-nav`** (Nov 17) = `fm-dev-max2` `196f750` + Nav Assist (item 0o) + Calmer Straight Pull-Away (item 0q, code `ce8ddd4`), all off by default.
+  **Newest: `fm-dev-nav`** (Nov 17) = `fm-dev-max2` `196f750` + Nav Assist (item 0o) + Calmer Straight Pull-Away (item 0q, code `ce8ddd4`), all off by default;
+  plus (Nov 20, item 0t) Hold Ignores Crawl Spikes, Stop Before Turning Starts Over, Turn Lead Yields, Queue Guard, Settle After Turn, all off.
   `fm-dev-max2` (Nov 16) = `fm-dev-jet` `b627e6a` + the code-review fixes (item 0p), code at `040bef2`. `fm-dev-jet`
   stays at `b627e6a` as the fallback.
 - **Keeping this file current:** whenever this handoff is updated, also write the updated copy into the Project with
@@ -76,6 +77,94 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 - Custom splice model: **removed** Nov 8 (with the on-device compile fix and model check tools), for the v25 move.
 
 ## Active work
+
+### 0t. Nov 20 morning drive `000000af--565e9cd6b0` (first drive on `fm-dev-nav` `5f70e65`, Cheddar): 8 turns analyzed; five fixes built, OFF, not driven
+
+- **Logs:** segments --0..--4 and --8 (attachments, not on his PC). Drive t=0 is 08:52:08.8 CST (from `clocks`).
+  Cheddar, MADS lateral only all drive (no cruise or openpilot longitudinal: he drove the pedals, so Nav Turn Speed never
+  capped), Blendful, Turn Lead (adaptive, gate 5 m) + Turn Hold (Path Source, Adds, Early Correction, Starts at Turn-In,
+  Follow Exit, Steering Only) + Nudge + Smooth Start, Max Torque 580 + fast ramp + full cap, Calmer 70%, Low-Speed FF L1/R2,
+  Release Guard 150, Nav Assist + Map Turn Desire + Nav Turn Speed + Calmer Straight Pull-Away all ON (first drive with them).
+- **His turns -> log:** T1 --0 +29.6 R (good turn, then stayed left), T2 --0 +52.0 L (good), T3 --1 +2.5 R (ended on the lane
+  line), T4 --1 +33.2 R (good, Map Turn Desire started), T5 queue --2 +57..--3 +33 then turn --3 +35.3 L (wheel winding
+  while queued; turn cut into the oncoming side), T6 --4 +40.5 R (too wide, car waiting on Bartlett), T7 --8 +35.6 L from a
+  red light (cut toward the median), T8 --8 +50.5 R (too tight then too wide).
+- **Findings (observed):**
+  1. **Turn Hold's peak learns crawl-speed spikes.** T5 turn: Cheddar's raw request at 1.9-4 mph swung -94/-190/-78/-122/-49
+     e-3 in 0.5 s; the peak took 149, the floor then added 51-72 e-3 for 1.5 s at 4-14 mph (request -110..-118 vs the model's
+     -37..-49), the truck went to -115..-120 (r 8.3 m) and the left lane line passed under the truck (y -1.70 -> +0.49 m) until
+     Follow Exit faded it at +37.8. Off-center until Blendful re-acquired at --3 +40.8 (his "Good now" frame, 08:55:48).
+     T3: model 129 at 3.7 mph also became the peak (floor +38-44).
+  2. **Queue creeps steer into the turn, and the hold peak survives the stop.** T5: radar lead 2.4-5.4 m ahead, stopped. Each
+     1-5 mph creep with the blinker on (AP Lane Turn Desire) asked -15..-48 e-3, wheel to 79 deg. Hold Path Source set a peak of
+     120 e-3 at 1 mph (--3 +24.8); Hold Only Counts While Steering froze the peak and its decay over the 6 s stop, so the next
+     creep (--3 +31.8) got a floor of +87 (request -84 vs model -7). He fought it (-109 deg, -2.2 Nm), which released the hold.
+  3. **Turn Lead front-loads the turn, and its addition becomes the hold's peak.** At turn-in Lead added 60-87 e-3 (2-3x the
+     model) in T1, T2, T3, T8 and 48 in T7. The peak includes Lead's addition, so the floor keeps it after Lead hands back
+     (T1 +27, T7 +12-26, T8 +19). T7: pulling away from the light, request -70 vs model -27 from 1.5 to 5 m past the stop,
+     truck at r ~15 m toward the median nose; he pushed out at +37.6. T8: request 85-116 vs model 26-38, he pushed against
+     (+1.75 Nm) at +52.3-53.3 and **Lead kept adding (17-40) while he pushed**: Lead has no hand release (Turn Hold does).
+     Afterwards the model alone (57) was too gentle and he pushed in (-2.3 Nm). Lead was equally large in T2, which he rated
+     really good, so Lead isn't wrong on every turn.
+  4. **T6 was entry speed.** Turn-in at 20-22 mph (his pedal), so Turn Assist (fades 15->20 mph) added nothing; model alone
+     ramped 15 -> 64 e-3 over 2.5 s while slowing to 13 mph; truck lag ~0.4 s. Map Turn Desire started 4.9 s before turn-in at
+     32 mph (correct); junction 20 m away at turn-in. He cut in by hand at +43.3.
+  5. **Post-turn lane position:** Blendful is off below 5 m/s and during a desire, and lane-line confidence stays ~0 for 3-5 s
+     after a turn, so the truck stays where the turn left it: T3 0.4-0.6 m left (dashed line under the truck's left half)
+     until --1 +12.3, T5 0.6-0.9 m left until --3 +40.8. T1 is an unmarked residential street (line probs 0): Cheddar holds
+     ~0.35 m right of the road's middle; nothing in FM keeps right on edge-only roads (single-line mode needs a trusted line).
+- **Open-loop replay** (the real `FmTurnAssist` on the logged inputs; matches the logged requestOut except 1-frame release
+  timing; scripts: project doc `claude/turn_replay_scripts.md`). Extra over the model, integrated (e-3 1/m*s), as driven ->
+  variant: (A) Lead yields to a press against the turn while Lead is adding (0.25 s or 1.5 Nm): T7 58->56, T8 125->99, others
+  unchanged; (B) hold peak excludes Lead's addition: T2 141->62 (a good turn), T7 58->40, T8 125->110; (C) hold peak learns
+  only what was asked for 0.3 s: T5 turn 121->55, T3 140->128; (D) a stop before the truck has turned 10 deg resets the turn:
+  T5 queue 81->60. Open loop only: the truck's curve is the logged one.
+- **Also seen:** Map Turn Desire started on 2 of 2 eligible blinkers (T4, T6), both correct. `fmNavTurn.computeMs` on the
+  comma median 22 ms, p99 47, max 795 (PC was 1.4 ms); core 4 at 95% avg (as in item 0n). No straight pull-aways from a stop
+  in these segments, so Calmer Straight Pull-Away is unexercised.
+- **Follow-up replay (same session, his questions):** C as first written also trimmed good turns (T2 141->112, T4 101->87:
+  Lead's fast rise lags the 0.3 s minimum); **C only below 5 mph** keeps the T5 gain (121->55) and changes T1/T2/T4/T7/T8
+  by 0. A refined: before 10 deg turned a press only pauses Lead (back when you let go); from 10 deg a firm press (0.25 s or
+  1.5 Nm) ends it for the turn; T7/T8 same as A, T4 101->93 (a pre-turn press paused it). B variants all cut T2's floor too
+  (peak with half of Lead: T2 68->19, T7 16->2; Lead share fading 0.6/s: 68->15, 16->2; drop Lead's share only once he
+  resists: T7/T8 unchanged, the floor acted before his push). No request-only rule separates T2 from T7/T8; the tightest
+  request in T7/T8 is Lead's own at turn-in, so B is dropped in favour of the Turn Lead off loop.
+  **Turn exits:** during the turn every line prob is <0.1 and edge stds 1-6 m. After right turns the right road edge is
+  confident (std <0.5) 1-2 s after straightening, before the lines (T1 +36, T3 +9.8, T4 +39.8, T6 +46.8, T8 +55.8);
+  T3's left line reached p 0.31-0.35 at +9.8 vs Blendful taking over at +12.3. After the T5 left the left line read p 0.34 at
+  +39.8, Blendful at +40.8. Proposed (not built): "Settle After Turn": from straightening to ~6 s after, 8-30 mph, Blendful-style
+  centering with lower line thresholds (~0.3) and the near road edge as a stand-in for a missing right line; right turns aim
+  for the right lane, left turns only push away from the left line (center line/median); small capped correction, yields to
+  hands. Edge-only use on unmarked streets (T1) is a separate, riskier option (parked cars read as edges).
+- **Built (Nov 20, his ask), on `fm-dev-nav`, all OFF by default, not driven** (B dropped, see above):
+  - `19baeef` **Hold Ignores Crawl Spikes** (`FM_TurnHoldSteadyPeak`, Turn Hold Settings) = C under 5 mph only.
+  - `b77d570` **Stop Before Turning Starts Over** (`FM_TurnRestartAfterStop`, Turn Hold Settings) = D; logs `turnAssist.restarts`.
+    Note: with it on, Hold Only Counts While Steering's "keep the peak from before the stop" (item 0p) only holds past 10 deg.
+  - `4b78663` **Turn Lead Yields to Your Hands** (`FM_TurnLeadYield`, Turn Lead Settings) = A with the pause before 10 deg
+    (debounced 0.25 s / 1.5 Nm, resumes 0.5 s after release); logs `turnAssist.leadYield` (1 paused, 2 off).
+  - `5112fe6` `turns.py` assist line shows Lead paused/off and restarts.
+  - `5a112cd` **Queue Guard** (`FM_TurnQueueGuard`, Turn Tweaks; `fm_queue_guard.py` in DesireHelper, both modeld's subscribe to
+    `radarState`, not required alive): stopped with a lead within 8 m during a turn -> laneTurnDirection none (model, Turn Assist,
+    alert) until the lead is >10 m / gone, 10 mph, or 10 deg turned; never starts past 10 deg. Logs `modelDataV2SP.fmQueueGuard`.
+    A 5 mph release was tried first: it let go in the 5.5 mph creep at --3 +22.3 (where the wheel wound in), so 10 mph.
+  - `35908da` **Settle After Turn** (`FM_TurnSettle`, Turn Tweaks; `modeld_v2/fm_turn_settle.py` in the Blendful hook, so Jetlink
+    too): 6 s after a 45 deg+ blinker turn, 8-30 mph, lines at p>=0.3 / std<=0.9 measured 6 m ahead, 1.6 m from a single
+    line, sure edge only a limit (1.4 m), 0.25 m deadband, lefts push right only, gain 0.6, cap 0.004, Blendful rates, hands
+    over at Blendful trust 0.5. Logs `modelDataV2SP.fmTurnSettle`/`fmTurnSettleOffset`. Dropped in replay: curb 1.8 m as
+    a target (pushed the good T4 0.7 m toward a shoulder) and measuring at the look-ahead (turn-lane opening).
+- **Offline on `000000af` (real code, logged inputs, open loop):** with the new settings off the Turn Assist request matches
+  the log (p99 0.0019 1/m, max 0.08 = one-frame release timing, as before). Extra over the model (1/m*s): steady peak T5 turn
+  0.121 -> 0.055, T3 0.140 -> 0.136; restart T5 queue 0.081 -> 0.060; Lead yield T8 0.125 -> 0.099, T7 0.058 -> 0.056; all
+  three: queue 0.052, T5 turn 0.055; every other turn and every frame outside the turns identical (diff 0). Queue Guard through
+  the real DesireHelper: holds only in the T5 queue (--3 +2.6..5.0, +8.9..32.1), lets go 2.2 s before the turn. Settle: right
+  1-1.5 s before Blendful after T3 (<=0.0004 1/m) and T5 (<=0.0013), with Blendful's direction after T4/T6, nothing else.
+  **Not simulated:** the truck's response (closed loop) and the model's own steering with the desire withheld in the queue.
+- **Tests:** turn assist 192 (+19), queue guard 16 + DesireHelper 3, settle 21, tools 69 (+1); sunnypilot suite 1307 pass with
+  the known failures only (onnx hash, locationd gps, curve-speed collection); controls 93, Rivian car/safety pass; manager
+  only its known `test_set_params_with_default_value`; `test_fm_jetlink_icon` doesn't collect here (jetlink not on the
+  path; not FM's change). Ruff clean, Sunnylink compiled and validated 10/10. Not run: on-device build (cereal changed).
+- **Test drive (suggested):** first Hold Ignores Crawl Spikes + Stop Before Turning Starts Over + Queue Guard on, same
+  stop-sign queue and turns; then Turn Lead Yields; Settle After Turn last, on its own. Separately one loop with Turn Lead off.
 
 ### 0s. Lateral Smoothing (Big Models) (Nov 19): built on `fm-dev-nav` (`52a9f62`), OFF, not driven
 
@@ -776,6 +865,9 @@ From `0000005e--e26703ace2--2` (Nov 9 build, Cheddar, Road Edge Turn Desire on):
 
 ## Next steps
 
+0000000. Item 0t: update the comma (`fm-dev-nav`, on-device build: cereal changed), then a drive with Hold Ignores Crawl Spikes,
+   Stop Before Turning Starts Over and Queue Guard on through the same stop-sign queue; send rlogs (`turns.py`, `fmQueueGuard`).
+   Then Turn Lead Yields; Settle After Turn on its own; one loop with Turn Lead off.
 000000. Item 0s: send one big-model rlog segment (straight road) for the offline smoothing replay; then one drive with
    Lateral Smoothing (Big Models) on vs off.
 00000. Item 0p: put `fm-dev-max2` on the comma, one normal drive, send one rlog segment (core 4 load, controlsd rate) and
