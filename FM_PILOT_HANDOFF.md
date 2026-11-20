@@ -1,6 +1,6 @@
 # FM Pilot: handoff for new chats (short)
 
-State as of Nov 17, 2026 (Calmer Straight Pull-Away for Cheddar's pull-away jerk, item 0q; Nav Assist on `fm-dev-nav`: map logging, Map Turn Desire, Nav Turn Speed, Download Nav Map and the Top Readout CPU option, all off or as before, none on the truck yet, item 0o; code review of everything above AdventurePilot: fixes on `fm-dev-max2`, item 0p; comm warnings traced to hardwared stalls, stall diagnostics built, item 0n; Nov 13: drive `00000073` analyzed, item 0l; Turn Assist logging + fixes A/B/C built, item 0m). This is the current state only. Background findings, past drive analyses and
+State as of Nov 19, 2026 (Lateral Smoothing (Big Models) on `fm-dev-nav`, off, item 0s; Jetlink Status log, item 0r; Calmer Straight Pull-Away for Cheddar's pull-away jerk, item 0q; Nav Assist on `fm-dev-nav`: map logging, Map Turn Desire, Nav Turn Speed, Download Nav Map and the Top Readout CPU option, all off or as before, none on the truck yet, item 0o; code review of everything above AdventurePilot: fixes on `fm-dev-max2`, item 0p; comm warnings traced to hardwared stalls, stall diagnostics built, item 0n; Nov 13: drive `00000073` analyzed, item 0l; Turn Assist logging + fixes A/B/C built, item 0m). This is the current state only. Background findings, past drive analyses and
 the ideas backlog are in `claude/FM_PILOT_FINDINGS.md`: read it only when a task needs that history. Features, settings
 and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 
@@ -76,6 +76,26 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 - Custom splice model: **removed** Nov 8 (with the on-device compile fix and model check tools), for the v25 move.
 
 ## Active work
+
+### 0s. Lateral Smoothing (Big Models) (Nov 19): built on `fm-dev-nav` (`52a9f62`), OFF, not driven
+
+- Why: Frankie saw "small model steer" talk in the zoompilot Discord. zoompilot removed Small Model Steering on Nov 12
+  (`6cb59d3`: running the small model beside a big one could overrun the frame and lose the big model; changelog says
+  openpilot's low-speed lateral improved) and replaced it with BigModelSmoothing ("smooth big model", on by default there).
+  FM Pilot never had Small Model Steering; he asked for the smoothing toggle instead.
+- What: `FM_BigModelSmoothing` (off). A big model (Jetlink, or a chestnut) runs stock modeld's `LAT_SMOOTH_SECONDS` 0, so
+  its curvature had no low-pass at all (FM's Lateral Smoothing only touched modeld_v2's own small ModelStates). On, a big
+  model that smooths none itself gets 0.1 s on its curvature, NOT added to the lateral delay (plan read from the same
+  point: calmer, about 0.1 s later). `sunnypilot/modeld_v2/fm_big_model_smoothing.py`, called in both modelds after the
+  action and after `model.run()` (a Jetlink swap inside run() is reflected on that frame), param read every 60 frames.
+- Settings: Steering > FM Pilot: Turn Tweaks. The old row is now **Lateral Smoothing (Small Models)**, the new one
+  **Lateral Smoothing (Big Models)** right under it (his ask). Param key and sub-panel unchanged.
+- Checks: 13 new tests; modeld_v2, modeld, jetlink_adapter, sunnylink, models suites 310 pass (only the known LFS onnx
+  hash test fails); ruff clean; Sunnylink compiled, `--check` matches, validator 10/10. Not run: the full suite, the
+  on-device build, or a replay on a real big-model rlog (none on his PC; `000000a9`/`aa`/`ab` were attachments).
+- Next: an offline open-loop replay on a big-model segment (Fairy Tale or Lebowski): apply the 0.1 s low-pass to
+  `modelV2.action.desiredCurvature` on `modelV2.big` frames, compare 0.5-2 Hz curvature power on straights and turn-in lag,
+  before he drives it. Then one drive with it on, same road, big model, vs off.
 
 ### 0r. Jetlink Status log (Nov 19): built on `fm-dev-nav`, ON whenever the link is on, not driven
 
@@ -756,6 +776,8 @@ From `0000005e--e26703ace2--2` (Nov 9 build, Cheddar, Road Edge Turn Desire on):
 
 ## Next steps
 
+000000. Item 0s: send one big-model rlog segment (straight road) for the offline smoothing replay; then one drive with
+   Lateral Smoothing (Big Models) on vs off.
 00000. Item 0p: put `fm-dev-max2` on the comma, one normal drive, send one rlog segment (core 4 load, controlsd rate) and
    the `hardwared_slow_loop` events; replay Hold Only Counts While Steering on vs off on `00000073`'s turns from a stop.
 0000. Item 0n: drive `fm-dev-jet` `eb7550f` normally; pull `hardwared_slow_loop` events with `stack` from the
