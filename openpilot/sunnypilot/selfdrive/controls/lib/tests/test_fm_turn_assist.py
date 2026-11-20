@@ -1297,3 +1297,71 @@ class TestRestartAfterStop:
     msg = SimpleNamespace()
     a.fill_log(msg)
     assert msg.restarts == 1
+
+
+class TestLeadYield:
+  """Turn Lead Yields to Your Hands (FM_TurnLeadYield, off by default): a press against the turn while Turn Lead is
+  adding pauses it before 10 deg turned (back 0.5 s after you let go) and ends it for the turn after that
+  (000000af--8 +52.3 s: he pushed out at 1.75 Nm and Turn Lead kept adding)."""
+  KEY = "FM_TurnLeadYield"
+
+  def _assist(self, on):
+    return FmTurnAssist(FakeParams(**{PARAM_LEAD: True, self.KEY: on}))
+
+  def _leading(self, a):
+    out = run(a, 0.0, RIGHT, steps=FADE_STEPS, model=path(15.0), actual=0.0)
+    assert out > 0.02
+    return out
+
+  def _press(self, a, steps, torque=1.0):  # positive (left) torque is against a right turn
+    return run(a, 0.0, RIGHT, steps=steps, model=path(15.0), actual=0.0, pressed=True, torque=torque)
+
+  def test_off_keeps_leading_against_your_hands(self):
+    a = self._assist(False)
+    lead = self._leading(a)
+    assert self._press(a, 60) == pytest.approx(lead)
+
+  def test_pauses_before_turn_in_and_comes_back(self):
+    a = self._assist(True)
+    lead = self._leading(a)
+    assert self._press(a, 30) == 0.0
+    assert run(a, 0.0, RIGHT, steps=30, model=path(15.0), actual=0.0) == 0.0  # 0.3 s after letting go: still paused
+    assert run(a, 0.0, RIGHT, steps=30, model=path(15.0), actual=0.0) == pytest.approx(lead)  # back after 0.5 s
+
+  def test_ends_for_the_turn_once_turning(self):
+    a = self._assist(True)
+    self._leading(a)
+    a.turned = math.radians(15.0)
+    assert self._press(a, 30) == 0.0
+    assert run(a, 0.0, RIGHT, steps=300, model=path(15.0), actual=0.0) == 0.0
+    msg = SimpleNamespace()
+    a.fill_log(msg)
+    assert msg.leadYield == 2
+
+  def test_firm_press_acts_at_once(self):
+    a = self._assist(True)
+    self._leading(a)
+    assert self._press(a, 1, torque=1.6) == 0.0
+
+  def test_brief_light_press_ignored(self):
+    a = self._assist(True)
+    lead = self._leading(a)
+    assert self._press(a, 10, torque=0.8) == pytest.approx(lead)
+
+  def test_press_before_lead_starts_does_nothing(self):
+    a = self._assist(True)
+    run(a, 0.0, RIGHT, steps=60, model=path(None), actual=0.0, pressed=True, torque=1.0)  # straight path: no lead yet
+    assert self._leading(a) > 0.02
+
+  def test_press_into_the_turn_never_yields(self):
+    a = self._assist(True)
+    lead = self._leading(a)
+    assert self._press(a, 60, torque=-1.0) == pytest.approx(lead)
+
+  def test_new_turn_resets(self):
+    a = self._assist(True)
+    self._leading(a)
+    a.turned = math.radians(15.0)
+    self._press(a, 30)
+    run(a, 0.0, NONE, steps=5)
+    assert self._leading(a) > 0.02

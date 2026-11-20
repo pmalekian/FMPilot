@@ -1654,6 +1654,19 @@
                       "equals": true
                     }
                   ]
+                },
+                {
+                  "key": "FM_TurnLeadYield",
+                  "widget": "toggle",
+                  "title": "Turn Lead Yields to Your Hands",
+                  "description": "If you hold the wheel against the turn while Turn Lead is adding steering (a quarter second, or firmly), Turn Lead backs off. Before the truck has turned 10 degrees it only pauses and comes back half a second after you let go; once the truck is turning, it stays off for the rest of that turn. Pressing before Turn Lead starts changes nothing. Off by default.",
+                  "enablement": [
+                    {
+                      "type": "param",
+                      "key": "FM_TurnLeadEnabled",
+                      "equals": true
+                    }
+                  ]
                 }
               ]
             }

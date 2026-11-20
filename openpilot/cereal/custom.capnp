@@ -450,6 +450,7 @@ struct CarControlSP @0xa5cd762cd951a455 {
     earlyCorrection @20 :Bool;  # a press against the turn is passing through without releasing the hold
     againstTime @21 :Float32;   # s the current press against the turn has lasted
     restarts @22 :UInt8;        # Stop Before Turning Starts Over: times this turn was started over by a stop
+    leadYield @23 :UInt8;       # Turn Lead Yields to Your Hands: 0 none, 1 paused (a press before turn-in), 2 off for this turn
 
     enum Source {
       none @0;

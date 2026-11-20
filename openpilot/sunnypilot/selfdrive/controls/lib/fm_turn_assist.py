@@ -127,6 +127,7 @@ PARAM_HOLD_AT_TURN_IN = "FM_TurnHoldStartsAtTurnIn"
 PARAM_HOLD_STEERING_ONLY = "FM_TurnHoldSteeringOnly"
 PARAM_HOLD_STEADY_PEAK = "FM_TurnHoldSteadyPeak"
 PARAM_RESTART_AFTER_STOP = "FM_TurnRestartAfterStop"
+PARAM_LEAD_YIELD = "FM_TurnLeadYield"
 
 BOOST_LIMITS = (1.0, 1.5)
 FULL_SPEED = 15 * CV.MPH_TO_MS
@@ -162,6 +163,12 @@ HOLD_START_RELEASE_TIME = 1.5  # s: before HOLD_START_TURNED, a press against th
 HOLD_STEADY_MAX_SPEED = 5 * CV.MPH_TO_MS
 HOLD_STEADY_TIME = 0.3  # s
 HOLD_STEADY_FRAMES = int(round(HOLD_STEADY_TIME / DT_CTRL))
+# Turn Lead Yields to Your Hands: a press against the turn while Turn Lead is adding (HOLD_AGAINST_TIME, or
+# HOLD_AGAINST_TORQUE_FIRM at once) pauses it before the truck has turned HOLD_START_TURNED, until you have let go
+# for LEAD_YIELD_RESUME; past that it ends Turn Lead for the turn. 000000af--8 +52.3 s: he pushed out at 1.75 Nm and
+# Turn Lead kept adding 0.017-0.040 1/m.
+LEAD_YIELD_RESUME = 0.5  # s
+LEAD_YIELD_NONE, LEAD_YIELD_PAUSED, LEAD_YIELD_OFF = 0, 1, 2
 
 # Finish Turn After Signal Cancels: keep the turn going while the truck is still turning that way
 CARRY_START_CURVATURE = 0.01  # 1/m (100 m): the truck must be turning at least this tightly when the turn desire ends
@@ -356,6 +363,7 @@ class FmTurnAssist:
     self.hold_steering_only = False
     self.hold_steady_peak = False
     self.restart_after_stop = False
+    self.lead_yield = False
     self.restarts = 0  # Stop Before Turning Starts Over: times this turn was started over (logged)
     self.amount = 0.0  # 0..1 fade
     self._reset_turn(0)
@@ -396,6 +404,7 @@ class FmTurnAssist:
     self.hold_steering_only = self.params.get_bool(PARAM_HOLD_STEERING_ONLY)
     self.hold_steady_peak = self.params.get_bool(PARAM_HOLD_STEADY_PEAK)
     self.restart_after_stop = self.params.get_bool(PARAM_RESTART_AFTER_STOP)
+    self.lead_yield = self.params.get_bool(PARAM_LEAD_YIELD)
     try:
       gate = float(self.params.get(PARAM_LEAD_GATE_DIST, return_default=True) or LEAD_GATE_DIST_DEFAULT)
     except (TypeError, ValueError):
@@ -432,6 +441,11 @@ class FmTurnAssist:
     self.exit_fade_curvature = 0.0  # toward: what was applied when it started
     self.applied = 0.0  # toward: what the last frame applied (after Smooth Turn Start)
     self.steady = deque(maxlen=HOLD_STEADY_FRAMES)  # Hold Ignores Crawl Spikes: the last 0.3 s of the hold's input
+    self.lead_prev = 0.0  # Turn Lead Yields to Your Hands: what Turn Lead added last frame
+    self.lead_against = 0.0
+    self.lead_paused = False
+    self.lead_resume = 0.0
+    self.lead_off = False
 
   def _clear_log(self, desired_curvature: float) -> None:
     """Per-frame record of what Turn Assist did, for carControlSP.turnAssist. Nothing here feeds back into control."""
@@ -545,9 +559,10 @@ class FmTurnAssist:
       self._reset_turn(sign)
       self.restarts = 0
     elif (self.restart_after_stop and sign != 0 and not lat_active and v_ego < HOLD_MOVING_SPEED
-          and self.turned < HOLD_START_TURNED and (self.peak > 0.0 or self.hold_released or self.turned > 0.0)):
+          and self.turned < HOLD_START_TURNED
+          and (self.peak > 0.0 or self.hold_released or self.lead_off or self.lead_paused or self.turned > 0.0)):
       # Stop Before Turning Starts Over: stopped before the truck has turned 10 degrees (a queue, a creep to the line):
-      # nothing learned on the way (hold peak, a release) carries into the turn
+      # nothing learned on the way (hold peak, a release, Turn Lead switched off by a press) carries into the turn
       self._reset_turn(sign)
       self.restarts = min(self.restarts + 1, 255)
     if sign != 0:
@@ -571,12 +586,14 @@ class FmTurnAssist:
       self.log_boost = sign * out - toward
       toward = sign * out
 
-    if self.lead_enabled and not lane_changing and toward > -LEAD_MODEL_OPPOSE:
+    lead_yields = self.lead_enabled and self.lead_yield and self._lead_yield(sign, steering_pressed, steering_torque)
+    if self.lead_enabled and not lane_changing and toward > -LEAD_MODEL_OPPOSE and not lead_yields:
       lead = self.lead_curvature(model_v2, sign, v_ego, a_ego, actual_curvature)
       if lead > max(toward, 0.0):
         out = sign * (toward + (lead - toward) * self.amount)
         self.log_lead = sign * out - toward
         toward = sign * out
+    self.lead_prev = self.log_lead
 
     before_hold = out
     model_toward = sign * desired_curvature
@@ -665,6 +682,26 @@ class FmTurnAssist:
     self.log_out = self._smooth_start(desired_curvature, out, sign)
     return self.log_out
 
+  def _lead_yield(self, sign: int, steering_pressed: bool, steering_torque: float) -> bool:
+    """Turn Lead Yields to Your Hands: True while Turn Lead must not add this frame. Only a press against the turn
+    made while Turn Lead is adding counts, so pressing before it starts (straightening, a creep) changes nothing."""
+    if self.lead_off:
+      return True
+    against = steering_pressed and sign * steering_torque > 0.0
+    engaged = against and (self.lead_prev > LEAD_MODEL_OPPOSE or self.lead_paused)
+    self.lead_against = self.lead_against + DT_CTRL if engaged else 0.0
+    if engaged and (self.lead_against >= HOLD_AGAINST_TIME - 1e-6 or sign * steering_torque >= HOLD_AGAINST_TORQUE_FIRM):
+      if self.turned >= HOLD_START_TURNED:
+        self.lead_off, self.lead_paused = True, False  # into the turn: you are steering it, for the rest of it
+      else:
+        self.lead_paused, self.lead_resume = True, LEAD_YIELD_RESUME  # before turn-in: back once you let go
+      return True
+    if self.lead_paused:
+      self.lead_resume = LEAD_YIELD_RESUME if against else self.lead_resume - DT_CTRL
+      if self.lead_resume <= 0.0:
+        self.lead_paused = False
+    return self.lead_paused
+
   def fill_log(self, msg) -> None:
     """Write this frame's record into carControlSP.turnAssist. msg is a fresh message, so a field at its default (0,
     False, none) is left alone: with no turn only the request in and out are written, 2 fields instead of 22, on
@@ -699,6 +736,7 @@ class FmTurnAssist:
       ("releaseReason", int(self.release_reason)),
       ("earlyCorrection", bool(self.log_early)),
       ("againstTime", float(self.against_time)),
+      ("leadYield", LEAD_YIELD_OFF if self.lead_off else (LEAD_YIELD_PAUSED if self.lead_paused else LEAD_YIELD_NONE)),
       ("restarts", int(self.restarts)),
     ):
       if value:
