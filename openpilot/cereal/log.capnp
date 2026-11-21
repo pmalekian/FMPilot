@@ -2645,7 +2645,7 @@ struct Event {
     modelDataV2SP @116 :Custom.ModelDataV2SP;
     fmNavTurn @136 :Custom.FmNavTurn;
     fmJetlinkStatus @137 :Custom.FmJetlinkStatus;
-    customReserved12 @138 :Custom.CustomReserved12;
+    fmRadarLead @138 :Custom.FmRadarLead;
     customReserved13 @139 :Custom.CustomReserved13;
     customReserved14 @140 :Custom.CustomReserved14;
     customReserved15 @141 :Custom.CustomReserved15;

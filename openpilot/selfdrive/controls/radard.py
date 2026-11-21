@@ -16,7 +16,7 @@ from openpilot.common.simple_kalman import KF1D
 from opendbc.car import structs
 from opendbc.car.hyundai.values import HyundaiFlags
 from opendbc.sunnypilot.car.hyundai.values import HyundaiFlagsSP
-from openpilot.sunnypilot.selfdrive.controls.lib.fm_radar import FmRadarSettings, stationary_ghost
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_radar import FmLeadTrace, FmRadarLeadStatus, FmRadarSettings, stationary_ghost
 
 
 # Default lead acceleration decay set to 50% at 1s
@@ -158,13 +158,15 @@ def get_RadarState_from_vision(lead_msg: capnp._DynamicStructReader, v_ego: floa
 def get_lead(v_ego: float, ready: bool, tracks: dict[int, Track], lead_msg: capnp._DynamicStructReader,
              model_v_ego: float, lead_prob: float, CP: structs.CarParams, CP_SP: structs.CarParamsSP,
              low_speed_override: bool = True, stationary_guard: bool = False,
-             lead_threshold: float = .5) -> dict[str, Any]:
+             lead_threshold: float = .5, fm_trace: FmLeadTrace | None = None) -> dict[str, Any]:
   # Determine leads, this is where the essential logic happens
   # FM Pilot Lead Detection Sensitivity: lead_threshold replaces the fixed .5 (from FrogPilot, MIT); .5 by default
   if len(tracks) > 0 and ready and lead_prob > lead_threshold:
     track = match_vision_to_track(v_ego, lead_msg, tracks)
     # FM Pilot Stationary Radar Ghost Guard: a standing-still radar point can't be a clearly moving camera lead
     if track is not None and stationary_guard and stationary_ghost(track.vLead, lead_msg.v[0], lead_msg.a[0]):
+      if fm_trace is not None:  # FM Pilot Radar Lead Status: logged in fmRadarLead
+        fm_trace.ghost = (track.dRel, track.yRel, track.vLead, track.identifier)
       track = None
   else:
     track = None
@@ -184,6 +186,8 @@ def get_lead(v_ego: float, ready: bool, tracks: dict[int, Track], lead_msg: capn
       # Only choose new track if it is actually closer than the previous one
       if (not lead_dict['present']) or (closest_track.dRel < lead_dict['dRel']):
         lead_dict = closest_track.get_RadarState()
+        if fm_trace is not None:
+          fm_trace.low_speed = True
 
   return lead_dict
 
@@ -202,6 +206,8 @@ class RadarD:
     self.CP = CP
     self.CP_SP = CP_SP
     self.fm_radar = FmRadarSettings(params)  # FM Pilot radar lead settings; params=None keeps openpilot's behavior
+    self.fm_lead_status = FmRadarLeadStatus()  # FM Pilot Radar Lead Status (fmRadarLead), logging only
+    self.fm_lead_msg = None
 
     self.current_time = 0.0
     self.tracks: dict[int, Track] = {}
@@ -257,6 +263,7 @@ class RadarD:
     leads_v3 = sm['modelV2'].leadsV3
     self.fm_radar.update()
     guard, threshold = self.fm_radar.guard, self.fm_radar.threshold
+    self.fm_lead_msg = None
     if len(leads_v3) > 1:
       for i in range(2):
         # Asymmetric filter on lead prob to keep lead when uncertain
@@ -266,9 +273,13 @@ class RadarD:
         else:
           self.lead_prob_filters[i].update(lead_prob)
 
-      self.radar_state.leadOne = get_lead(self.v_ego, self.ready, self.tracks, leads_v3[0], model_v_ego, self.lead_prob_filters[0].x,
-                                          self.CP, self.CP_SP, low_speed_override=True, stationary_guard=guard,
-                                          lead_threshold=threshold)
+      fm_trace = FmLeadTrace()
+      lead_one = get_lead(self.v_ego, self.ready, self.tracks, leads_v3[0], model_v_ego, self.lead_prob_filters[0].x,
+                          self.CP, self.CP_SP, low_speed_override=True, stationary_guard=guard,
+                          lead_threshold=threshold, fm_trace=fm_trace)
+      self.radar_state.leadOne = lead_one
+      self.fm_lead_msg = custom.FmRadarLead.new_message()
+      self.fm_lead_status.fill(self.fm_lead_msg, lead_one, fm_trace, self.fm_radar)
       self.radar_state.leadTwo = get_lead(self.v_ego, self.ready, self.tracks, leads_v3[1], model_v_ego, self.lead_prob_filters[1].x,
                                           self.CP, self.CP_SP, low_speed_override=False, stationary_guard=guard,
                                           lead_threshold=threshold)
@@ -280,6 +291,13 @@ class RadarD:
     radar_msg.valid = self.radar_state_valid
     radar_msg.radarState = self.radar_state
     pm.send("radarState", radar_msg)
+
+    # FM Pilot Radar Lead Status: what was done with leadOne this frame (logging and the radar badge only)
+    if self.fm_lead_msg is not None:
+      fm_msg = messaging.new_message("fmRadarLead")
+      fm_msg.valid = self.radar_state_valid
+      fm_msg.fmRadarLead = self.fm_lead_msg
+      pm.send("fmRadarLead", fm_msg)
 
 
 # fuses camera and radar data for best lead detection
@@ -297,7 +315,7 @@ def main() -> None:
 
   # *** setup messaging
   sm = messaging.SubMaster(['modelV2', 'carState', 'radarTracks'], poll='modelV2')
-  pm = messaging.PubMaster(['radarState'])
+  pm = messaging.PubMaster(['radarState', 'fmRadarLead'])
 
   RD = RadarD(CP, CP_SP, CP.radarDelay, Params())
 

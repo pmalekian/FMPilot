@@ -662,7 +662,28 @@ struct FmJetlinkStatus @0xc2243c65e0340384 {
   held @22 :Bool;              # the last frame was a held (repeated) output
 }
 
-struct CustomReserved12 @0x9ccdc8676701b412 {
+# FM Pilot Radar Lead Status: what radard did with leadOne each frame (openpilot/sunnypilot/selfdrive/controls/lib/fm_radar.py),
+# for the log and the comma 4's radar badge. Logging only: nothing reads it back into control.
+struct FmRadarLead @0x9ccdc8676701b412 {
+  source @0 :Source;          # where leadOne came from this frame
+  leadProb @1 :Float32;       # the camera's (filtered) lead probability leadOne was judged on; 0 without a lead
+  earlyLead @2 :Bool;         # a lead the camera is only Lead Detection Sensitivity..50% sure of (not the low-speed radar path):
+                              # openpilot's fixed 50% wouldn't count it yet
+  ghostDropped @3 :Bool;      # Ignore Stationary Radar Ghosts dropped a standing-still radar point this frame; leadOne is
+                              # the camera's estimate instead
+  ghostDRel @4 :Float32;      # the dropped point (radar frame: m ahead, m left-positive, m/s); 0 when nothing was dropped
+  ghostYRel @5 :Float32;
+  ghostVLead @6 :Float32;
+  ghostTrackId @7 :Int32;     # -1 when nothing was dropped
+  ghostDrops @8 :UInt32;      # times the guard started dropping a point since radard started
+  guardEnabled @9 :Bool;      # FM_RadarStationaryGuard in use
+  threshold @10 :Float32;     # FM_LeadDetectionThreshold in use, as a probability (0.25-0.5)
+
+  enum Source {
+    none @0;
+    radar @1;                 # paired with a radar point (incl. the low-speed radar path)
+    camera @2;                # the camera's own estimate (no sane radar match, or a ghost dropped)
+  }
 }
 
 struct CustomReserved13 @0xcd96dafb67a082d0 {

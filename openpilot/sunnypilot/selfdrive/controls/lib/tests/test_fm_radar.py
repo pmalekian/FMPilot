@@ -6,6 +6,7 @@ import pytest
 from openpilot.common.realtime import DT_MDL
 from openpilot.selfdrive.controls.radard import KalmanParams, Track, get_lead
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_radar import (GHOST_VISION_BRAKING, GHOST_VISION_MIN_SPEED, PARAM_GUARD,
+                                                                  FmLeadTrace, FmRadarLeadStatus,
                                                                   PARAM_THRESHOLD, FmRadarSettings, stationary_ghost,
                                                                   threshold_from_percent)
 
@@ -192,3 +193,85 @@ def test_settings_read_threshold():
       return self.values[key]
   assert FmRadarSettings(P()).threshold == pytest.approx(0.35)
   assert FmRadarSettings().threshold == pytest.approx(0.5)
+
+
+# --- Radar Lead Status (fmRadarLead): logging only ---
+
+def status_after(frames, settings=None):
+  """Run FmRadarLeadStatus over (lead dict, trace) frames; returns the messages."""
+  from openpilot.cereal import custom
+  st, out = FmRadarLeadStatus(), []
+  for lead_one, trace in frames:
+    msg = custom.FmRadarLead.new_message()
+    st.fill(msg, lead_one, trace, settings or FmRadarSettings())
+    out.append(msg)
+  return out
+
+
+def traced(tracks, msg, v_ego, guard=True, threshold=0.5, low_speed_override=True):
+  trace = FmLeadTrace()
+  out = get_lead(v_ego, True, {t.identifier: t for t in tracks}, msg, v_ego, msg.prob, CP, CP_SP,
+                 low_speed_override=low_speed_override, stationary_guard=guard, lead_threshold=threshold, fm_trace=trace)
+  return out, trace
+
+
+def test_trace_doesnt_change_the_lead():
+  for case in (ramp_phantom(), far_car(0.45)):
+    tracks, msg, v_ego = case
+    for guard in (False, True):
+      for threshold in (0.4, 0.5):
+        plain = get_lead(v_ego, True, {t.identifier: t for t in tracks}, msg, v_ego, msg.prob, CP, CP_SP,
+                         stationary_guard=guard, lead_threshold=threshold)
+        assert traced(tracks, msg, v_ego, guard, threshold)[0] == plain
+
+
+def test_trace_records_the_dropped_ghost():
+  tracks, msg, v_ego = ramp_phantom()
+  _, trace = traced(tracks, msg, v_ego, guard=True)
+  assert trace.ghost is not None and trace.ghost[3] == 35184
+  assert trace.ghost[0] == pytest.approx(16.0) and trace.ghost[2] == pytest.approx(0.0)
+  _, trace = traced(tracks, msg, v_ego, guard=False)  # guard off: nothing dropped
+  assert trace.ghost is None
+
+
+def test_status_for_a_ghost_drop():
+  tracks, msg, v_ego = ramp_phantom()
+  frames = [traced(tracks, msg, v_ego) for _ in range(3)]
+  car = track(1, 10.5, -3.5, 18.5 * MPH, 19 * MPH)
+  frames.append(traced([car], lead_msg(x=12.0, y=3.5, v=18.5 * MPH), 19 * MPH))  # radar finds the car again
+  frames += [traced(tracks, msg, v_ego)]                                            # a second ghost run
+  m = status_after(frames)
+  assert m[0].ghostDropped and m[0].source == 'camera' and m[0].ghostTrackId == 35184
+  assert m[0].ghostDRel == pytest.approx(16.0) and m[0].ghostYRel == pytest.approx(0.8)
+  assert [x.ghostDrops for x in m] == [1, 1, 1, 1, 2]  # counted once per run of drops
+  assert not m[3].ghostDropped and m[3].source == 'radar' and m[3].ghostTrackId == -1
+
+
+def test_status_early_lead():
+  tracks, msg, v_ego = far_car(0.45)
+  m = status_after([traced(tracks, msg, v_ego, threshold=0.4), traced(*far_car(0.8), threshold=0.4)])
+  assert m[0].earlyLead and m[0].source == 'radar' and m[0].leadProb == pytest.approx(0.45)
+  assert not m[1].earlyLead
+  m = status_after([traced(tracks, msg, v_ego, threshold=0.5)])  # 50%: no lead at all
+  assert m[0].source == 'none' and not m[0].earlyLead and m[0].leadProb == 0.0
+
+
+def test_status_low_speed_radar_lead_is_not_early():
+  v_ego = 1.0
+  car = track(9, 8.0, 0.0, 0.0, v_ego)
+  out, trace = traced([car], lead_msg(x=9.5, y=0.0, v=0.0, prob=0.1), v_ego)
+  assert out['present'] and out['radar'] and trace.low_speed
+  assert not status_after([(out, trace)])[0].earlyLead
+
+
+def test_status_reports_the_settings():
+  class P:
+    values = {PARAM_GUARD: True, PARAM_THRESHOLD: 40}
+
+    def get_bool(self, key):
+      return bool(self.values[key])
+
+    def get(self, key, return_default=False):
+      return self.values[key]
+  m = status_after([({'present': False}, FmLeadTrace())], FmRadarSettings(P()))[0]
+  assert m.guardEnabled and m.threshold == pytest.approx(0.4) and m.source == 'none'

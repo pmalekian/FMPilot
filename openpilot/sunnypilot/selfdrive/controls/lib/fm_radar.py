@@ -78,3 +78,48 @@ class FmRadarSettings:
     self.frame += 1
     if self.params is not None and self.frame % int(PARAMS_PERIOD / DT_MDL) == 0:
       self.read()
+
+
+# --- FM Pilot Radar Lead Status (fmRadarLead): what radard did with leadOne, for the log and the radar badge ---
+
+SOURCE_NONE, SOURCE_RADAR, SOURCE_CAMERA = 0, 1, 2  # custom.FmRadarLead.Source
+
+
+class FmLeadTrace:
+  """Filled by get_lead when given one: whether the ghost guard dropped a radar point this frame (and which), and
+  whether the low-speed radar path replaced the lead. Logging only; get_lead's result doesn't depend on it."""
+  __slots__ = ("ghost", "low_speed")
+
+  def __init__(self):
+    self.ghost = None  # (dRel, yRel, vLead, trackId) of the radar point the guard dropped, or None
+    self.low_speed = False
+
+
+class FmRadarLeadStatus:
+  """Builds fmRadarLead from leadOne and its trace each radard frame, and counts the guard's drops this drive."""
+
+  def __init__(self):
+    self.ghost_drops = 0
+    self._ghost_prev = False
+
+  def fill(self, msg, lead_one, trace: FmLeadTrace, settings: FmRadarSettings) -> None:
+    present = bool(lead_one.get('present', False))
+    radar = present and bool(lead_one.get('radar', False))
+    prob = float(lead_one.get('modelProb', 0.0)) if present else 0.0
+    msg.source = SOURCE_RADAR if radar else (SOURCE_CAMERA if present else SOURCE_NONE)
+    msg.leadProb = prob
+    # a lead the camera is only threshold..50% sure of: openpilot's fixed 50% wouldn't have it yet
+    msg.earlyLead = present and not trace.low_speed and prob <= DEFAULT_THRESHOLD
+    ghost = trace.ghost is not None
+    if ghost and not self._ghost_prev:
+      self.ghost_drops += 1
+    self._ghost_prev = ghost
+    msg.ghostDropped = ghost
+    if ghost:
+      msg.ghostDRel, msg.ghostYRel, msg.ghostVLead, msg.ghostTrackId = (float(trace.ghost[0]), float(trace.ghost[1]),
+                                                                       float(trace.ghost[2]), int(trace.ghost[3]))
+    else:
+      msg.ghostTrackId = -1
+    msg.ghostDrops = self.ghost_drops
+    msg.guardEnabled = settings.guard
+    msg.threshold = settings.threshold
