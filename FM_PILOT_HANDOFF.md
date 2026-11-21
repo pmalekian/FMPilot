@@ -1,6 +1,6 @@
 # FM Pilot: handoff for new chats (short)
 
-State as of Nov 20, 2026 (Nov 20 drive `000000af` turn analysis and five off-by-default fixes built, item 0t; Lateral Smoothing (Big Models) on `fm-dev-nav`, off, item 0s; Jetlink Status log, item 0r; Calmer Straight Pull-Away for Cheddar's pull-away jerk, item 0q; Nav Assist on `fm-dev-nav`: map logging, Map Turn Desire, Nav Turn Speed, Download Nav Map and the Top Readout CPU option, all off or as before, none on the truck yet, item 0o; code review of everything above AdventurePilot: fixes on `fm-dev-max2`, item 0p; comm warnings traced to hardwared stalls, stall diagnostics built, item 0n; Nov 13: drive `00000073` analyzed, item 0l; Turn Assist logging + fixes A/B/C built, item 0m). This is the current state only. Background findings, past drive analyses and
+State as of Nov 20, 2026 (Radar Lead Status log + Radar Badge built on `fm-dev-nav`, badge off, item 0u; Nov 20 drive `000000af` turn analysis and five off-by-default fixes built, item 0t; Lateral Smoothing (Big Models) on `fm-dev-nav`, off, item 0s; Jetlink Status log, item 0r; Calmer Straight Pull-Away for Cheddar's pull-away jerk, item 0q; Nav Assist on `fm-dev-nav`: map logging, Map Turn Desire, Nav Turn Speed, Download Nav Map and the Top Readout CPU option, all off or as before, none on the truck yet, item 0o; code review of everything above AdventurePilot: fixes on `fm-dev-max2`, item 0p; comm warnings traced to hardwared stalls, stall diagnostics built, item 0n; Nov 13: drive `00000073` analyzed, item 0l; Turn Assist logging + fixes A/B/C built, item 0m). This is the current state only. Background findings, past drive analyses and
 the ideas backlog are in `claude/FM_PILOT_FINDINGS.md`: read it only when a task needs that history. Features, settings
 and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 
@@ -77,6 +77,22 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 - Custom splice model: **removed** Nov 8 (with the on-device compile fix and model check tools), for the v25 move.
 
 ## Active work
+
+### 0u. Radar Lead Status log (`fmRadarLead`) and Radar Badge (Nov 20 evening), built, badge OFF, not driven
+
+- **Why:** he wanted examples of Ignore Stationary Radar Ghosts and Lead Detection Sensitivity (40%, his value) to share.
+  The log didn't record when the guard acted, so `000000a8--df5d2d0570--6` / `--16` (guard on, 40%, Cheddar, Predictive)
+  had to be judged from raw radar points. Neither was a clean example: --6 nothing to do; --16 +13.0..+14.2 s the guard
+  dropped standing-still points (barriers, 31-39 m, slightly left) beside a car at ~20 mph after the car's own radar point
+  vanished, but he was on the gas and braked/disengaged at +13.5 s. 40% only picked leads up ~0.15 s early there.
+- **Built:** radard publishes `fmRadarLead` (CustomReserved12 @138, 20 Hz, qlog every 5th): source, leadProb, earlyLead,
+  ghostDropped + the dropped point + ghostDrops count, guardEnabled, threshold. Replaying the real radard on --16 gives
+  the drops above (replay vs logged leadOne source agree ~92%: cold start, no radar delay alignment).
+  **Radar Badge** (`FM_RadarBadge`, Visuals > HUD Elements, off): badge where the lead car is on the comma 4 road view,
+  hidden while radar and camera agree; amber pulse 2 s on a ghost drop; gray camera-only; gray ring early lead; 0.3 s
+  settle / 1 s hold. His choices: no text labels, green state hidden. The comma 4 draws no lead chevron, so the badge uses
+  the renderer's computed lead position. Not drawn while disengaged.
+- **Not verified:** how it looks on the device (no raylib render off-device); a drive with the badge on.
 
 ### 0t. Nov 20 morning drive `000000af--565e9cd6b0` (first drive on `fm-dev-nav` `5f70e65`, Cheddar): 8 turns analyzed; five fixes built, OFF, not driven
 
@@ -865,6 +881,8 @@ From `0000005e--e26703ace2--2` (Nov 9 build, Cheddar, Road Edge Turn Desire on):
 
 ## Next steps
 
+00000000. Item 0u: update the comma (`fm-dev-nav`, on-device build: cereal changed), turn on Radar Badge, drive a ramp or
+   curve with guardrails and a car ahead, engaged and off the pedals; send rlogs (`fmRadarLead.ghostDropped`) and a photo.
 0000000. Item 0t: update the comma (`fm-dev-nav`, on-device build: cereal changed), then a drive with Hold Ignores Crawl Spikes,
    Stop Before Turning Starts Over and Queue Guard on through the same stop-sign queue; send rlogs (`turns.py`, `fmQueueGuard`).
    Then Turn Lead Yields; Settle After Turn on its own; one loop with Turn Lead off.
