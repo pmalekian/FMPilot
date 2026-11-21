@@ -60,6 +60,13 @@ sections:
       label: CPU (Avg)
     - value: 3
       label: CPU (Busiest)
+  - key: FM_RadarBadge
+    widget: toggle
+    title: 'FM Pilot: Radar Badge'
+    description: 'A small radar badge on the car ahead in the comma 4 road view, hidden while radar and camera agree.
+      Amber and pulsing for about 2 s: Ignore Stationary Radar Ghosts just ignored a standing-still radar point (a
+      guardrail or barrier) and the car is followed from the camera. Gray: the car is followed from the camera only. Gray
+      ring: an early lead, which Lead Detection Sensitivity picked up before openpilot''s 50% would. Display only.'
   - key: ChevronInfo
     widget: option
     title: Display Metrics Below Chevron

@@ -7,6 +7,7 @@ See the LICENSE.md file in the root directory for more details.
 import pyray as rl
 from openpilot.selfdrive.ui.ui_state import UIStatus
 from openpilot.selfdrive.ui.sunnypilot.onroad.blendful import BlendfulRenderer
+from openpilot.selfdrive.ui.sunnypilot.onroad.fm_radar_badge import FmRadarBadge
 from openpilot.selfdrive.ui.sunnypilot.onroad.rainbow_path import RainbowPath
 
 LANE_LINE_COLORS_SP = {
@@ -19,3 +20,4 @@ class ModelRendererSP:
   def __init__(self):
     self.rainbow_path = RainbowPath()
     self.blendful = BlendfulRenderer(rect_relative=True)  # FM Pilot: Blendful's lane center line
+    self.fm_radar_badge = FmRadarBadge()  # FM Pilot: radar badge on the lead car (FM_RadarBadge)

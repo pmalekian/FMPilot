@@ -39,7 +39,7 @@ class UIStateSP:
     self.sm_services_ext = [
       "modelManagerSP", "selfdriveStateSP", "longitudinalPlanSP", "backupManagerSP",
       "gpsLocation", "lateralTorqueParameters", "carStateSP", "liveMapDataSP", "carParamsSP", "lateralDelay",
-      "carControlSP", "modelDataV2SP"
+      "carControlSP", "modelDataV2SP", "fmRadarLead"
     ]
 
     self.sunnylink_state = SunnylinkState()
@@ -60,6 +60,7 @@ class UIStateSP:
     self.fm_accel_boost_indicator: bool = False
     self.fm_accel_boost_mode: int = 0
     self.fm_top_readout: int = READOUT_TORQUE  # FM Pilot: Off / Torque / CPU (avg) / CPU (busiest)
+    self.fm_radar_badge: bool = False  # FM Pilot Radar Badge
     self.onroad_brightness: int = 0
     self.onroad_brightness_timer: int = 0
     self.onroad_brightness_timer_param: int = 0
@@ -181,6 +182,7 @@ class UIStateSP:
     self.fm_accel_boost_indicator = self.params.get_bool("FM_AccelBoostIndicator")
     self.fm_accel_boost_mode = parse_boost_mode(self.params.get("FM_AccelBoostMode", return_default=True))
     self.fm_top_readout = parse_readout_mode(self.params.get("FM_TopReadout", return_default=True))
+    self.fm_radar_badge = self.params.get_bool("FM_RadarBadge")
     self.onroad_brightness = int(float(self.params.get("OnroadScreenOffBrightness", return_default=True)))
     self.onroad_brightness_timer_param = self.params.get("OnroadScreenOffTimer", return_default=True)
     self.rainbow_path = self.params.get_bool("RainbowMode")

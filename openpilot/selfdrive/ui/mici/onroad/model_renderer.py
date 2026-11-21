@@ -154,6 +154,8 @@ class ModelRenderer(Widget, ModelRendererSP):
       self._draw_lane_lines()
       self._draw_path(sm)
       self.blendful.draw(self._rect)
+    if render_lead_indicator:
+      self.fm_radar_badge.draw(self._rect, self._lead_vehicles[0].chevron)  # FM Pilot Radar Badge (off by default)
 
     # if render_lead_indicator and radar_state:
     #   self._draw_lead_indicator()
