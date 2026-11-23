@@ -191,8 +191,9 @@ right side is safer than drifting into oncoming traffic (US right-hand traffic: 
 9. **Hands always win:** any steering cancels at once.
 10. **Logging:** push distance used, which limit stopped it, phase (push / centering / handed off), in `modelDataV2SP`.
 
-**Open:** new option under Settle After Turn (off by default) vs replacing the current behavior; exact speed floor, low-
-speed cap and push distance (from replay).
+**Open (Nov 23, resolved with Build C):** new option under Settle After Turn (off by default) vs replacing the current
+behavior: **new option**. Exact speed floor, low-speed cap and push distance: provisional 3 mph / 0.1 m/s² / 0.4 m until
+the replay below.
 
 **Offline checks before he drives it:** replay on `000000af--565e9cd6b0` (Nov 20, Cheddar), all 8 turns, vs the current
 Settle as baseline. Report each turn's exit speed; confirm Turns 2 and 4 aren't pushed toward the curb; count how often
