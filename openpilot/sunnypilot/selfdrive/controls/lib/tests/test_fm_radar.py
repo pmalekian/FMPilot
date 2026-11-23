@@ -275,3 +275,47 @@ def test_status_reports_the_settings():
       return self.values[key]
   m = status_after([({'present': False}, FmLeadTrace())], FmRadarSettings(P()))[0]
   assert m.guardEnabled and m.threshold == pytest.approx(0.4) and m.source == 'none'
+
+
+# --- Lead readout fields: live confidence, low-speed flag, early radar matches (E) ---
+
+def test_live_lead_prob_is_sent_with_or_without_a_lead():
+  tracks, msg, v_ego = far_car(0.38)
+  out, trace = traced(tracks, msg, v_ego, threshold=0.4)  # 38% under a 40% cutoff: no lead
+  st = FmRadarLeadStatus()
+  from openpilot.cereal import custom
+  m = custom.FmRadarLead.new_message()
+  st.fill(m, out, trace, FmRadarSettings(), 0.38)
+  assert m.source == 'none' and m.leadProb == 0.0 and m.liveLeadProb == pytest.approx(0.38)
+  # without a live value (old callers) it falls back to leadOne's own
+  m = status_after([traced(*far_car(0.45), threshold=0.4)])[0]
+  assert m.liveLeadProb == pytest.approx(0.45)
+
+
+def test_early_radar_matches_count_once_per_run():
+  early, sure, gone = far_car(0.45), far_car(0.8), far_car(0.3)
+  frames = [traced(*early, threshold=0.4) for _ in range(5)]   # one run of an early radar match
+  frames += [traced(*sure, threshold=0.4) for _ in range(3)]   # the camera passes 50%: same lead, not a new match
+  frames += [traced(*early, threshold=0.4) for _ in range(2)]  # back under 50% while matched: a new run
+  frames += [traced(*gone, threshold=0.4)]                     # lost below the cutoff
+  frames += [traced(*early, threshold=0.4)]                    # a third run
+  m = status_after(frames)
+  assert [x.earlyRadarMatches for x in m] == [1] * 5 + [1] * 3 + [2] * 2 + [2] + [3]
+  assert m[0].source == 'radar' and not m[0].lowSpeedLead
+
+
+def test_early_radar_matches_ignore_camera_only_and_stock_settings():
+  tracks, msg, v_ego = far_car(0.45)
+  m = status_after([traced([], msg, v_ego, threshold=0.4) for _ in range(3)])  # camera-only early lead
+  assert m[-1].source == 'camera' and m[-1].earlyLead and m[-1].earlyRadarMatches == 0
+  m = status_after([traced(tracks, lead_msg(x=76.5, y=0.0, v=12.0, prob=p), v_ego) for p in (0.45, 0.55, 0.9)])
+  assert [x.earlyRadarMatches for x in m] == [0, 0, 0]  # at 50% nothing under 50% can be matched
+
+
+def test_early_radar_matches_ignore_the_ghost_and_low_speed_paths():
+  m = status_after([traced(*ramp_phantom()) for _ in range(3)])
+  assert m[-1].ghostDropped and m[-1].earlyRadarMatches == 0
+  v_ego = 1.0
+  car = track(9, 8.0, 0.0, 0.0, v_ego)
+  m = status_after([traced([car], lead_msg(x=9.5, y=0.0, v=0.0, prob=0.1), v_ego)])[0]
+  assert m.source == 'radar' and m.lowSpeedLead and m.earlyRadarMatches == 0

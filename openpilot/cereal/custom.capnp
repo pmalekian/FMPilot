@@ -678,6 +678,11 @@ struct FmRadarLead @0x9ccdc8676701b412 {
   ghostDrops @8 :UInt32;      # times the guard started dropping a point since radard started
   guardEnabled @9 :Bool;      # FM_RadarStationaryGuard in use
   threshold @10 :Float32;     # FM_LeadDetectionThreshold in use, as a probability (0.25-0.5)
+  liveLeadProb @11 :Float32;  # the camera's (filtered) lead probability for leadOne's slot, every frame, lead or not
+                              # (radard's asymmetric filter on modelV2.leadsV3[0].prob: rises at once, falls over ~0.2 s)
+  lowSpeedLead @12 :Bool;     # leadOne is the low-speed radar path (radar point straight ahead under 4 m/s)
+  earlyRadarMatches @13 :UInt32;  # times this drive a lead got a radar match while the camera was under 50% sure
+                                  # (once per run, not per frame; not the low-speed path)
 
   enum Source {
     none @0;

@@ -95,17 +95,32 @@ class FmLeadTrace:
     self.low_speed = False
 
 
+EARLY_MATCH_PROB = 0.5  # "under 50%": openpilot's fixed cutoff
+
+
 class FmRadarLeadStatus:
-  """Builds fmRadarLead from leadOne and its trace each radard frame, and counts the guard's drops this drive."""
+  """Builds fmRadarLead from leadOne and its trace each radard frame, and counts this drive's guard drops and early radar
+  matches (radard runs once per drive, so both start at 0 each drive)."""
 
   def __init__(self):
     self.ghost_drops = 0
     self._ghost_prev = False
+    self.early_radar_matches = 0
+    self._early_match_prev = False
 
-  def fill(self, msg, lead_one, trace: FmLeadTrace, settings: FmRadarSettings) -> None:
+  def fill(self, msg, lead_one, trace: FmLeadTrace, settings: FmRadarSettings, live_prob: float | None = None) -> None:
     present = bool(lead_one.get('present', False))
     radar = present and bool(lead_one.get('radar', False))
     prob = float(lead_one.get('modelProb', 0.0)) if present else 0.0
+    # Lead readout: the camera's confidence every frame (not just with a lead), whether this is the low-speed radar
+    # path, and a count of radar matches made while the camera was under 50% (rising edge, like ghostDrops)
+    msg.liveLeadProb = float(live_prob) if live_prob is not None else prob
+    msg.lowSpeedLead = present and trace.low_speed
+    early_match = radar and not trace.low_speed and prob < EARLY_MATCH_PROB
+    if early_match and not self._early_match_prev:
+      self.early_radar_matches += 1
+    self._early_match_prev = early_match
+    msg.earlyRadarMatches = self.early_radar_matches
     msg.source = SOURCE_RADAR if radar else (SOURCE_CAMERA if present else SOURCE_NONE)
     msg.leadProb = prob
     # a lead the camera is only threshold..50% sure of: openpilot's fixed 50% wouldn't have it yet

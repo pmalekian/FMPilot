@@ -279,7 +279,7 @@ class RadarD:
                           lead_threshold=threshold, fm_trace=fm_trace)
       self.radar_state.leadOne = lead_one
       self.fm_lead_msg = custom.FmRadarLead.new_message()
-      self.fm_lead_status.fill(self.fm_lead_msg, lead_one, fm_trace, self.fm_radar)
+      self.fm_lead_status.fill(self.fm_lead_msg, lead_one, fm_trace, self.fm_radar, self.lead_prob_filters[0].x)
       self.radar_state.leadTwo = get_lead(self.v_ego, self.ready, self.tracks, leads_v3[1], model_v_ego, self.lead_prob_filters[1].x,
                                           self.CP, self.CP_SP, low_speed_override=False, stationary_guard=guard,
                                           lead_threshold=threshold)
