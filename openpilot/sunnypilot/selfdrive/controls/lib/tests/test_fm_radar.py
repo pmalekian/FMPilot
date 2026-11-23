@@ -190,7 +190,7 @@ def test_settings_read_threshold():
       return bool(self.values[key])
 
     def get(self, key, return_default=False):
-      return self.values[key]
+      return self.values.get(key)
   assert FmRadarSettings(P()).threshold == pytest.approx(0.35)
   assert FmRadarSettings().threshold == pytest.approx(0.5)
 
@@ -272,7 +272,7 @@ def test_status_reports_the_settings():
       return bool(self.values[key])
 
     def get(self, key, return_default=False):
-      return self.values[key]
+      return self.values.get(key)
   m = status_after([({'present': False}, FmLeadTrace())], FmRadarSettings(P()))[0]
   assert m.guardEnabled and m.threshold == pytest.approx(0.4) and m.source == 'none'
 

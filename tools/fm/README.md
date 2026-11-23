@@ -43,8 +43,23 @@ path has no route name (e.g. a bare `rlog.zst`) are taken as one drive.
 | `turns.py rlog.zst ...` | Every sharp turn: tightest radius asked vs driven, whether the model or the steering was late (see below), where torque was held back (at the limit, still climbing, held, unwinding; see below), hand force: with or against openpilot's torque while it steers, into the turn while you steer |
 | `jetlink.py rlog.zst ... [--mac-log server.log] [--mac-tz Zone]` | Which Jetlink big model drove and when it changed (from the logged `fmJetlinkStatus`), pick/slot/engine changes, link info, big-frame timing; optionally the Jetlink Mac app's log lined up by wall clock. Older logs: big-frame counts only |
 | `nav.py rlog.zst ... [--map file.pmtiles] [--replay]` | Nav Assist per blinker: the street the map picked, where the truck actually went (street / service road / off the map / no turn), and whether Map Turn Desire started or would have. Uses the logged `fmNavTurn`; older logs are replayed through the same code from GPS, speed and yaw rate (needs `--map` or `FM_NAV_MAP`) |
+| `lead.py rlog.zst ... [--csv decisions.csv] [--replay]` | Build B active and shadow decisions for both lead slots, radar/camera switches, dropouts, and planner source/target acceleration. Replay runs all eight lead configurations with the recorded model and radar inputs. |
 | `sway.py rlog.zst ...` | Straight-road sway: wheel, model, lane centering's share, dominant period |
 | `dm.py rlog.zst ...` | Driver monitoring: % distracted and why (pose / eyes / phone), alert levels |
+
+### Lead decisions and replay
+
+```sh
+python tools/fm/lead.py --csv lead-shadow.csv path/to/rlog.zst
+python tools/fm/lead.py --replay --guard --braking-window 13 15 --csv lead-replay.csv path/to/rlog.zst
+```
+
+Run these commands from the repository root. Shadow reporting uses the recorded planner. Replay needs the native
+radard and longitudinal MPC build plus a full rlog. Each segment starts with fresh radar and planner state. Replay
+uses the recorded model timestamps and the latest logged radar and car inputs available at each publication. The
+recorded vehicle motion is held fixed. The CSV gives per-frame decisions and the replayed and recorded planner
+sources and acceleration. Mark real lead and false-lead events against the road video. The braking window reports the
+first lead-limited planner target below the selected deceleration threshold, which defaults to −0.5 m/s².
 
 ### Sign conventions (Rivian, this fork)
 

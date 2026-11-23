@@ -12,18 +12,22 @@ from the radar, and it never touches the low-speed path (radar points straight a
 Thresholds from the Nov 5 logs: phantom camera leads were 4.4 m/s and up (7.8 typical) with camera accel -0.56 to
 +0.32; real nearly stopped cars read up to 3.2 m/s on the camera (one 8.9 mph blip at 55 m), so 5 m/s leaves a margin.
 
-Lead Detection Sensitivity (FM_LeadDetectionThreshold, percent; 50 = openpilot's fixed 0.5). How sure the camera has to
-be that a car is ahead before it counts as a lead and can be paired with the radar. Lower values pick up leads sooner
-and farther away, so the lead-following planner gets radar distance and speed earlier; they also give more chances to
-follow something that isn't a car, so use it with the guard above. From FrogPilot's "Lead Detection Sensitivity"
+Lead confidence (25–50%, default 50%): attempt radar matching above the lower cutoff and fall back to camera
+above the camera cutoff. The original shared control came from FrogPilot's "Lead Detection Sensitivity"
 (LeadDetectionThreshold; FrogAi, FrogPilot branch, frogpilot/common/frogpilot_variables.py and
-selfdrive/controls/radard.py, MIT). FrogPilot allows 25-50% with a 35% default; FM Pilot keeps 50% as the default so
-nothing changes until it is lowered.
+selfdrive/controls/radard.py, MIT). Migration keeps an existing shared value in both new settings.
 """
+import math
+from dataclasses import dataclass
+
 from openpilot.common.realtime import DT_MDL
 
 PARAM_GUARD = "FM_RadarStationaryGuard"
-PARAM_THRESHOLD = "FM_LeadDetectionThreshold"
+PARAM_THRESHOLD = "FM_LeadDetectionThreshold"  # legacy, kept for rollback
+PARAM_RADAR = "FM_RadarLeadConfidence"
+PARAM_CAMERA = "FM_CameraLeadConfidence"
+PARAM_SMOOTH = "FM_SmoothLeadHandoffs"
+PARAM_SHADOW = "FM_LeadShadowLog"
 
 GHOST_TRACK_MAX_SPEED = 1.0   # m/s: the radar point is standing still
 GHOST_VISION_MIN_SPEED = 5.0  # m/s (11 mph): the camera's lead is clearly moving
@@ -48,31 +52,68 @@ def threshold_from_percent(value) -> float:
     pct = float(value)
   except (TypeError, ValueError):
     return DEFAULT_THRESHOLD
-  if pct != pct:  # NaN
+  if not math.isfinite(pct):
     return DEFAULT_THRESHOLD
   return min(max(pct / 100.0, THRESHOLD_LIMITS[0]), THRESHOLD_LIMITS[1])
 
 
+def migrate_lead_confidence(params):
+  """Run before manager seeds defaults. An interrupted migration leaves any written slider intact."""
+  legacy = params.get(PARAM_THRESHOLD)
+  if legacy is None:
+    return
+  pct = round(100 * threshold_from_percent(legacy))
+  for key in (PARAM_RADAR, PARAM_CAMERA):
+    if params.get(key) is None:
+      params.put(key, pct, block=True)
+
+
+@dataclass(frozen=True)
+class FmLeadConfig:
+  radar: float = DEFAULT_THRESHOLD
+  camera: float = DEFAULT_THRESHOLD
+  smooth: bool = False
+
+
+SHADOW_CONFIGS = tuple(FmLeadConfig(0.30, camera, smooth)
+                       for camera in (0.50, 0.40) for smooth in (False, True))
+
+
 class FmRadarSettings:
-  """Reads the settings once per second. With params=None (tests, replay) everything stays at openpilot's behavior."""
+  """Poll once per second. With params=None replay can set the configuration explicitly."""
 
   def __init__(self, params=None):
     self.params = params
     self.guard = False
-    self.threshold = DEFAULT_THRESHOLD
+    self.config = FmLeadConfig()
+    self.shadow = False
     self.frame = -1
     if self.params is not None:
       self.read()
 
+  @property
+  def threshold(self):
+    return min(self.config.radar, self.config.camera)
+
+  def flag(self, key):
+    try:
+      return bool(self.params.get_bool(key))
+    except Exception:
+      return False
+
+  def confidence(self, key, fallback=None):
+    try:
+      value = self.params.get(key)
+    except Exception:
+      return DEFAULT_THRESHOLD
+    return fallback if value is None and fallback is not None else threshold_from_percent(value)
+
   def read(self):
-    try:
-      self.guard = bool(self.params.get_bool(PARAM_GUARD))
-    except Exception:
-      self.guard = False
-    try:
-      self.threshold = threshold_from_percent(self.params.get(PARAM_THRESHOLD, return_default=True))
-    except Exception:
-      self.threshold = DEFAULT_THRESHOLD
+    self.guard = self.flag(PARAM_GUARD)
+    self.shadow = self.flag(PARAM_SHADOW)
+    legacy = self.confidence(PARAM_THRESHOLD)
+    self.config = FmLeadConfig(self.confidence(PARAM_RADAR, legacy), self.confidence(PARAM_CAMERA, legacy),
+                               self.flag(PARAM_SMOOTH))
 
   def update(self):
     self.frame += 1
@@ -85,14 +126,38 @@ class FmRadarSettings:
 SOURCE_NONE, SOURCE_RADAR, SOURCE_CAMERA = 0, 1, 2  # custom.FmRadarLead.Source
 
 
+ADMIT_NONE, ADMIT_RADAR, ADMIT_CAMERA, ADMIT_LOW_SPEED, ADMIT_HOLD = range(5)
+DIRECT, BLEND, HOLD = range(3)
+
+
 class FmLeadTrace:
   """Filled by get_lead when given one: whether the ghost guard dropped a radar point this frame (and which), and
   whether the low-speed radar path replaced the lead. Logging only; get_lead's result doesn't depend on it."""
-  __slots__ = ("ghost", "low_speed")
+  __slots__ = ("ghost", "low_speed", "admission", "phase", "hysteresis")
 
   def __init__(self):
     self.ghost = None  # (dRel, yRel, vLead, trackId) of the radar point the guard dropped, or None
     self.low_speed = False
+    self.admission = ADMIT_NONE
+    self.phase = DIRECT
+    self.hysteresis = False
+
+  def decision(self, lead, probability):
+    present = lead["present"]
+    source = SOURCE_RADAR if lead.get("radar", False) else SOURCE_CAMERA if present else SOURCE_NONE
+    return {
+      "source": source,
+      "confidence": float(probability),
+      "radarTrackId": lead.get("radarTrackId", -1),
+      "dRel": lead.get("dRel", 0.0),
+      "vRel": lead.get("vRel", 0.0),
+      "ghostDropped": self.ghost is not None,
+      "ghostTrackId": int(self.ghost[3]) if self.ghost is not None else -1,
+      "lowSpeedLead": self.low_speed,
+      "admission": self.admission,
+      "phase": self.phase,
+      "hysteresis": self.hysteresis,
+    }
 
 
 EARLY_MATCH_PROB = 0.5  # "under 50%": openpilot's fixed cutoff
@@ -117,9 +182,10 @@ class FmRadarLeadStatus:
     msg.liveLeadProb = float(live_prob) if live_prob is not None else prob
     msg.lowSpeedLead = present and trace.low_speed
     early_match = radar and not trace.low_speed and prob < EARLY_MATCH_PROB
-    if early_match and not self._early_match_prev:
-      self.early_radar_matches += 1
-    self._early_match_prev = early_match
+    if trace.phase != HOLD:
+      if early_match and not self._early_match_prev:
+        self.early_radar_matches += 1
+      self._early_match_prev = early_match
     msg.earlyRadarMatches = self.early_radar_matches
     msg.source = SOURCE_RADAR if radar else (SOURCE_CAMERA if present else SOURCE_NONE)
     msg.leadProb = prob
@@ -136,5 +202,8 @@ class FmRadarLeadStatus:
     else:
       msg.ghostTrackId = -1
     msg.ghostDrops = self.ghost_drops
-    msg.guardEnabled = settings.guard
     msg.threshold = settings.threshold
+    msg.radarThreshold = settings.config.radar
+    msg.cameraThreshold = settings.config.camera
+    msg.smoothHandoffs = settings.config.smooth
+    msg.guardEnabled = settings.guard

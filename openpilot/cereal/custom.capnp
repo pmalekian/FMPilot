@@ -677,12 +677,53 @@ struct FmRadarLead @0x9ccdc8676701b412 {
   ghostTrackId @7 :Int32;     # -1 when nothing was dropped
   ghostDrops @8 :UInt32;      # times the guard started dropping a point since radard started
   guardEnabled @9 :Bool;      # FM_RadarStationaryGuard in use
-  threshold @10 :Float32;     # FM_LeadDetectionThreshold in use, as a probability (0.25-0.5)
+  threshold @10 :Float32;     # legacy readers see the lower of the two cutoffs
   liveLeadProb @11 :Float32;  # the camera's (filtered) lead probability for leadOne's slot, every frame, lead or not
                               # (radard's asymmetric filter on modelV2.leadsV3[0].prob: rises at once, falls over ~0.2 s)
   lowSpeedLead @12 :Bool;     # leadOne is the low-speed radar path (radar point straight ahead under 4 m/s)
   earlyRadarMatches @13 :UInt32;  # times this drive a lead got a radar match while the camera was under 50% sure
                                   # (once per run, not per frame; not the low-speed path)
+
+  radarThreshold @14 :Float32;
+  cameraThreshold @15 :Float32;
+  smoothHandoffs @16 :Bool;
+  decisions @17 :List(Decision);  # leadOne, leadTwo
+  shadow @18 :List(Shadow);       # empty when disabled
+
+  struct Decision {
+    source @0 :Source;
+    confidence @1 :Float32;       # filtered confidence, even when absent
+    radarTrackId @2 :Int32 = -1;
+    dRel @3 :Float32;
+    vRel @4 :Float32;
+    ghostDropped @5 :Bool;
+    ghostTrackId @6 :Int32 = -1;
+    lowSpeedLead @7 :Bool;
+    admission @8 :Admission;
+    phase @9 :Phase;
+    hysteresis @10 :Bool;         # probability cleared the release cutoff only
+  }
+
+  struct Shadow {
+    radarThreshold @0 :Float32;
+    cameraThreshold @1 :Float32;
+    smoothHandoffs @2 :Bool;
+    decisions @3 :List(Decision);  # leadOne, leadTwo
+  }
+
+  enum Admission {
+    none @0;
+    radar @1;
+    camera @2;
+    lowSpeed @3;
+    hold @4;
+  }
+
+  enum Phase {
+    direct @0;
+    blend @1;
+    hold @2;
+  }
 
   enum Source {
     none @0;

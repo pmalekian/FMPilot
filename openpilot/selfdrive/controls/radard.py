@@ -16,7 +16,12 @@ from openpilot.common.simple_kalman import KF1D
 from opendbc.car import structs
 from opendbc.car.hyundai.values import HyundaiFlags
 from opendbc.sunnypilot.car.hyundai.values import HyundaiFlagsSP
-from openpilot.sunnypilot.selfdrive.controls.lib.fm_radar import FmLeadTrace, FmRadarLeadStatus, FmRadarSettings, stationary_ghost
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_lead_handoff import (
+  FmLeadHandoff, RELEASE_MARGIN, SAME_CAR_LATERAL, SAME_CAR_SPEED, camera_on_path, same_car,
+)
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_radar import (
+  ADMIT_CAMERA, ADMIT_LOW_SPEED, ADMIT_RADAR, SHADOW_CONFIGS, FmLeadTrace, FmRadarLeadStatus, FmRadarSettings, stationary_ghost,
+)
 
 
 # Default lead acceleration decay set to 50% at 1s
@@ -115,7 +120,8 @@ def laplacian_pdf(x: float, mu: float, b: float):
   return math.exp(-abs(x-mu)/b)
 
 
-def match_vision_to_track(v_ego: float, lead: capnp._DynamicStructReader, tracks: dict[int, Track]):
+def match_vision_to_track(v_ego: float, lead: capnp._DynamicStructReader, tracks: dict[int, Track],
+                          preferred: Track | None = None):
   offset_vision_dist = lead.x[0] - RADAR_TO_CAMERA
 
   def prob(c):
@@ -126,16 +132,19 @@ def match_vision_to_track(v_ego: float, lead: capnp._DynamicStructReader, tracks
     # This isn't exactly right, but it's a good heuristic
     return prob_d * prob_y * prob_v
 
-  track = max(tracks.values(), key=prob)
+  def sane(track):
+    # Stationary radar points can be false positives.
+    dist_sane = abs(track.dRel - offset_vision_dist) < max(offset_vision_dist * .25, 5.0)
+    vel_sane = abs(track.vRel + v_ego - lead.v[0]) < 10 or v_ego + track.vRel > 3
+    return dist_sane and vel_sane
 
-  # if no 'sane' match is found return -1
-  # stationary radar points can be false positives
-  dist_sane = abs(track.dRel - offset_vision_dist) < max([(offset_vision_dist)*.25, 5.0])
-  vel_sane = (abs(track.vRel + v_ego - lead.v[0]) < 10) or (v_ego + track.vRel > 3)
-  if dist_sane and vel_sane:
-    return track
-  else:
-    return None
+  if (preferred is not None and sane(preferred) and
+      abs(preferred.yRel + lead.y[0]) < SAME_CAR_LATERAL and
+      abs(preferred.vRel + v_ego - lead.v[0]) < SAME_CAR_SPEED):
+    return preferred
+
+  track = max(tracks.values(), key=prob)
+  return track if sane(track) else None
 
 
 def get_RadarState_from_vision(lead_msg: capnp._DynamicStructReader, v_ego: float, model_v_ego: float, lead_prob: float):
@@ -158,36 +167,64 @@ def get_RadarState_from_vision(lead_msg: capnp._DynamicStructReader, v_ego: floa
 def get_lead(v_ego: float, ready: bool, tracks: dict[int, Track], lead_msg: capnp._DynamicStructReader,
              model_v_ego: float, lead_prob: float, CP: structs.CarParams, CP_SP: structs.CarParamsSP,
              low_speed_override: bool = True, stationary_guard: bool = False,
-             lead_threshold: float = .5, fm_trace: FmLeadTrace | None = None) -> dict[str, Any]:
-  # Determine leads, this is where the essential logic happens
-  # FM Pilot Lead Detection Sensitivity: lead_threshold replaces the fixed .5 (from FrogPilot, MIT); .5 by default
-  if len(tracks) > 0 and ready and lead_prob > lead_threshold:
-    track = match_vision_to_track(v_ego, lead_msg, tracks)
-    # FM Pilot Stationary Radar Ghost Guard: a standing-still radar point can't be a clearly moving camera lead
-    if track is not None and stationary_guard and stationary_ghost(track.vLead, lead_msg.v[0], lead_msg.a[0]):
-      if fm_trace is not None:  # FM Pilot Radar Lead Status: logged in fmRadarLead
-        fm_trace.ghost = (track.dRel, track.yRel, track.vLead, track.identifier)
-      track = None
-  else:
-    track = None
+             lead_threshold: float = .5, fm_trace: FmLeadTrace | None = None, *,
+             camera_threshold: float | None = None, handoff: FmLeadHandoff | None = None,
+             model_path=None) -> dict[str, Any]:
+  # FM Pilot Lead Detection Sensitivity (FrogPilot, MIT), split into radar and camera admission thresholds.
+  radar_threshold = lead_threshold
+  camera_threshold = radar_threshold if camera_threshold is None else camera_threshold
+  match_threshold = min(radar_threshold, camera_threshold)
+  trace = fm_trace if fm_trace is not None else FmLeadTrace()
+
+  if handoff is not None:
+    ready = ready and all(len(getattr(lead_msg, field)) for field in ('x', 'y', 'v', 'a', 'xStd', 'yStd', 'vStd'))
+
+  reference = handoff.predict(handoff.measurement, v_ego) if handoff is not None else None
+  preferred = None
+  if reference is not None and reference['radar']:
+    candidate = tracks.get(reference['radarTrackId'])
+    if candidate is not None and same_car(reference, candidate.get_RadarState()):
+      preferred = candidate
 
   lead_dict = {'present': False}
-  if track is not None:
-    lead_dict = track.get_RadarState(lead_prob)
-    lead_dict = get_custom_yrel(CP, CP_SP, lead_dict, lead_msg)
-  elif (track is None) and ready and (lead_prob > lead_threshold):
-    lead_dict = get_RadarState_from_vision(lead_msg, v_ego, model_v_ego, lead_prob)
+  if tracks and ready and lead_prob > match_threshold - (RELEASE_MARGIN if reference is not None else 0.0):
+    track = match_vision_to_track(v_ego, lead_msg, tracks, preferred)
+    if track is not None:
+      radar_lead = get_custom_yrel(CP, CP_SP, track.get_RadarState(lead_prob), lead_msg)
+      hysteresis = lead_prob <= match_threshold
+      if not hysteresis or same_car(reference, radar_lead):
+        if stationary_guard and stationary_ghost(track.vLead, lead_msg.v[0], lead_msg.a[0]):
+          trace.ghost = (track.dRel, track.yRel, track.vLead, track.identifier)
+        else:
+          lead_dict = radar_lead
+          trace.admission = ADMIT_RADAR if lead_prob > radar_threshold or (
+            hysteresis and radar_threshold <= camera_threshold) else ADMIT_CAMERA
+          trace.hysteresis = hysteresis
+
+  camera = None
+  if ready and not lead_dict['present'] and (handoff is not None or lead_prob > camera_threshold):
+    camera = get_RadarState_from_vision(lead_msg, v_ego, model_v_ego, lead_prob)
+    camera_hysteresis = lead_prob <= camera_threshold
+    if not camera_hysteresis or (lead_prob > camera_threshold - RELEASE_MARGIN and same_car(reference, camera)):
+      lead_dict = camera
+      trace.admission = ADMIT_CAMERA
+      trace.hysteresis = camera_hysteresis
 
   if low_speed_override:
     low_speed_tracks = [c for c in tracks.values() if c.potential_low_speed_lead(v_ego)]
-    if len(low_speed_tracks) > 0:
+    if low_speed_tracks:
       closest_track = min(low_speed_tracks, key=lambda c: c.dRel)
-
-      # Only choose new track if it is actually closer than the previous one
-      if (not lead_dict['present']) or (closest_track.dRel < lead_dict['dRel']):
+      if not lead_dict['present'] or closest_track.dRel < lead_dict['dRel']:
         lead_dict = closest_track.get_RadarState()
-        if fm_trace is not None:
-          fm_trace.low_speed = True
+        trace.low_speed = True
+        trace.admission = ADMIT_LOW_SPEED
+        trace.hysteresis = False
+
+  if handoff is not None:
+    # Use unfiltered confidence for the hold: the asymmetric admission filter can outlast a lost car.
+    camera_supports_hold = (not lead_dict['present'] and camera is not None and
+                            lead_msg.prob > match_threshold - RELEASE_MARGIN and camera_on_path(lead_msg, model_path))
+    lead_dict = handoff.update(lead_dict, camera, camera_supports_hold, v_ego, lead_prob, trace)
 
   return lead_dict
 
@@ -208,6 +245,8 @@ class RadarD:
     self.fm_radar = FmRadarSettings(params)  # FM Pilot radar lead settings; params=None keeps openpilot's behavior
     self.fm_lead_status = FmRadarLeadStatus()  # FM Pilot Radar Lead Status (fmRadarLead), logging only
     self.fm_lead_msg = None
+    self.fm_handoffs = {}
+    self.fm_previous_guard = None
 
     self.current_time = 0.0
     self.tracks: dict[int, Track] = {}
@@ -262,27 +301,59 @@ class RadarD:
       model_v_ego = self.v_ego
     leads_v3 = sm['modelV2'].leadsV3
     self.fm_radar.update()
-    guard, threshold = self.fm_radar.guard, self.fm_radar.threshold
     self.fm_lead_msg = None
-    if len(leads_v3) > 1:
-      for i in range(2):
-        # Asymmetric filter on lead prob to keep lead when uncertain
-        lead_prob = leads_v3[i].prob
-        if lead_prob > self.lead_prob_filters[i].x:
-          self.lead_prob_filters[i].x = lead_prob
-        else:
-          self.lead_prob_filters[i].update(lead_prob)
+    if len(leads_v3) < 2:
+      self.fm_handoffs.clear()
+      return
 
-      fm_trace = FmLeadTrace()
-      lead_one = get_lead(self.v_ego, self.ready, self.tracks, leads_v3[0], model_v_ego, self.lead_prob_filters[0].x,
-                          self.CP, self.CP_SP, low_speed_override=True, stationary_guard=guard,
-                          lead_threshold=threshold, fm_trace=fm_trace)
-      self.radar_state.leadOne = lead_one
-      self.fm_lead_msg = custom.FmRadarLead.new_message()
-      self.fm_lead_status.fill(self.fm_lead_msg, lead_one, fm_trace, self.fm_radar, self.lead_prob_filters[0].x)
-      self.radar_state.leadTwo = get_lead(self.v_ego, self.ready, self.tracks, leads_v3[1], model_v_ego, self.lead_prob_filters[1].x,
-                                          self.CP, self.CP_SP, low_speed_override=False, stationary_guard=guard,
-                                          lead_threshold=threshold)
+    for lead, prob_filter in zip(leads_v3, self.lead_prob_filters, strict=False):
+      # Asymmetric filter on lead prob to keep lead when uncertain.
+      if lead.prob > prob_filter.x:
+        prob_filter.x = lead.prob
+      else:
+        prob_filter.update(lead.prob)
+
+    if self.fm_previous_guard != self.fm_radar.guard:
+      self.fm_handoffs.clear()
+    self.fm_previous_guard = self.fm_radar.guard
+    active_key = ('active', self.fm_radar.config)
+    shadow_keys = [('shadow', config) for config in SHADOW_CONFIGS] if self.fm_radar.shadow else []
+    configured = (active_key, *shadow_keys)
+    self.fm_handoffs = {key: states for key, states in self.fm_handoffs.items() if key in configured}
+
+    model_path = sm['modelV2'].position
+    leads, traces, decisions = self.evaluate_leads(active_key, leads_v3, model_v_ego, model_path)
+    self.radar_state.leadOne, self.radar_state.leadTwo = leads
+    self.fm_lead_msg = custom.FmRadarLead.new_message()
+    self.fm_lead_status.fill(self.fm_lead_msg, leads[0], traces[0], self.fm_radar, self.lead_prob_filters[0].x)
+    self.fm_lead_msg.decisions = decisions
+
+    if shadow_keys:
+      shadow = self.fm_lead_msg.init('shadow', len(shadow_keys))
+      for item, key in zip(shadow, shadow_keys, strict=True):
+        _, config = key
+        item.radarThreshold, item.cameraThreshold, item.smoothHandoffs = config.radar, config.camera, config.smooth
+        _, _, shadow_decisions = self.evaluate_leads(key, leads_v3, model_v_ego, model_path)
+        item.decisions = shadow_decisions
+
+  def evaluate_leads(self, key, leads_v3, model_v_ego, model_path):
+    _, config = key
+    handoffs = None
+    if config.smooth:
+      handoffs = self.fm_handoffs.get(key)
+      if handoffs is None:
+        handoffs = self.fm_handoffs[key] = [FmLeadHandoff(), FmLeadHandoff()]
+    leads, traces, decisions = [], [], []
+    for i, prob_filter in enumerate(self.lead_prob_filters):
+      trace = FmLeadTrace()
+      lead = get_lead(self.v_ego, self.ready, self.tracks, leads_v3[i], model_v_ego, prob_filter.x, self.CP, self.CP_SP,
+                      low_speed_override=i == 0, stationary_guard=self.fm_radar.guard, lead_threshold=config.radar,
+                      fm_trace=trace, camera_threshold=config.camera, handoff=handoffs[i] if handoffs is not None else None,
+                      model_path=model_path if handoffs is not None else None)
+      leads.append(lead)
+      traces.append(trace)
+      decisions.append(trace.decision(lead, prob_filter.x))
+    return leads, traces, decisions
 
   def publish(self, pm: messaging.PubMaster):
     assert self.radar_state is not None

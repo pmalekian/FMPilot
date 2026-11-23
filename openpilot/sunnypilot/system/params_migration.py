@@ -177,3 +177,10 @@ def run_migration(_params):
 
   # FM Pilot: seed the lane keeping mode from the older toggles
   _migrate_fm_lane_keep_mode(_params)
+
+  # FM Pilot: carry the old shared lead cutoff into each new slider before writing defaults.
+  try:
+    from openpilot.sunnypilot.selfdrive.controls.lib.fm_radar import migrate_lead_confidence
+    migrate_lead_confidence(_params)
+  except Exception as e:
+    cloudlog.exception(f"Error migrating FM lead confidence: {e}")

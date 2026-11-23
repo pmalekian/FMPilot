@@ -1,6 +1,6 @@
 # FM Pilot: handoff for new chats (short)
 
-State as of Nov 23, 2026 (three builds planned: **Build A Lead readout built** on `fm-dev-nav` (Top Readout option Lead, not driven); lead sensitivity two sliders + smooth handoffs + shadow mode and Settle After Turn early right push not built, item 0v; Radar Lead Status log + Radar Badge built on `fm-dev-nav`, badge off, item 0u; Nov 20 drive `000000af` turn analysis and five off-by-default fixes built, item 0t; Lateral Smoothing (Big Models) on `fm-dev-nav`, off, item 0s; Jetlink Status log, item 0r; Calmer Straight Pull-Away for Cheddar's pull-away jerk, item 0q; Nav Assist on `fm-dev-nav`: map logging, Map Turn Desire, Nav Turn Speed, Download Nav Map and the Top Readout CPU option, all off or as before, none on the truck yet, item 0o; code review of everything above AdventurePilot: fixes on `fm-dev-max2`, item 0p; comm warnings traced to hardwared stalls, stall diagnostics built, item 0n; Nov 13: drive `00000073` analyzed, item 0l; Turn Assist logging + fixes A/B/C built, item 0m). This is the current state only. Background findings, past drive analyses and
+State as of Nov 23, 2026 (three builds planned: **Build A Lead readout built** on `fm-dev-nav` (Top Readout option Lead, not driven); Build B lead sensitivity implemented on `fm-dev-nav-lead`, requested replay pending, and Settle After Turn early right push planned, item 0v; Radar Lead Status log + Radar Badge built on `fm-dev-nav`, badge off, item 0u; Nov 20 drive `000000af` turn analysis and five off-by-default fixes built, item 0t; Lateral Smoothing (Big Models) on `fm-dev-nav`, off, item 0s; Jetlink Status log, item 0r; Calmer Straight Pull-Away for Cheddar's pull-away jerk, item 0q; Nav Assist on `fm-dev-nav`: map logging, Map Turn Desire, Nav Turn Speed, Download Nav Map and the Top Readout CPU option, all off or as before, none on the truck yet, item 0o; code review of everything above AdventurePilot: fixes on `fm-dev-max2`, item 0p; comm warnings traced to hardwared stalls, stall diagnostics built, item 0n; Nov 13: drive `00000073` analyzed, item 0l; Turn Assist logging + fixes A/B/C built, item 0m). This is the current state only. Background findings, past drive analyses and
 the ideas backlog are in `claude/FM_PILOT_FINDINGS.md`: read it only when a task needs that history. Features, settings
 and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 
@@ -78,7 +78,7 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 
 ## Active work
 
-### 0v. Three planned builds (Nov 23), decided with Frankie: A built (not driven), B and C not built
+### 0v. Nov 23 builds: A on fm-dev-nav, B on fm-dev-nav-lead, C planned
 
 Full spec: `FM_PILOT_BUILD_NOTE_2026-11-23.md` at the repo root (project copy: `claude/FM_PILOT_BUILD_NOTE_2026-11-23.md`). Base `fm-dev-nav` @ `8f00a93`.
 
@@ -89,7 +89,7 @@ Full spec: `FM_PILOT_BUILD_NOTE_2026-11-23.md` at the repo root (project copy: `
 - **A built (Nov 23):** `a7ac523` radard: `fmRadarLead` gains `liveLeadProb` @11 (radard's filtered
   `leadsV3[0].prob` every frame; the readout uses it, so the number is the value compared with the cutoff),
   `lowSpeedLead` @12, `earlyRadarMatches` @13 (rising edge of radar-matched and under 50%, not the low-speed path).
-  **B and C: new `FmRadarLead` fields start at @14.** `08ef10b` `FM_TopReadout` 4 "Lead" (Torque still default):
+  **Build B uses `FmRadarLead` @14–@18.** `08ef10b` `FM_TopReadout` 4 "Lead" (Torque still default):
   `fm_torque_readout.LeadReadoutState` (pure logic) + `hud_renderer._draw_fm_lead_readout`; number floored (0.497 shows
   49% purple, never "50%" in purple); X blinks red 0.25 s on/dim for 2 s after the last drop (or a `ghostDrops` rise the
   UI missed); drawn engaged or not (the badge only draws engaged). Tests: radar +4, readout +8; sunnypilot + controls + UI +
@@ -101,12 +101,26 @@ Full spec: `FM_PILOT_BUILD_NOTE_2026-11-23.md` at the repo root (project copy: `
   (`modelV2.leadsV3[0].prob`, not `fmRadarLead.leadProb`, which is 0 without a lead): gray not counted, cyan camera-only
   under 50%, purple radar-matched under 50%, white 50%+. Letter R / C / X (ghost dropped, red flash ~2 s) / `–`.
   E = radar matches while under 50% this drive (rising edge, radard counter); G = `ghostDrops`.
-- **B. Lead sensitivity:** split `FM_LeadDetectionThreshold` into Radar-matched and Camera-only sliders (25-50%,
-  default 50; radar matching tried from the lower cutoff; upgrade carries his current value into both, legacy kept).
-  Smooth handoffs in radard: one predicted/corrected estimate per lead, same-car check, fresh state on cut-ins, closer/
-  slower at once and farther/faster eased, ~0.5 s camera-supported hold on radar loss, ~5-point hysteresis, sticky radar
-  matching; planner untouched. Shadow mode: log what 30/50 and 30/40 (smoothing off/on) would have chosen while driving
-  real settings. 50/50 must equal today; replay before any real drive.
+- **B built on `fm-dev-nav-lead`**, based on the remote `fm-dev-nav` tip `69e7395`. The 25–50% **Radar-matched Lead
+  Confidence** and **Camera-only Lead Confidence** settings replace the shared slider. The boot migration copies the
+  prior setting to any unset slider, preserving existing choices and the rollback key. **Smooth Lead Handoffs** and
+  **Lead Shadow Log** both default off. Shadow runs 30/50 and 30/40, each with smoothing off and on, with separate state
+  for each slot and variant. New `FmRadarLead` fields are radar @14, camera @15, smoothing @16, decisions @17, shadow @18.
+  Any later changes to this struct must use unoccupied ordinals when branches are combined.
+- **B implementation:** Radar matching starts above the lower cutoff. Camera fallback requires its own cutoff. Both
+  lead slots use strict greater-than comparisons, and leadOne keeps the low-speed override. With smoothing enabled,
+  radard prefers the previously matched radar track while it still fits, eases same-car releases over 0.75 s, and
+  predicts for up to 0.5 s on radar loss while the camera still supports an in-path lead. A five-point release margin
+  only applies to the same car. Planner code is untouched.
+- **B validation:** `tools/fm/lead.py` supports recorded shadow reports and native open-loop replay of all eight
+  configurations. Test coverage includes exact cutoffs, migration, leadOne and leadTwo, low-speed override, ghost
+  rejects, holds, cut-ins, immediate braking measurements, and shadow isolation. With smoothing off, the original
+  Build A radard and Build B emitted byte-identical radarState messages across 5,401 updates at 50/50 and again at
+  40/40. All existing fmRadarLead fields matched. Open-loop replay on route
+  `00000099--2cf568eb98`, segments 0–4, with the guard on: leadOne radar/camera switches fell from 346 to 31 at 50/50.
+  The largest leadOne gap step was 6.51 m with smoothing off and 6.84 m on. Three extra leadTwo frames appeared in
+  segment 0 at a 40% camera cutoff. These segments had no active longitudinal control. The required
+  `000000a8--df5d2d0570--16` rlog was unavailable, so Build B remains pending the ramp replay and the braking-timing check.
 - **C. Settle After Turn right push:** start when the truck straightens (not only at desire end), floor ~2-3 mph,
   low-speed cap by lateral accel, capped ~0.5 m right push when no center is visible, stop at center, curb guard and
   push-back inside Settle (Lane Guard math, credit gerrylum), yield when the model plan swings away from the right
