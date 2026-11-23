@@ -1,6 +1,6 @@
 # FM Pilot: handoff for new chats (short)
 
-State as of Nov 20, 2026 (Radar Lead Status log + Radar Badge built on `fm-dev-nav`, badge off, item 0u; Nov 20 drive `000000af` turn analysis and five off-by-default fixes built, item 0t; Lateral Smoothing (Big Models) on `fm-dev-nav`, off, item 0s; Jetlink Status log, item 0r; Calmer Straight Pull-Away for Cheddar's pull-away jerk, item 0q; Nav Assist on `fm-dev-nav`: map logging, Map Turn Desire, Nav Turn Speed, Download Nav Map and the Top Readout CPU option, all off or as before, none on the truck yet, item 0o; code review of everything above AdventurePilot: fixes on `fm-dev-max2`, item 0p; comm warnings traced to hardwared stalls, stall diagnostics built, item 0n; Nov 13: drive `00000073` analyzed, item 0l; Turn Assist logging + fixes A/B/C built, item 0m). This is the current state only. Background findings, past drive analyses and
+State as of Nov 23, 2026 (three builds planned, nothing built: Lead readout, lead sensitivity two sliders + smooth handoffs + shadow mode, Settle After Turn early right push, item 0v; Radar Lead Status log + Radar Badge built on `fm-dev-nav`, badge off, item 0u; Nov 20 drive `000000af` turn analysis and five off-by-default fixes built, item 0t; Lateral Smoothing (Big Models) on `fm-dev-nav`, off, item 0s; Jetlink Status log, item 0r; Calmer Straight Pull-Away for Cheddar's pull-away jerk, item 0q; Nav Assist on `fm-dev-nav`: map logging, Map Turn Desire, Nav Turn Speed, Download Nav Map and the Top Readout CPU option, all off or as before, none on the truck yet, item 0o; code review of everything above AdventurePilot: fixes on `fm-dev-max2`, item 0p; comm warnings traced to hardwared stalls, stall diagnostics built, item 0n; Nov 13: drive `00000073` analyzed, item 0l; Turn Assist logging + fixes A/B/C built, item 0m). This is the current state only. Background findings, past drive analyses and
 the ideas backlog are in `claude/FM_PILOT_FINDINGS.md`: read it only when a task needs that history. Features, settings
 and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 
@@ -77,6 +77,30 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 - Custom splice model: **removed** Nov 8 (with the on-device compile fix and model check tools), for the v25 move.
 
 ## Active work
+
+### 0v. Three planned builds (Nov 23), decided with Frankie, NOTHING BUILT YET
+
+Full spec: `FM_PILOT_BUILD_NOTE_2026-11-23.md` at the repo root (project copy: `claude/FM_PILOT_BUILD_NOTE_2026-11-23.md`). Base `fm-dev-nav` @ `8f00a93`.
+
+- **Order:** Build A (Lead readout) first, alone. Then Build B (lead sensitivity) and Build C (Settle After Turn right
+  push) in parallel, each on its own branch off `fm-dev-nav` (e.g. `fm-dev-nav-lead`, `fm-dev-nav-settle`), merged one
+  at a time; shared files (`custom.capnp`, `params_keys.h`, Sunnylink YAML/compiled JSON, `FM_PILOT.md`, handoff) are
+  resolved by hand and Sunnylink recompiled after the second merge.
+- **A. Lead readout:** new `FM_TopReadout` option "Lead": `40% R E1 G0`. Number = live model lead confidence
+  (`modelV2.leadsV3[0].prob`, not `fmRadarLead.leadProb`, which is 0 without a lead): gray not counted, cyan camera-only
+  under 50%, purple radar-matched under 50%, white 50%+. Letter R / C / X (ghost dropped, red flash ~2 s) / `–`.
+  E = radar matches while under 50% this drive (rising edge, radard counter); G = `ghostDrops`.
+- **B. Lead sensitivity:** split `FM_LeadDetectionThreshold` into Radar-matched and Camera-only sliders (25-50%,
+  default 50; radar matching tried from the lower cutoff; upgrade carries his current value into both, legacy kept).
+  Smooth handoffs in radard: one predicted/corrected estimate per lead, same-car check, fresh state on cut-ins, closer/
+  slower at once and farther/faster eased, ~0.5 s camera-supported hold on radar loss, ~5-point hysteresis, sticky radar
+  matching; planner untouched. Shadow mode: log what 30/50 and 30/40 (smoothing off/on) would have chosen while driving
+  real settings. 50/50 must equal today; replay before any real drive.
+- **C. Settle After Turn right push:** start when the truck straightens (not only at desire end), floor ~2-3 mph,
+  low-speed cap by lateral accel, capped ~0.5 m right push when no center is visible, stop at center, curb guard and
+  push-back inside Settle (Lane Guard math, credit gerrylum), yield when the model plan swings away from the right
+  (Blendful going-around, credit sunnypilot), hands win, new logging. Replay on `000000af` all 8 turns vs current Settle;
+  Turns 2 and 4 must not be pushed toward the curb.
 
 ### 0u. Radar Lead Status log (`fmRadarLead`) and Radar Badge (Nov 20 evening), built, badge OFF, not driven
 
