@@ -1,6 +1,8 @@
 # FM Pilot build note: three planned builds (Nov 23, 2026)
 
-Decided with Frankie on Nov 23 in the "Settle After Turn speed" chat. Nothing here is built yet. Base: `fm-dev-nav` @
+Decided with Frankie on Nov 23 in the "Settle After Turn speed" chat. **Status (Nov 23): all three built, none driven:**
+A on `fm-dev-nav`, B on `fm-dev-nav-lead` (`a5f04fb`), C on `fm-dev-nav-settle` (off `a5f04fb`, so it carries A, B and C);
+B and C not merged into `fm-dev-nav`. Original base: `fm-dev-nav` @
 `8f00a93` (repo `pmalekian/fmpilot`, now `pmalekian/FMPilot`; old URL redirects). Same item is in
 `FM_PILOT_HANDOFF.md` as 0v.
 
@@ -74,6 +76,13 @@ and branch off `fm-dev-nav` at or after the commit that added this line.
 
 ## Build B: Lead sensitivity — two sliders, smooth handoffs, shadow mode
 
+**Status: built on `fm-dev-nav-lead`** at `a5f04fb` (= `fm-dev-nav` `69e7395` plus one B commit; not driven). Settings
+Radar-matched / Camera-only Lead Confidence (migration carries the old value into both), Smooth Lead Handoffs and Lead
+Shadow Log (both off); `FmRadarLead` @14 radar cutoff, @15 camera cutoff, @16 smoothing, @17 decisions, @18 shadow;
+`tools/fm/lead.py`. 50/50 smoothing off byte-identical to A over 5,401 radard updates. **Still owed:** the ramp replay on
+`000000a8--df5d2d0570--16` and the braking-timing check (the rlog wasn't available). Details: handoff 0v. (This status
+line was added with Build C; the B commit didn't update this note.)
+
 Based on ChatGPT's proposal (Frankie uploaded it Nov 23) plus our changes. Today: one slider
 `FM_LeadDetectionThreshold` (25-50%, default 50) gates both radar-matched and camera-only leads in `get_lead()`
 (`openpilot/selfdrive/controls/radard.py` ~L158-192; both lead slots ~L263-285; settings/polling in
@@ -140,6 +149,14 @@ planner (MPC, min with e2e in Experimental) can brake for either.
 ---
 
 ## Build C: Settle After Turn — early right push
+
+**Status: built on `fm-dev-nav-settle`** (`fc1c2bd` feature, `2e721f7` `tools/fm/settle.py`; off `fm-dev-nav-lead`
+`a5f04fb`; not driven). Decided the open point: a **new option** under Settle After Turn, "Settle After Turn: Early Right
+Push" (`FM_TurnSettleEarlyPush`, off); with it off Settle is bit-identical to before (tested against a frozen copy on
+random inputs). Items 1-10 all built. **Provisional values (no replay):** floor 3 mph, low-speed cap 0.1 m/s² (0.01 1/m
+ceiling, never under the old 0.004), push 0.4 m. Logged `modelDataV2SP` @15-@18 (`fmTurnSettlePush`, `fmTurnSettleLimit`,
+`fmTurnSettlePhase`, `fmTurnSettleGuard`). Synthetic closed-loop turn tests cover the scenarios below; the replay under
+"Offline checks" is **still owed** before he drives it. Details and reasons for each value: handoff 0v.
 
 Current feature: `openpilot/sunnypilot/modeld_v2/fm_turn_settle.py` (`FM_TurnSettle`, off), wired through the Blendful
 hook in `modeld.py`, setting under Steering > FM Pilot: Turn Tweaks. Today: 8-30 mph (`MIN_SPEED`, hard-coded; 8 had no

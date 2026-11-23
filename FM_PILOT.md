@@ -11,6 +11,10 @@ features below. Every FM Pilot commit starts with "FM Pilot".
 Build B is on `fm-dev-nav-lead`, based on `fm-dev-nav` at `69e7395`. The 50/50 configuration with smoothing off follows
 Build A's admission and lead output. See handoff item 0v for verification and the outstanding `000000a8--16` replay.
 
+Build C (Settle After Turn: Early Right Push, off by default) is on `fm-dev-nav-settle`, based on `fm-dev-nav-lead` at
+`a5f04fb`, so it carries A and B too. Its speed floor (3 mph), low-speed cap (0.1 m/s²) and push distance (0.4 m) are
+**provisional**: picked without a replay; the `000000af` replay of all 8 turns is owed before it is driven (handoff 0v).
+
 ## Features
 
 | Feature | Settings (Sunnylink page) | Code | Default |
@@ -20,6 +24,7 @@ Build A's admission and lead output. See handoff item 0v for verification and th
 | Lane Guard: small correction only when the planned path brings the body too close to a line or edge. Not run at all while another mode is selected; switched on while driving it starts as after a lane change (lines unguarded for the first second) | `FM_LaneKeepMode` = Lane Guard | `selfdrive/controls/lib/lane_guard.py`, `sunnypilot/selfdrive/controls/lib/fm_lateral.py` | off |
 | Blendful (alpha): trust-weighted nudge toward the lane center added to the model's curvature in modeld; weights each line by the model's confidence, yields when the model goes around something, off below 5 m/s and during any desire or lane change. Logged in `modelDataV2SP` (`blendful*`); blue lane center line on the comma 4 | `FM_LaneKeepMode` = Blendful | `sunnypilot/modeld_v2/blendful.py`, `modeld.py`, `selfdrive/ui/sunnypilot/onroad/blendful.py` | off |
 | Settle After Turn: for up to 6 s after a blinker turn of 45 deg or more ends, 8-30 mph, a small curvature toward the lane center from lane lines the model is 30% sure of (std under 0.9 m) before Blendful trusts them; one line: 1.6 m in from it; a sure road edge only limits the aim (1.4 m), never a target; under 0.25 m off is left alone; after a left turn it only pushes right (away from the center line). 0.6 of the curvature that closes the offset seen 6 m ahead over 1.5 s of travel, capped at 0.004 1/m, Blendful's build/release rates; ends at Blendful trust 0.5, a desire or lane change, 30 mph, your hands. Runs in modeld_v2's Blendful hook (so with a Jetlink big model too). Open-loop replay on `000000af`: pushes right 1-1.5 s before Blendful after T3 and T5 (up to 0.0013 1/m), the same way as Blendful after T4 and T6, nothing elsewhere. Logged as `modelDataV2SP.fmTurnSettle`/`fmTurnSettleOffset` | `FM_TurnSettle` (Turn Tweaks) | `sunnypilot/modeld_v2/fm_turn_settle.py`, `modeld.py` | off |
+| Settle After Turn: Early Right Push (Build C, needs Settle After Turn): starts once the truck straightens (wheel curvature under 30% of the turn's tightest and under 0.02 1/m for 0.3 s, plan bending at most 0.5 m toward the turn 10 m ahead; 45 deg minimum kept; the desire ending still starts it); from 3 mph; curvature capped at 0.1 m/s² lateral, 0.01 1/m ceiling, never under the old 0.004 1/m (the old cap above ~11 mph). No 30% line: a blind push right after left and right turns alike, at most 0.4 m, from the truck's own motion (wheel curvature x speed) against the road's direction (wheel heading pulled toward the plan's direction 20 m ahead over 1.5 s). A 30% line showing the truck centered or right of center ends the push for the turn; once a center is seen, Settle's centering as before and Blendful at trust 0.5. Curb guard in Settle whatever the lane keeping mode: a sure curb (std 0.5 m or less) stops the push 1.4 m from it, and the plan plus Settle's curvature bringing the body within Lane Guard's margin steers back left (Lane Guard's math, Rivian tune). Yields (holds) when the plan heads left of the truck around a parked car (Blendful's 0.2 / 0.45 m). Your steering drops it at once. **Provisional values (3 mph, 0.1 m/s², 0.4 m), not replayed.** Logged as `modelDataV2SP.fmTurnSettlePush`/`fmTurnSettleLimit`/`fmTurnSettlePhase`/`fmTurnSettleGuard`; `tools/fm/settle.py` lists each window | `FM_TurnSettleEarlyPush` (Turn Tweaks) | `sunnypilot/modeld_v2/fm_turn_settle.py`, `modeld.py` | off |
 | Rear-axle off-tracking compensation: widens tight turns by the rear axle's cut-in | `RivianOfftrackCompensationEnabled`, `…Gain` (Steering > Lane Centering) | `sunnypilot/selfdrive/controls/lib/rivian_offtrack.py`, `fm_lateral.py` | off |
 | Ignore Stationary Radar Ghosts: a standing-still radar point (under 1 m/s) is never paired with a camera lead that is clearly moving (over 5 m/s, 11 mph) and not braking hard (gentler than -1.5 m/s²); that car is then followed from the camera. Stops guardrail/barrier points on ramps and curves from braking the truck. The low-speed radar path (under 4 m/s) is untouched | `FM_RadarStationaryGuard` (Cruise > Smart Cruise Control) | `selfdrive/controls/radard.py`, `sunnypilot/selfdrive/controls/lib/fm_radar.py` | off |
 | Lead confidence: **Radar-matched Lead Confidence** and **Camera-only Lead Confidence** (25–50%). Radar matching starts above the lower cutoff. Camera-only fallback requires confidence above its own cutoff, including after a guard rejection. Both lead slots use the same rule and leadOne retains its low-speed override. Upgrades seed both sliders from the existing shared value and keep the legacy setting for rollback. | `FM_RadarLeadConfidence`, `FM_CameraLeadConfidence` (Cruise > Smart Cruise Control) | `selfdrive/controls/radard.py`, `sunnypilot/selfdrive/controls/lib/fm_radar.py`, `sunnypilot/system/params_migration.py` | 50% each on a fresh install |
@@ -69,7 +74,9 @@ to sunnypilot's v25 model list; in git history before that date).
 
 ## Credits
 
-- **Lane Guard** and its Rivian tune: gerrylum's rx-wb fork, commit `17ea338` (MIT).
+- **Lane Guard** and its Rivian tune: gerrylum's rx-wb fork, commit `17ea338` (MIT). Settle After Turn's Early Right Push
+  calls its road-edge math (`get_lane_guard_curvature`, Rivian half width 1.007 m, edge margin 0.15 m) for its curb guard,
+  against the right road edge only and without Lane Guard's own gates.
 - **Rear-axle off-tracking compensation**: gerrylum's rx-wb fork, commit `ce7e5c8` (MIT). AdventurePilot `dev` has since
   added its own version from the same work (`0d85a260b`); the two will be merged at the next sync.
 - **Gas Override Boost**: openpilot #39015 (Harald Schäfer), via sunnypilot master (MIT). Upstream AdventurePilot now
@@ -84,6 +91,8 @@ to sunnypilot's v25 model list; in git history before that date).
 - **Blendful**: sunnypilot #2073, commit `97135965e` (Oct 29, 2026; Blendful math by James Vecellio-Grant /
   Discountchubbs, with royjr, rav4kumar, nayan8teen and Jason Wen; MIT), `blendful.py` and its tests unchanged. FM Pilot
   changes: switched by `FM_LaneKeepMode` instead of its own toggle, and only the blue center line is drawn on screen.
+  Settle After Turn's Early Right Push yields to the model going around something with Blendful's going-around thresholds
+  and hysteresis (0.2 / 0.45 m, back under 0.1 m), measured from the truck instead of its usual spot in the lane.
 - **Accel Boost bar**: sunnypilot #2090 (rav4kumar and Jason Wen, Nov 4, 2026; MIT; open there). FM Pilot changes: Gas,
   Predictive and Set Speed, reads the logged boost, own setting. In Set Speed mode a "cruise" plan source still fills
   the bar, since Set Speed lifts the model exactly to the cruise ramp and the planner's min() reports that tie as cruise.

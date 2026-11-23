@@ -1,6 +1,6 @@
 # FM Pilot: handoff for new chats (short)
 
-State as of Nov 23, 2026 (three builds planned: **Build A Lead readout built** on `fm-dev-nav` (Top Readout option Lead, not driven); Build B lead sensitivity implemented on `fm-dev-nav-lead`, requested replay pending, and Settle After Turn early right push planned, item 0v; Radar Lead Status log + Radar Badge built on `fm-dev-nav`, badge off, item 0u; Nov 20 drive `000000af` turn analysis and five off-by-default fixes built, item 0t; Lateral Smoothing (Big Models) on `fm-dev-nav`, off, item 0s; Jetlink Status log, item 0r; Calmer Straight Pull-Away for Cheddar's pull-away jerk, item 0q; Nav Assist on `fm-dev-nav`: map logging, Map Turn Desire, Nav Turn Speed, Download Nav Map and the Top Readout CPU option, all off or as before, none on the truck yet, item 0o; code review of everything above AdventurePilot: fixes on `fm-dev-max2`, item 0p; comm warnings traced to hardwared stalls, stall diagnostics built, item 0n; Nov 13: drive `00000073` analyzed, item 0l; Turn Assist logging + fixes A/B/C built, item 0m). This is the current state only. Background findings, past drive analyses and
+State as of Nov 23, 2026 (three builds planned: **Build A Lead readout built** on `fm-dev-nav` (Top Readout option Lead, not driven); Build B lead sensitivity implemented on `fm-dev-nav-lead`, requested replay pending, and **Build C Settle After Turn Early Right Push built** on `fm-dev-nav-settle` (off, provisional values, `000000af` replay owed before driving), item 0v; Radar Lead Status log + Radar Badge built on `fm-dev-nav`, badge off, item 0u; Nov 20 drive `000000af` turn analysis and five off-by-default fixes built, item 0t; Lateral Smoothing (Big Models) on `fm-dev-nav`, off, item 0s; Jetlink Status log, item 0r; Calmer Straight Pull-Away for Cheddar's pull-away jerk, item 0q; Nav Assist on `fm-dev-nav`: map logging, Map Turn Desire, Nav Turn Speed, Download Nav Map and the Top Readout CPU option, all off or as before, none on the truck yet, item 0o; code review of everything above AdventurePilot: fixes on `fm-dev-max2`, item 0p; comm warnings traced to hardwared stalls, stall diagnostics built, item 0n; Nov 13: drive `00000073` analyzed, item 0l; Turn Assist logging + fixes A/B/C built, item 0m). This is the current state only. Background findings, past drive analyses and
 the ideas backlog are in `claude/FM_PILOT_FINDINGS.md`: read it only when a task needs that history. Features, settings
 and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 
@@ -13,6 +13,8 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
   **No more AP syncs**; borrow single pieces only if wanted.
   **Newest: `fm-dev-nav`** (Nov 17) = `fm-dev-max2` `196f750` + Nav Assist (item 0o) + Calmer Straight Pull-Away (item 0q, code `ce8ddd4`), all off by default;
   plus (Nov 20, item 0t) Hold Ignores Crawl Spikes, Stop Before Turning Starts Over, Turn Lead Yields, Queue Guard, Settle After Turn, all off.
+  **Nov 23 build branches (item 0v), not merged into `fm-dev-nav`:** `fm-dev-nav-lead` = `fm-dev-nav` `69e7395` + Build B
+  (`a5f04fb`); `fm-dev-nav-settle` = `fm-dev-nav-lead` `a5f04fb` + Build C (carries A, B and C).
   `fm-dev-max2` (Nov 16) = `fm-dev-jet` `b627e6a` + the code-review fixes (item 0p), code at `040bef2`. `fm-dev-jet`
   stays at `b627e6a` as the fallback.
 - **Keeping this file current:** whenever this handoff is updated, also write the updated copy into the Project with
@@ -78,7 +80,7 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 
 ## Active work
 
-### 0v. Nov 23 builds: A on fm-dev-nav, B on fm-dev-nav-lead, C planned
+### 0v. Nov 23 builds: A on fm-dev-nav, B on fm-dev-nav-lead, C on fm-dev-nav-settle (all off, none driven)
 
 Full spec: `FM_PILOT_BUILD_NOTE_2026-11-23.md` at the repo root (project copy: `claude/FM_PILOT_BUILD_NOTE_2026-11-23.md`). Base `fm-dev-nav` @ `8f00a93`.
 
@@ -121,11 +123,65 @@ Full spec: `FM_PILOT_BUILD_NOTE_2026-11-23.md` at the repo root (project copy: `
   The largest leadOne gap step was 6.51 m with smoothing off and 6.84 m on. Three extra leadTwo frames appeared in
   segment 0 at a 40% camera cutoff. These segments had no active longitudinal control. The required
   `000000a8--df5d2d0570--16` rlog was unavailable, so Build B remains pending the ramp replay and the braking-timing check.
-- **C. Settle After Turn right push:** start when the truck straightens (not only at desire end), floor ~2-3 mph,
-  low-speed cap by lateral accel, capped ~0.5 m right push when no center is visible, stop at center, curb guard and
-  push-back inside Settle (Lane Guard math, credit gerrylum), yield when the model plan swings away from the right
-  (Blendful going-around, credit sunnypilot), hands win, new logging. Replay on `000000af` all 8 turns vs current Settle;
-  Turns 2 and 4 must not be pushed toward the curb.
+- **C built on `fm-dev-nav-settle`** (Nov 23), branched off `fm-dev-nav-lead` `a5f04fb` (remote heads checked first:
+  `fm-dev-nav` `69e7395`, `fm-dev-nav-lead` `a5f04fb`), so it carries A, B and C. B's code (radard, `fm_radar.py`,
+  `fm_lead_handoff.py`, `FmRadarLead`) untouched. `fc1c2bd` **Settle After Turn: Early Right Push**
+  (`FM_TurnSettleEarlyPush`, Turn Tweaks, under Settle After Turn, needs it, **off**); `2e721f7` `tools/fm/settle.py`.
+  Not merged into `fm-dev-nav` or `fm-dev-nav-lead`.
+- **C design (items 1-10 of the note), `modeld_v2/fm_turn_settle.py` `_update_early`; the old path is `_update_classic`, unchanged:**
+  (1) starts once the wheel's curvature is under 30% of the turn's tightest and under 0.02 1/m for 0.3 s and the plan bends
+  at most 0.5 m toward the turn 10 m ahead (45 deg minimum kept; desire end still starts it; a desire still on from that
+  turn doesn't end the window, a new/flipped desire does). (2) 3-30 mph. (3) cap `low_speed_cap(v)` = 0.1 m/s² / v²,
+  clipped to 0.004..0.01 1/m (the old 0.004 above ~11 mph). (4) no 30% line: blind push right after both turn directions,
+  aimed at a point 0.4 m right like the centering aims at a lane center (gain 0.6, 1.5 s / 10 m look-ahead, so it eases
+  off as the truck heads there), right only; distance from the truck's own motion (controlsState curvature x speed)
+  against the road's direction (wheel heading pulled toward the plan's direction 20 m / 3 s ahead with a 1.5 s filter,
+  at most 2.9 deg per reading). (5) a line showing offset <= 0.25 m (centered or right) ends the push for the turn.
+  (6) center seen: classic centering math (left turns never left) with the new cap; Blendful trust 0.5 ends it.
+  (7) sure right edge (std <= 0.5): push error limited to edge - 1.4 m; `curb_guard` = `lane_guard.get_lane_guard_curvature`
+  (Rivian tune) on the plan bent by Settle's own curvature, right edge only, no Lane Guard gates; push-back builds at Lane
+  Guard's 0.8 m/s³. (8) yield: `away` = plan's left heading at the look-ahead beyond the truck-vs-road heading, minus a
+  quarter of the model curve; Blendful's 0.2 / 0.45 m with hysteresis (on 0.2, off 0.1); scales the rightward target
+  (held, not ended). (9) a press zeroes it and ends the window. (10) `modelDataV2SP` @15 `fmTurnSettlePush` (m, most
+  reached), @16 `fmTurnSettleLimit` (none/cap/center/curb/goingAround/hands/blendful/timeout/speed/other), @17
+  `fmTurnSettlePhase` (idle/push/centering/handedOff), @18 `fmTurnSettleGuard` (1/m). Switching the option while driving
+  ends the window and fades at the usual rate.
+- **C values, all PROVISIONAL (in the code, `FM_PILOT.md` and here; no replay):** floor **3 mph** (top of his 2-3 mph range:
+  Turn Hold's crawl-speed spikes on `000000af` T5 were at 1.9-4 mph, and under 3 mph a turn exit covers little ground in 6 s
+  anyway); low-speed cap **0.1 m/s²** (gentler than the 0.18 the old cap gives at 15 mph; meets the old 0.004 at ~11 mph;
+  0.01 1/m ceiling below ~7 mph; about 2x the old cap at 8 mph); push **0.4 m** (a 2.01 m truck centered in a 3.3 m lane has
+  0.65 m each side: 0.25 m left to the right line, and the sim showed the truck coasting up to ~0.13 m further while the
+  model straightens it after the push lets go, so ~0.5 m worst case).
+- **C checks (no `000000af` logs this session, so no replay):** `test_fm_turn_settle_early.py` (95) + the old settle tests
+  (21) pass. **Off = identical:** a frozen copy of the a5f04fb module (`tests/fm_turn_settle_baseline.py`) vs the new one on
+  the same random inputs, 40 x 3000 frames through `update` and 10 x 2000 through `settle_from_model`: bit-identical output
+  and state; off logs nothing new. **Synthetic turns** (closed-loop sim in the test: turn with the desire on, unwind, a model
+  that only lines the heading up with the road, 0.3 s steering lag): left and right turns with no line stop at the 0.4 m cap
+  (truck moved 0.46-0.53 m with a model straightening over ~40 m); against models straightening over 10-40 m at 9 and 22 mph
+  the truck moved 0.17-0.52 m, only ever pushed right; turn ending centered or 0.2/0.5 m right with a 35% line: never pushed
+  right (limit center); line seen 1 s late saying centered: push ends, <0.15 m moved; sure curb 1.6 m: push stops 1.4 m off;
+  curb 1.05 m: steers back left (also at 2.5 m/s, any lane keep mode); plan swinging 0.6 m left: holds, resumes after (0.1 m
+  swing ignored); hand press: 0 at once, window over; 3-25 mph: never over the cap (0.1 m/s² below ~11 mph); under 3 mph
+  waits; push > centering > handedOff > idle; starts while a late blinker is still on (classic waits). Sunnypilot +
+  controls + modeld + UI suites 1604 pass with only the known failures (onnx hash, locationd gps, curve-speed collection);
+  B's lead/radar tests 84 pass; modeld_v2 + Sunnylink 382; tools 74 (+3). Ruff clean; Sunnylink compiled, validator 10/10.
+- **What the sim found and changed in C before commit:** measuring "how far right" from the heading at the window start
+  drifted ~2.5 cm per meter when the truck was 1.4 deg off the road (ended the push after 0.08 m of real movement), and the
+  yield read the model's plan pointing back along the road (after the push angled the truck) as going around a car; both now
+  use the road direction above. The wheel curvature is read a frame late, so the push's own measure can read a few cm high
+  (stops early: the safe side).
+- **C owed before Frankie drives it:** open-loop replay of all 8 turns on `000000af--565e9cd6b0` (Nov 20, Cheddar;
+  segments --0..--4, --8 were attachments) with Settle After Turn on, Early Right Push off (baseline) vs on, scripts in
+  project doc `claude/turn_replay_scripts.md` (feed `settle_from_model(..., early, model_curvature)`): each turn's exit speed;
+  Turns 2 and 4 not pushed toward the curb; how often each limit fired (`fmTurnSettleLimit` / `tools/fm/settle.py`; if the
+  0.4 m cap does most of the stopping, the curb guard rarely sees anything in time and the cap should shrink); then set
+  the provisional values from it. **Not verified at all:** closed-loop truck response (the sim's model is made up: how hard
+  the real models pull the heading back after a push is unknown, and it sets how far the truck really moves), on-device look
+  of the new Sunnylink row, the on-device build (cereal changed). The sim also showed a good turn can be pushed until the
+  first 30% line appears (e.g. ~0.1 m in the first second): watch Turns 2/4 in the replay.
+- **Merging (later, by hand):** C's capnp fields are in `ModelDataV2SP` @15-@18 (B's are in `FmRadarLead`, no collision);
+  `params_keys.h` adds `FM_TurnSettleEarlyPush` next to `FM_TurnSettle`; Sunnylink YAML `steering.yaml` (B: `cruise.yaml`),
+  recompile JSON after merging; `FM_PILOT.md` and this item.
 
 ### 0u. Radar Lead Status log (`fmRadarLead`) and Radar Badge (Nov 20 evening), built, badge OFF, not driven
 
@@ -933,6 +989,10 @@ From `0000005e--e26703ace2--2` (Nov 9 build, Cheddar, Road Edge Turn Desire on):
 000000000. Item 0v A: update the comma (`fm-dev-nav`, on-device build: cereal changed), Top Readout = Lead, normal
    drive with 40% + guard; photo of the readout (purple/cyan number, X) and rlogs (`fmRadarLead.earlyRadarMatches`).
    Then Builds B and C (separate agents, own branches).
+00000000a. Item 0v C (`fm-dev-nav-settle`): first the owed `000000af` replay (all 8 turns, Early Right Push off vs on;
+   exit speeds, Turns 2/4 not pushed toward the curb, limit counts); set the provisional 3 mph / 0.1 m/s² / 0.4 m from it.
+   Only then a drive: Settle After Turn + Early Right Push on, other turn options as on `000000af`, the same turns; send
+   rlogs (`tools/fm/settle.py`, `turns.py`). On-device build needed (cereal changed).
 00000000. Item 0u: update the comma (`fm-dev-nav`, on-device build: cereal changed), turn on Radar Badge, drive a ramp or
    curve with guardrails and a car ahead, engaged and off the pedals; send rlogs (`fmRadarLead.ghostDropped`) and a photo.
 0000000. Item 0t: update the comma (`fm-dev-nav`, on-device build: cereal changed), then a drive with Hold Ignores Crawl Spikes,
