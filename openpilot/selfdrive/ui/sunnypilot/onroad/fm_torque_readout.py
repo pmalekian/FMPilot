@@ -22,11 +22,25 @@ FM_TopReadout picks what the line shows: 0 Off, 1 Torque (above, default), 2 CPU
 
 Core 4 is where card, controlsd and selfdrived run; "A" is the average of the other cores, "B" the busiest of them, and
 the temperature is the hottest CPU sensor (deviceState, 2 Hz). Amber when core 4 is at 95% or more.
+
+4 Lead: what radard is doing with the lead (fmRadarLead, 20 Hz), no labels:
+
+  18% – E0 G0     38% C E0 G0     40% R E1 G0     87% R E1 G0     74% X E1 G1
+
+- number: the camera's live lead confidence (fmRadarLead.liveLeadProb: modelV2.leadsV3[0].prob through radard's own
+  asymmetric filter, so it is the value radard compared with Lead Detection Sensitivity). Gray: no lead counted (below
+  the cutoff), and the low-speed radar path; cyan: camera-only lead under 50%; purple: radar-matched lead under 50%;
+  white: any lead at 50% or more.
+- letter: R radar-matched, C camera-only, X Ignore Stationary Radar Ghosts dropped a standing-still point (flashes red
+  for about 2 s), – no lead.
+- E: radar matches made this drive while the camera was under 50% sure (counted in radard, once per run).
+- G: the guard's ghost drops this drive (fmRadarLead.ghostDrops).
 """
+import math
 from dataclasses import dataclass
 
 AT_CAP_FRAC = 0.95
-READOUT_OFF, READOUT_TORQUE, READOUT_CPU_AVG, READOUT_CPU_BUSIEST = 0, 1, 2, 3
+READOUT_OFF, READOUT_TORQUE, READOUT_CPU_AVG, READOUT_CPU_BUSIEST, READOUT_LEAD = 0, 1, 2, 3, 4
 CONTROL_CORE = 4
 CORE_BUSY = 95
 TURN_NOTICE_TYPES = ("laneTurnLeft/warning", "laneTurnRight/warning")
@@ -64,7 +78,7 @@ def parse_readout_mode(value) -> int:
     mode = int(value)
   except (TypeError, ValueError):
     return READOUT_TORQUE
-  return mode if mode in (READOUT_OFF, READOUT_TORQUE, READOUT_CPU_AVG, READOUT_CPU_BUSIEST) else READOUT_TORQUE
+  return mode if mode in (READOUT_OFF, READOUT_TORQUE, READOUT_CPU_AVG, READOUT_CPU_BUSIEST, READOUT_LEAD) else READOUT_TORQUE
 
 
 def make_cpu_readout(mode: int, cpu_usage, cpu_temps, max_temp: float) -> tuple[str, bool] | None:
@@ -82,3 +96,72 @@ def make_cpu_readout(mode: int, cpu_usage, cpu_temps, max_temp: float) -> tuple[
   temp_txt = f"{round(temp)}°C" if temp > 0 else "--°C"
   core = usage[CONTROL_CORE]
   return f"{CONTROL_CORE}: {core}% / {other} / {temp_txt}", core >= CORE_BUSY
+
+
+# --- Lead (FM_TopReadout 4) ---
+
+LEAD_SOURCE_NONE, LEAD_SOURCE_RADAR, LEAD_SOURCE_CAMERA = 0, 1, 2  # custom.FmRadarLead.Source
+LEAD_SURE_PROB = 0.5     # white from 50%
+GHOST_FLASH_S = 2.0      # how long X stays after the guard's last drop
+GHOST_BLINK_S = 0.25     # X on / dim for this long each
+
+
+@dataclass(frozen=True)
+class LeadReadout:
+  prob: str        # "40%"
+  prob_color: str  # 'gray' | 'cyan' | 'purple' | 'white'
+  letter: str      # 'R' | 'C' | 'X' | '–'
+  letter_color: str  # 'white' | 'gray' | 'red' | 'red_dim' (X between flashes)
+  counts: str      # "E1 G0"
+
+  @property
+  def text(self) -> str:
+    return f"{self.prob} {self.letter} {self.counts}"
+
+
+def lead_prob_color(prob: float, source: int, low_speed: bool) -> str:
+  if source == LEAD_SOURCE_NONE or low_speed:
+    return 'gray'
+  if prob >= LEAD_SURE_PROB:
+    return 'white'
+  if source == LEAD_SOURCE_RADAR:
+    return 'purple'
+  if source == LEAD_SOURCE_CAMERA:
+    return 'cyan'
+  return 'gray'
+
+
+def lead_prob_text(prob: float) -> str:
+  if not math.isfinite(prob):
+    return "--%"
+  # floored, so a lead shown under 50% is never labelled "50%" (white starts at exactly 50%)
+  return f"{math.floor(min(max(prob, 0.0), 1.0) * 100 + 1e-6)}%"
+
+
+class LeadReadoutState:
+  """Builds the Lead readout from fmRadarLead frame by frame; keeps the X flash going ~2 s after the guard's last drop,
+  including a drop the UI missed between frames (ghostDrops went up). Pure logic, no drawing (tested on its own)."""
+
+  def __init__(self):
+    self.ghost_until = -math.inf
+    self._ghost_drops: int | None = None
+
+  def update(self, now: float, live_prob: float, source: int, low_speed: bool, ghost_dropped: bool, ghost_drops: int,
+             early_matches: int) -> LeadReadout:
+    new_drop = self._ghost_drops is not None and ghost_drops > self._ghost_drops
+    self._ghost_drops = ghost_drops  # a lower count is a new drive: no flash
+    if ghost_dropped or new_drop:
+      self.ghost_until = now + GHOST_FLASH_S
+
+    if now < self.ghost_until:
+      letter = 'X'
+      since = now - (self.ghost_until - GHOST_FLASH_S)  # time since the last drop
+      letter_color = 'red' if int(since / GHOST_BLINK_S) % 2 == 0 else 'red_dim'
+    elif source == LEAD_SOURCE_RADAR:
+      letter, letter_color = 'R', 'white'
+    elif source == LEAD_SOURCE_CAMERA:
+      letter, letter_color = 'C', 'white'
+    else:
+      letter, letter_color = '–', 'gray'
+    return LeadReadout(lead_prob_text(live_prob), lead_prob_color(live_prob, source, low_speed), letter, letter_color,
+                       f"E{int(early_matches)} G{int(ghost_drops)}")

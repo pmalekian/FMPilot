@@ -2809,7 +2809,7 @@
               "key": "FM_TopReadout",
               "widget": "option",
               "title": "FM Pilot: Top Readout",
-              "description": "The line at the top center of the comma 4 road view. Torque: sent / limit now / Max Torque and whether the steering is taking it. CPU (Avg): core 4 (where the control loops run) / average of the other cores / hottest CPU temperature, like \"4: 99% / A: 68% / 68\u00b0C\". CPU (Busiest): the same with the busiest other core, \"B: 74%\". Core 4 turns amber at 95%.",
+              "description": "The line at the top center of the comma 4 road view. Torque: sent / limit now / Max Torque and whether the steering is taking it. CPU (Avg): core 4 (where the control loops run) / average of the other cores / hottest CPU temperature, like \"4: 99% / A: 68% / 68\u00b0C\". CPU (Busiest): the same with the busiest other core, \"B: 74%\". Core 4 turns amber at 95%. Lead: \"40% R E1 G0\" = how sure the camera is that a car is ahead (gray: not counted as a lead; cyan: camera-only under 50%; purple: radar-matched under 50%; white: 50% or more), where the lead comes from (R radar, C camera only, X a radar ghost was just ignored (flashes red), \u2013 none), E = radar matches made under 50% this drive, G = radar ghosts ignored this drive.",
               "options": [
                 {
                   "value": 0,
@@ -2826,6 +2826,10 @@
                 {
                   "value": 3,
                   "label": "CPU (Busiest)"
+                },
+                {
+                  "value": 4,
+                  "label": "Lead"
                 }
               ]
             },

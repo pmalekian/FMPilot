@@ -10,8 +10,9 @@ from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.system.ui.widgets import Widget
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.cereal import log
-from openpilot.selfdrive.ui.sunnypilot.onroad.fm_torque_readout import (READOUT_CPU_AVG, READOUT_CPU_BUSIEST, READOUT_OFF,
-                                                                      TURN_NOTICE_TYPES, make_cpu_readout, make_readout)
+from openpilot.selfdrive.ui.sunnypilot.onroad.fm_torque_readout import (READOUT_CPU_AVG, READOUT_CPU_BUSIEST, READOUT_LEAD,
+                                                                      READOUT_OFF, TURN_NOTICE_TYPES, LeadReadoutState,
+                                                                      make_cpu_readout, make_readout)
 from openpilot.selfdrive.ui.sunnypilot.onroad import fm_jetlink_icon
 
 EventName = log.OnroadEvent.EventName
@@ -108,6 +109,14 @@ FM_READOUT_COLORS = {
   'off': rl.Color(160, 160, 160, 200),
 }
 FM_CHECK_COLOR = rl.Color(70, 220, 90, 255)
+FM_LEAD_COLORS = {  # Lead readout (fm_torque_readout.py)
+  'white': rl.Color(255, 255, 255, 230),
+  'gray': rl.Color(160, 160, 160, 220),
+  'cyan': rl.Color(110, 225, 255, 255),    # light cyan: camera-only lead under 50%
+  'purple': rl.Color(205, 170, 255, 255),  # light lavender: radar-matched lead under 50%
+  'red': rl.Color(255, 64, 64, 255),       # X: ghost dropped
+  'red_dim': rl.Color(255, 64, 64, 70),
+}
 
 
 class HudRenderer(Widget):
@@ -146,6 +155,7 @@ class HudRenderer(Widget):
 
     self._fm_readout = None
     self._fm_readout_time = 0.0
+    self._fm_lead_readout = LeadReadoutState()
 
     self._set_speed_alpha_filter = FirstOrderFilter(0.0, 0.1, 1 / gui_app.target_fps)
     self._chestnut_alpha_filter = FirstOrderFilter(0.0, 0.1, 1 / gui_app.target_fps)
@@ -220,6 +230,9 @@ class HudRenderer(Widget):
     if mode in (READOUT_CPU_AVG, READOUT_CPU_BUSIEST):
       self._draw_fm_cpu_readout(rect, mode, turn_notice)
       return
+    if mode == READOUT_LEAD:
+      self._draw_fm_lead_readout(rect, turn_notice)
+      return
     if sm.recv_frame['carOutput'] < ui_state.started_frame:
       return
     now = rl.get_time()
@@ -283,6 +296,30 @@ class HudRenderer(Widget):
     y = rect.y + 16 + (FM_TURN_NOTICE_OFFSET if turn_notice else 0)
     rl.draw_rectangle_rounded(rl.Rectangle(x - 12, y - 4, size.x + 24, size.y + 8), 0.4, 8, rl.Color(0, 0, 0, 110))
     rl.draw_text_ex(self._font_semi_bold, text, rl.Vector2(x, y), font_size, 0, color)
+
+  def _draw_fm_lead_readout(self, rect: rl.Rectangle, turn_notice: bool) -> None:
+    """FM Pilot: lead confidence / source / early radar matches / ghost drops, same place and style as the torque
+    readout (fm_torque_readout.py). Drawn engaged or not: radard runs either way."""
+    sm = ui_state.sm
+    if not sm.seen['fmRadarLead'] or sm.recv_frame['fmRadarLead'] < ui_state.started_frame:
+      self._fm_lead_readout = LeadReadoutState()
+      return
+    lead = sm['fmRadarLead']
+    r = self._fm_lead_readout.update(rl.get_time(), float(lead.liveLeadProb), int(lead.source.raw), bool(lead.lowSpeedLead),
+                                     bool(lead.ghostDropped), int(lead.ghostDrops), int(lead.earlyRadarMatches))
+    font_size = FONT_SIZES.max_speed
+    parts = [(r.prob, FM_LEAD_COLORS[r.prob_color]), (r.letter, FM_LEAD_COLORS[r.letter_color]),
+             (r.counts, FM_LEAD_COLORS['white'])]
+    space = measure_text_cached(self._font_semi_bold, " ", font_size).x
+    sizes = [measure_text_cached(self._font_semi_bold, t, font_size) for t, _ in parts]
+    total = sum(sz.x for sz in sizes) + space * (len(parts) - 1)
+    height = max(sz.y for sz in sizes)
+    x = rect.x + rect.width / 2 - total / 2
+    y = rect.y + 16 + (FM_TURN_NOTICE_OFFSET if turn_notice else 0)
+    rl.draw_rectangle_rounded(rl.Rectangle(x - 12, y - 4, total + 24, height + 8), 0.4, 8, rl.Color(0, 0, 0, 110))
+    for (text, color), sz in zip(parts, sizes, strict=True):
+      rl.draw_text_ex(self._font_semi_bold, text, rl.Vector2(x, y), font_size, 0, color)
+      x += sz.x + space
 
   def _draw_model_source(self, rect: rl.Rectangle) -> None:
     if ui_state.sm.recv_frame['selfdriveState'] < ui_state.started_frame:
