@@ -787,6 +787,20 @@ sections:
       turn it only moves away from the center line, never toward it. Road edges only keep it from aiming too close to
       the curb. It lets go as soon as Blendful takes over, you steer, a new blinker or lane change starts, or you pass
       30 mph. Works with any model, the same way Blendful does. Off by default.
+  - key: FM_TurnSettleEarlyPush
+    widget: toggle
+    title: 'Settle After Turn: Early Right Push'
+    description: Needs Settle After Turn. Starts as soon as the truck straightens out of the turn (not only when the
+      blinker goes off), from 3 mph. If no lane line can be seen yet, it eases the truck to the right, at most 0.4 m (about
+      16 inches), after left and right turns alike, because oncoming traffic is always on the left. It stops when a line
+      shows you are centered or right of center (then it centers as Settle After Turn does), 1.4 m from a sure curb (and
+      steers back left if the path gets too close to it), and holds when the model steers left around something such as a
+      parked car. Your steering cancels it at once. Gentle at low speed. The 3 mph, 0.4 m and strength values are
+      provisional, not yet checked on a recorded drive. Off by default.
+    enablement:
+    - type: param
+      key: FM_TurnSettle
+      equals: true
   - key: FM_TurnPathMinRadius
     widget: option
     title: Turn Path Tightest Radius

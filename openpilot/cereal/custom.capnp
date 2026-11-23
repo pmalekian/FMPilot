@@ -587,6 +587,33 @@ struct ModelDataV2SP @0xa1680744031fdb2d {
   # FM Pilot: Settle After Turn: curvature it added (1/m, positive right) and the lane center minus the plan 6 m ahead (m)
   fmTurnSettle @13 :Float32;
   fmTurnSettleOffset @14 :Float32;
+  # FM Pilot: Settle After Turn > Early Right Push (FM_TurnSettleEarlyPush): how far right of where the window started
+  # the truck got (m, the most reached, from its own motion), what stopped or holds the push, the phase, and the curb
+  # push-back (1/m, negative = left). All 0 / none / idle with the option off.
+  fmTurnSettlePush @15 :Float32;
+  fmTurnSettleLimit @16 :FmSettleLimit;
+  fmTurnSettlePhase @17 :FmSettlePhase;
+  fmTurnSettleGuard @18 :Float32;
+
+  enum FmSettleLimit {
+    none @0;
+    cap @1;  # the push reached its distance (0.4 m)
+    center @2;  # a 30%+ line showed the truck centered or right of center
+    curb @3;  # a sure curb: 1.4 m from it, or the body within Lane Guard's margin (then it steers back left)
+    goingAround @4;  # the model's plan heads left (going around something): held
+    hands @5;  # you steered
+    blendful @6;  # Blendful took over (trust 0.5)
+    timeout @7;  # 6 s
+    speed @8;  # over 30 mph
+    other @9;  # lane change, openpilot not steering
+  }
+
+  enum FmSettlePhase {
+    idle @0;
+    push @1;  # no lane center seen: the blind push right
+    centering @2;  # a lane center is seen: Settle's centering
+    handedOff @3;  # Blendful took over; fading out
+  }
 
   enum TurnDirection {
     none @0;
