@@ -1,6 +1,6 @@
 # FM Pilot: handoff for new chats (short)
 
-State as of Nov 23, 2026 (three builds planned, nothing built: Lead readout, lead sensitivity two sliders + smooth handoffs + shadow mode, Settle After Turn early right push, item 0v; Radar Lead Status log + Radar Badge built on `fm-dev-nav`, badge off, item 0u; Nov 20 drive `000000af` turn analysis and five off-by-default fixes built, item 0t; Lateral Smoothing (Big Models) on `fm-dev-nav`, off, item 0s; Jetlink Status log, item 0r; Calmer Straight Pull-Away for Cheddar's pull-away jerk, item 0q; Nav Assist on `fm-dev-nav`: map logging, Map Turn Desire, Nav Turn Speed, Download Nav Map and the Top Readout CPU option, all off or as before, none on the truck yet, item 0o; code review of everything above AdventurePilot: fixes on `fm-dev-max2`, item 0p; comm warnings traced to hardwared stalls, stall diagnostics built, item 0n; Nov 13: drive `00000073` analyzed, item 0l; Turn Assist logging + fixes A/B/C built, item 0m). This is the current state only. Background findings, past drive analyses and
+State as of Nov 23, 2026 (three builds planned: **Build A Lead readout built** on `fm-dev-nav` (Top Readout option Lead, not driven); lead sensitivity two sliders + smooth handoffs + shadow mode and Settle After Turn early right push not built, item 0v; Radar Lead Status log + Radar Badge built on `fm-dev-nav`, badge off, item 0u; Nov 20 drive `000000af` turn analysis and five off-by-default fixes built, item 0t; Lateral Smoothing (Big Models) on `fm-dev-nav`, off, item 0s; Jetlink Status log, item 0r; Calmer Straight Pull-Away for Cheddar's pull-away jerk, item 0q; Nav Assist on `fm-dev-nav`: map logging, Map Turn Desire, Nav Turn Speed, Download Nav Map and the Top Readout CPU option, all off or as before, none on the truck yet, item 0o; code review of everything above AdventurePilot: fixes on `fm-dev-max2`, item 0p; comm warnings traced to hardwared stalls, stall diagnostics built, item 0n; Nov 13: drive `00000073` analyzed, item 0l; Turn Assist logging + fixes A/B/C built, item 0m). This is the current state only. Background findings, past drive analyses and
 the ideas backlog are in `claude/FM_PILOT_FINDINGS.md`: read it only when a task needs that history. Features, settings
 and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 
@@ -78,7 +78,7 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 
 ## Active work
 
-### 0v. Three planned builds (Nov 23), decided with Frankie, NOTHING BUILT YET
+### 0v. Three planned builds (Nov 23), decided with Frankie: A built (not driven), B and C not built
 
 Full spec: `FM_PILOT_BUILD_NOTE_2026-11-23.md` at the repo root (project copy: `claude/FM_PILOT_BUILD_NOTE_2026-11-23.md`). Base `fm-dev-nav` @ `8f00a93`.
 
@@ -86,7 +86,18 @@ Full spec: `FM_PILOT_BUILD_NOTE_2026-11-23.md` at the repo root (project copy: `
   push) in parallel, each on its own branch off `fm-dev-nav` (e.g. `fm-dev-nav-lead`, `fm-dev-nav-settle`), merged one
   at a time; shared files (`custom.capnp`, `params_keys.h`, Sunnylink YAML/compiled JSON, `FM_PILOT.md`, handoff) are
   resolved by hand and Sunnylink recompiled after the second merge.
-- **A. Lead readout:** new `FM_TopReadout` option "Lead": `40% R E1 G0`. Number = live model lead confidence
+- **A built (Nov 23):** `a7ac523` radard: `fmRadarLead` gains `liveLeadProb` @11 (radard's filtered
+  `leadsV3[0].prob` every frame; the readout uses it, so the number is the value compared with the cutoff),
+  `lowSpeedLead` @12, `earlyRadarMatches` @13 (rising edge of radar-matched and under 50%, not the low-speed path).
+  **B and C: new `FmRadarLead` fields start at @14.** `08ef10b` `FM_TopReadout` 4 "Lead" (Torque still default):
+  `fm_torque_readout.LeadReadoutState` (pure logic) + `hud_renderer._draw_fm_lead_readout`; number floored (0.497 shows
+  49% purple, never "50%" in purple); X blinks red 0.25 s on/dim for 2 s after the last drop (or a `ghostDrops` rise the
+  UI missed); drawn engaged or not (the badge only draws engaged). Tests: radar +4, readout +8; sunnypilot + controls + UI +
+  modeld suites 1463 pass with only the known failures (onnx hash, locationd gps, curve-speed collection), tools 69; draw code run with raylib draw calls stubbed (colors/order right). Ruff clean, Sunnylink compiled,
+  validator 10/10. **Not seen on the device** (no raylib render off-device); needs the on-device build (cereal changed).
+  Test: Visuals > HUD Elements > FM Pilot: Top Readout = Lead; with his 40% + guard, watch for purple/cyan numbers and
+  E counting on approaches to traffic, X on ramps/curves by barriers.
+- **A. Lead readout (spec):** new `FM_TopReadout` option "Lead": `40% R E1 G0`. Number = live model lead confidence
   (`modelV2.leadsV3[0].prob`, not `fmRadarLead.leadProb`, which is 0 without a lead): gray not counted, cyan camera-only
   under 50%, purple radar-matched under 50%, white 50%+. Letter R / C / X (ghost dropped, red flash ~2 s) / `–`.
   E = radar matches while under 50% this drive (rising edge, radard counter); G = `ghostDrops`.
@@ -905,6 +916,9 @@ From `0000005e--e26703ace2--2` (Nov 9 build, Cheddar, Road Edge Turn Desire on):
 
 ## Next steps
 
+000000000. Item 0v A: update the comma (`fm-dev-nav`, on-device build: cereal changed), Top Readout = Lead, normal
+   drive with 40% + guard; photo of the readout (purple/cyan number, X) and rlogs (`fmRadarLead.earlyRadarMatches`).
+   Then Builds B and C (separate agents, own branches).
 00000000. Item 0u: update the comma (`fm-dev-nav`, on-device build: cereal changed), turn on Radar Badge, drive a ramp or
    curve with guardrails and a car ahead, engaged and off the pedals; send rlogs (`fmRadarLead.ghostDropped`) and a photo.
 0000000. Item 0t: update the comma (`fm-dev-nav`, on-device build: cereal changed), then a drive with Hold Ignores Crawl Spikes,

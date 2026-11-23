@@ -26,6 +26,10 @@ driving behavior is replayed offline against the last build before he drives it.
 
 ## Build A: Lead readout (new Top Readout option)
 
+**Status: built on `fm-dev-nav`** (`a7ac523` radard fields, `08ef10b` readout; not driven). It took `FmRadarLead` fields
+@11 `liveLeadProb`, @12 `lowSpeedLead`, @13 `earlyRadarMatches`: **Builds B and C start new `FmRadarLead` fields at @14**
+and branch off `fm-dev-nav` at or after the commit that added this line.
+
 **What:** a fourth option for `FM_TopReadout` (Visuals; today 0 Off, 1 Torque, 2 CPU Avg, 3 CPU Busiest; code in
 `openpilot/selfdrive/ui/sunnypilot/onroad/fm_torque_readout.py`). Label "Lead". Default unchanged (Torque).
 
