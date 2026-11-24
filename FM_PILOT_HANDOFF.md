@@ -1,6 +1,6 @@
 # FM Pilot: handoff for new chats (short)
 
-State as of Nov 23, 2026 (three builds planned: **Build A Lead readout built** on `fm-dev-nav` (Top Readout option Lead, not driven); Build B lead sensitivity implemented on `fm-dev-nav-lead`, requested replay pending, and **Build C Settle After Turn Early Right Push built** on `fm-dev-nav-settle` (off, provisional values, `000000af` replay owed before driving), item 0v; Radar Lead Status log + Radar Badge built on `fm-dev-nav`, badge off, item 0u; Nov 20 drive `000000af` turn analysis and five off-by-default fixes built, item 0t; Lateral Smoothing (Big Models) on `fm-dev-nav`, off, item 0s; Jetlink Status log, item 0r; Calmer Straight Pull-Away for Cheddar's pull-away jerk, item 0q; Nav Assist on `fm-dev-nav`: map logging, Map Turn Desire, Nav Turn Speed, Download Nav Map and the Top Readout CPU option, all off or as before, none on the truck yet, item 0o; code review of everything above AdventurePilot: fixes on `fm-dev-max2`, item 0p; comm warnings traced to hardwared stalls, stall diagnostics built, item 0n; Nov 13: drive `00000073` analyzed, item 0l; Turn Assist logging + fixes A/B/C built, item 0m). This is the current state only. Background findings, past drive analyses and
+State as of Nov 24, 2026 (**Blendful minimum speed 0.3 m/s on `fm-dev-nav-settle`**, item 0w, not driven; three builds planned: **Build A Lead readout built** on `fm-dev-nav` (Top Readout option Lead, not driven); Build B lead sensitivity implemented on `fm-dev-nav-lead`, requested replay pending, and **Build C Settle After Turn Early Right Push built** on `fm-dev-nav-settle` (off, provisional values, `000000af` replay owed before driving), item 0v; Radar Lead Status log + Radar Badge built on `fm-dev-nav`, badge off, item 0u; Nov 20 drive `000000af` turn analysis and five off-by-default fixes built, item 0t; Lateral Smoothing (Big Models) on `fm-dev-nav`, off, item 0s; Jetlink Status log, item 0r; Calmer Straight Pull-Away for Cheddar's pull-away jerk, item 0q; Nav Assist on `fm-dev-nav`: map logging, Map Turn Desire, Nav Turn Speed, Download Nav Map and the Top Readout CPU option, all off or as before, none on the truck yet, item 0o; code review of everything above AdventurePilot: fixes on `fm-dev-max2`, item 0p; comm warnings traced to hardwared stalls, stall diagnostics built, item 0n; Nov 13: drive `00000073` analyzed, item 0l; Turn Assist logging + fixes A/B/C built, item 0m). This is the current state only. Background findings, past drive analyses and
 the ideas backlog are in `claude/FM_PILOT_FINDINGS.md`: read it only when a task needs that history. Features, settings
 and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 
@@ -86,6 +86,34 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
 - Custom splice model: **removed** Nov 8 (with the on-device compile fix and model check tools), for the v25 move.
 
 ## Active work
+
+### 0w. Blendful down to 0.3 m/s (Nov 24, his ask): `fm-dev-nav-settle` `a979d97`, NOT a setting, not driven
+
+- **Ask:** from a sunnypilot Discord screenshot (Fairy Tale v1.1 thread): Discountchubbs (Blendful's author) runs
+  Blendful's `MIN_SPEED` at 0.3 personally; says it can oscillate on some cars that low and that a fix is in progress.
+  Frankie: "do that for me for blendful in the settle branch".
+- **Built:** `sunnypilot/modeld_v2/blendful.py` `MIN_SPEED` 5.0 -> 0.3 m/s (was ~11 mph; the "12 mph" cutoff people see).
+  A constant, no setting: with `FM_LaneKeepMode` = Blendful (his daily mode) it now always centers in slow and
+  stop-and-go traffic on this branch. Other branches still have 5.0. Upstream (sunnypilot master/dev/staging, Nov 23):
+  still 5.0, no oscillation fix public yet (PRs searched: only #2073, #2081).
+- **Math at low speed (from the code):** below ~15 mph the look-ahead is pinned at `MIN_LOOKAHEAD` 10 m, so Blendful's
+  request for a given lane error is the same at 1 mph as at 11 mph. Synthetic check (noisy lane center 10 cm frame noise +
+  slow wander, probs ~0.7): curvature std 1.78e-3 / p2p 7.95e-3 1/m at every speed 0.5-5 m/s (identical), 1.18e-3 at
+  8 m/s. Wheel-angle equivalent (R1S 3.08 m, ratio 15.2) ~5 deg std at all those speeds. So any oscillation would come from
+  the truck's low-speed response (torque controller KP_INTERP ~30 at low speed, Calmer Low-Speed Correction 70%), not from
+  Blendful asking for more. Stopping fades the correction out over ~0.5 s (`smooth`), trust rebuilds over 1.5 s.
+- **Interactions:** Settle After Turn hands over at Blendful trust 0.5; now Blendful can reach that below 11 mph, so slow
+  turn exits hand over sooner (that was finding 0t-5's gap: "Blendful is off below 5 m/s"). Blendful stays off during any
+  desire (blinker turns, lane changes). No-blinker slow turns: lane-line probs are <0.1 mid-turn, so trust stays ~0.
+- **Tests:** upstream `test_fades_below_min_speed` now drives below the new cutoff (was 4.0 m/s); new
+  `test_works_in_slow_traffic` (1/2/4 m/s) and `test_stopping_resets_and_pulling_away_rebuilds`. modeld_v2 + tools +
+  Blendful renderer 384 pass; ruff clean. No YAML change.
+- **Not verified:** no rlogs in the session, so **no replay on real slow traffic**. Owed before relying on it: open-loop
+  replay of Blendful at 5.0 vs 0.3 on a stop-and-go segment (blendful inputs from `modelV2`; `laneLineStds` is one value
+  per line, so per-point stds are approximated) and `fm-dev-nav-settle` closed-loop behavior on the truck.
+- **What to watch on the truck:** in slow traffic, the wheel weaving left-right at 1-2 s periods (oscillation), or the
+  blue center line pulling when lines are hidden by the car ahead. Log fields: `modelDataV2SP.blendfulCurvature`,
+  `blendfulTrust`, with `carState.vEgo` < 5 m/s. Revert: set `MIN_SPEED` back to 5.0 (one line).
 
 ### 0v. Nov 23 builds: A on fm-dev-nav, B on fm-dev-nav-lead, C on fm-dev-nav-settle (all off, none driven)
 
@@ -995,6 +1023,9 @@ From `0000005e--e26703ace2--2` (Nov 9 build, Cheddar, Road Edge Turn Desire on):
 
 ## Next steps
 
+0000000000. Item 0w: send one rlog segment of slow / stop-and-go traffic (any branch, Blendful on) for the 5.0 vs 0.3
+   open-loop replay; then on `fm-dev-nav-settle` (on-device build: cereal changed by Build A/B/C) watch for weaving under
+   11 mph and send that rlog.
 000000000. Item 0v A: update the comma (`fm-dev-nav`, on-device build: cereal changed), Top Readout = Lead, normal
    drive with 40% + guard; photo of the readout (purple/cyan number, X) and rlogs (`fmRadarLead.earlyRadarMatches`).
    Then Builds B and C (separate agents, own branches).
