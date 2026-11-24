@@ -7,7 +7,8 @@ See the LICENSE.md file in the root directory for more details.
 FM Pilot: Blendful, ported unchanged from sunnypilot #2073 (commit 97135965e, Oct 29 2026; Blendful math by
 James Vecellio-Grant / Discountchubbs, with royjr, rav4kumar, nayan8teen and Jason Wen; MIT). FM Pilot turns it on
 through FM_LaneKeepMode (sunnypilot/selfdrive/controls/lib/fm_lane_keep_mode.py) instead of sunnypilot's Blendful
-toggle, so it never runs together with lane centering or Lane Guard.
+toggle, so it never runs together with lane centering or Lane Guard. One FM change to the math's inputs: MIN_SPEED 0.3 m/s
+instead of 5.0 (Nov 24 2026, the value Discountchubbs runs himself, per his Discord note in the Fairy Tale thread).
 """
 import numpy as np
 
@@ -19,7 +20,7 @@ LANE_WIDTH_DEFAULT = 3.6  # m
 LANE_WIDTH_CLIP = (2.8, 4.5)  # m
 LOOKAHEAD_TIME = 1.5  # s
 MIN_LOOKAHEAD = 10.0  # m
-MIN_SPEED = 5.0  # m/s
+MIN_SPEED = 0.3  # m/s; FM Pilot: was 5.0 (~11 mph). 0.3 is what Blendful's author (Discountchubbs) runs, so it works in slow traffic
 LINE_STD = (0.2, 0.6)
 POINT_STD = 0.1
 YIELD = (0.2, 0.45)
