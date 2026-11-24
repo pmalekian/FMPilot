@@ -15,12 +15,12 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
   plus (Nov 20, item 0t) Hold Ignores Crawl Spikes, Stop Before Turning Starts Over, Turn Lead Yields, Queue Guard, Settle After Turn, all off.
   **Nov 23 build branches (item 0v), not merged into `fm-dev-nav`:** `fm-dev-nav-lead` = `fm-dev-nav` `69e7395` + Build B
   (`a5f04fb`); `fm-dev-nav-settle` = `fm-dev-nav-lead` `a5f04fb` + Build C (carries A, B and C).
-  **AP demo branch (Nov 23): `ap-lead-sensitivity`** = AP `dev` `8e6082b` (copied unchanged as `ap-dev`) + Custom Lead
+  **AP demo branch (Nov 23): `fm-lead-sensitivity`** = AP `dev` `8e6082b` (copied unchanged as `ap-dev`) + Custom Lead
   Sensitivity (master toggle; Camera-only and Radar-matched Lead Confidence, default 50%), Smooth Lead Handoffs and Ignore
   Stationary Radar Ghosts (both off), plus `docs/concepts/lead-sensitivity.md`. Shows someone else exactly what merging these
   into AP looks like: neutral param names (no `FM_`), AP commit style with `Assisted-by: Claude`, no other FM features, no
   status log. Same lead logic as Build B (0 differences over 768k random decisions); diff at
-  `github.com/pmalekian/FMPilot/compare/ap-dev...ap-lead-sensitivity`. Not for daily driving; FM branches are unaffected.
+  `github.com/pmalekian/FMPilot/compare/ap-dev...fm-lead-sensitivity` (pull request: open one from this branch into `ap-dev`). Not for daily driving; FM branches are unaffected.
   `fm-dev-max2` (Nov 16) = `fm-dev-jet` `b627e6a` + the code-review fixes (item 0p), code at `040bef2`. `fm-dev-jet`
   stays at `b627e6a` as the fallback.
 - **Keeping this file current:** whenever this handoff is updated, also write the updated copy into the Project with
