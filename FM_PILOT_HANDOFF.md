@@ -15,12 +15,13 @@ and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
   plus (Nov 20, item 0t) Hold Ignores Crawl Spikes, Stop Before Turning Starts Over, Turn Lead Yields, Queue Guard, Settle After Turn, all off.
   **Nov 23 build branches (item 0v), not merged into `fm-dev-nav`:** `fm-dev-nav-lead` = `fm-dev-nav` `69e7395` + Build B
   (`a5f04fb`); `fm-dev-nav-settle` = `fm-dev-nav-lead` `a5f04fb` + Build C (carries A, B and C).
-  **AP demo branch (Nov 23): `fm-lead-sensitivity`** = AP `dev` `8e6082b` (copied unchanged as `ap-dev`) + Custom Lead
+  **AP demo branch (Nov 23): `fm-lead-sensitivity-v2`** (PR #4, replaces `fm-lead-sensitivity`/PR #3, which has the
+  cut-in fix as a fifth commit) = AP `dev` `8e6082b` (copied unchanged as `ap-dev`) + Custom Lead
   Sensitivity (master toggle; Camera-only and Radar-matched Lead Confidence, default 50%), Smooth Lead Handoffs and Ignore
   Stationary Radar Ghosts (both off), plus `docs/concepts/lead-sensitivity.md`. Shows someone else exactly what merging these
   into AP looks like: neutral param names (no `FM_`), AP commit style with `Assisted-by: Claude`, no other FM features, no
-  status log. Same lead logic as Build B (0 differences over 768k random decisions); diff at
-  `github.com/pmalekian/FMPilot/compare/ap-dev...fm-lead-sensitivity` (pull request: open one from this branch into `ap-dev`). Not for daily driving; FM branches are unaffected.
+  status log. Same lead logic as Build B (0 differences over 768k random decisions, before the cut-in fix, which is in
+  the Smooth Lead Handoffs commit and in `fm-dev-nav-settle` `f7a9cff`); PR #4 into `ap-dev`. Not for daily driving; FM branches are unaffected.
   `fm-dev-max2` (Nov 16) = `fm-dev-jet` `b627e6a` + the code-review fixes (item 0p), code at `040bef2`. `fm-dev-jet`
   stays at `b627e6a` as the fallback.
 - **Keeping this file current:** whenever this handoff is updated, also write the updated copy into the Project with
@@ -117,7 +118,9 @@ Full spec: `FM_PILOT_BUILD_NOTE_2026-11-23.md` at the repo root (project copy: `
   Any later changes to this struct must use unoccupied ordinals when branches are combined.
 - **B implementation:** Radar matching starts above the lower cutoff. Camera fallback requires its own cutoff. Both
   lead slots use strict greater-than comparisons, and leadOne keeps the low-speed override. With smoothing enabled,
-  radard prefers the previously matched radar track while it still fits, eases same-car releases over 0.75 s, and
+  radard prefers the previously matched radar track while it still fits (sideways, speed and, since `f7a9cff` on
+  `fm-dev-nav-settle`, distance: 4-10 m of the camera's car; before that a car cutting in 15-20 m closer at 80 m+ was
+  ignored until about 60 m, then the gap jumped; `fm-dev-nav-lead` still has the old check), eases same-car releases over 0.75 s, and
   predicts for up to 0.5 s on radar loss while the camera still supports an in-path lead. A five-point release margin
   only applies to the same car. Planner code is untouched.
 - **B validation:** `tools/fm/lead.py` supports recorded shadow reports and native open-loop replay of all eight
