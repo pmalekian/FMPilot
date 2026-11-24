@@ -19,6 +19,13 @@ reading as the same car when it is within 1.5 m sideways, 4 m/s in speed and 4-1
   (farther, faster, braking less) is eased in over 0.75 s. Bad news always applies at once.
 - Radar pairing stays on the point already being followed while it still fits the camera's car.
 
+Ignore Stationary Radar Ghosts stops radard pairing a clearly moving camera car with a radar point that is standing
+still. radard keeps a pairing whenever the point is within 5 m (or 25%) of the camera's distance and 10 m/s of its speed,
+so on ramps and curves a guardrail or barrier point (0 m/s) passes whenever the real car isn't a radar point, and the
+planner brakes for a "stopped car". With the guard on, a point moving under 1 m/s is not paired with a camera car moving
+over 5 m/s (11 mph) unless the camera sees that car braking harder than -1.5 m/s^2; radard then follows the camera's own
+estimate, if it clears the camera-only cutoff. The low-speed radar override is untouched.
+
 With Custom Lead Sensitivity off, radard runs its stock code and these settings are ignored. Everything is off, and
 both settings are at 50%, by default.
 
@@ -36,6 +43,7 @@ PARAM_ENABLED = "CustomLeadSensitivity"
 PARAM_CAMERA = "CameraLeadConfidence"
 PARAM_RADAR = "RadarLeadConfidence"
 PARAM_SMOOTH = "SmoothLeadHandoffs"
+PARAM_GHOSTS = "IgnoreStationaryRadarGhosts"
 
 DEFAULT_CONFIDENCE = 0.5  # stock radard's cutoff
 CONFIDENCE_LIMITS = (0.25, 0.5)
@@ -50,12 +58,18 @@ SAME_CAR_SPEED = 4.0  # m/s
 HOLD_PATH_MARGIN = 2.0  # m from the model's path to the camera's car
 DIRECT, BLEND, HOLD = range(3)
 
+# Ignore Stationary Radar Ghosts
+GHOST_TRACK_MAX_SPEED = 1.0  # m/s: the radar point is standing still
+GHOST_VISION_MIN_SPEED = 5.0  # m/s (11 mph): the camera's car is clearly moving
+GHOST_VISION_BRAKING = -1.5  # m/s^2: the camera's car braking harder than this keeps the radar point
+
 
 @dataclass(frozen=True)
 class LeadSensitivityConfig:
   camera: float = DEFAULT_CONFIDENCE
   radar: float = DEFAULT_CONFIDENCE
   smooth: bool = False
+  ignore_ghosts: bool = False
 
   @property
   def match(self) -> float:
@@ -102,12 +116,18 @@ class LeadSensitivitySettings:
       self.config = None
       return
     self.config = LeadSensitivityConfig(camera=self._confidence(PARAM_CAMERA), radar=self._confidence(PARAM_RADAR),
-                                        smooth=self._flag(PARAM_SMOOTH))
+                                        smooth=self._flag(PARAM_SMOOTH), ignore_ghosts=self._flag(PARAM_GHOSTS))
 
   def update(self):
     self.frame += 1
     if self.params is not None and self.frame % round(PARAMS_PERIOD / DT_MDL) == 0:
       self.read()
+
+
+def stationary_ghost(track_v_lead: float, vision_v: float, vision_a: float) -> bool:
+  """A standing-still radar point paired with a camera car that is clearly moving and not braking hard: they can't be
+  the same object."""
+  return abs(track_v_lead) < GHOST_TRACK_MAX_SPEED and vision_v > GHOST_VISION_MIN_SPEED and vision_a > GHOST_VISION_BRAKING
 
 
 def same_car_distance_margin(distance: float) -> float:

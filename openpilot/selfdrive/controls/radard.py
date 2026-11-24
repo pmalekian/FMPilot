@@ -17,7 +17,8 @@ from opendbc.car import structs
 from opendbc.car.hyundai.values import HyundaiFlags
 from opendbc.sunnypilot.car.hyundai.values import HyundaiFlagsSP
 from openpilot.sunnypilot.selfdrive.controls.lib.lead_sensitivity import (
-  RELEASE_MARGIN, LeadHandoff, LeadSensitivityConfig, LeadSensitivitySettings, camera_on_path, same_car, track_fits_camera,
+  RELEASE_MARGIN, LeadHandoff, LeadSensitivityConfig, LeadSensitivitySettings, camera_on_path, same_car, stationary_ghost,
+  track_fits_camera,
 )
 
 
@@ -194,7 +195,7 @@ def get_lead_custom(v_ego: float, ready: bool, tracks: dict[int, Track], lead_ms
                     config: LeadSensitivityConfig, low_speed_override: bool = True,
                     handoff: LeadHandoff | None = None, model_path=None) -> dict[str, Any]:
   # Custom Lead Sensitivity: get_lead with separate cutoffs for radar-matched and camera-only leads,
-  # and optionally Smooth Lead Handoffs
+  # and optionally Smooth Lead Handoffs and Ignore Stationary Radar Ghosts
   if handoff is not None:
     ready = ready and all(len(getattr(lead_msg, field)) for field in ('x', 'y', 'v', 'a', 'xStd', 'yStd', 'vStd'))
 
@@ -210,12 +211,16 @@ def get_lead_custom(v_ego: float, ready: bool, tracks: dict[int, Track], lead_ms
   release_margin = RELEASE_MARGIN if reference is not None else 0.0
 
   lead_dict = {'present': False}
+  ghost = False
   if len(tracks) > 0 and ready and lead_prob > config.match - release_margin:
     track = match_vision_to_track(v_ego, lead_msg, tracks, preferred)
     if track is not None:
       radar_lead = get_custom_yrel(CP, CP_SP, track.get_RadarState(lead_prob), lead_msg)
       if lead_prob > config.match or same_car(reference, radar_lead):
-        lead_dict = radar_lead
+        if config.ignore_ghosts and stationary_ghost(track.vLead, lead_msg.v[0], lead_msg.a[0]):
+          ghost = True  # a standing-still point can't be the moving car: fall back to the camera
+        else:
+          lead_dict = radar_lead
 
   camera = None
   if ready and not lead_dict['present'] and (handoff is not None or lead_prob > config.camera):
@@ -236,7 +241,7 @@ def get_lead_custom(v_ego: float, ready: bool, tracks: dict[int, Track], lead_ms
     # hold on the raw confidence: the asymmetric filter on lead_prob can outlast a car that is gone
     camera_supports_hold = (not lead_dict['present'] and camera is not None and
                             lead_msg.prob > config.match - RELEASE_MARGIN and camera_on_path(lead_msg, model_path))
-    lead_dict = handoff.update(lead_dict, camera, camera_supports_hold, v_ego, lead_prob, reset=low_speed)
+    lead_dict = handoff.update(lead_dict, camera, camera_supports_hold, v_ego, lead_prob, reset=low_speed or ghost)
 
   return lead_dict
 

@@ -162,6 +162,13 @@ class CruiseLayout(Widget):
                      "closer or slower always applies at once."),
       param="SmoothLeadHandoffs")
 
+    self.ignore_radar_ghosts = toggle_item_sp(
+      title=tr("Ignore Stationary Radar Ghosts"),
+      description=tr("Don't treat a standing-still radar point, like a guardrail on a ramp or curve, " +
+                     "as the car ahead while the camera sees that car moving. " +
+                     "A car the camera sees braking hard is still taken from the radar."),
+      param="IgnoreStationaryRadarGhosts")
+
     self.sla_settings_button = simple_button_item_sp(
       button_text=lambda: tr("Speed Limit"),
       button_width=800,
@@ -195,6 +202,7 @@ class CruiseLayout(Widget):
       self.camera_lead_confidence,
       self.radar_lead_confidence,
       self.smooth_lead_handoffs,
+      self.ignore_radar_ghosts,
       self.rivian_resume_toggle,
       self.sla_settings_button,
     ]
@@ -330,7 +338,7 @@ class CruiseLayout(Widget):
     self.custom_acc_long_increment.action_item.set_enabled(self.custom_acc_toggle.action_item.enabled)
 
   def _lead_sensitivity_items(self):
-    return [self.camera_lead_confidence, self.radar_lead_confidence, self.smooth_lead_handoffs]
+    return [self.camera_lead_confidence, self.radar_lead_confidence, self.smooth_lead_handoffs, self.ignore_radar_ghosts]
 
   def _on_lead_sensitivity_toggle(self, state):
     enabled = self.lead_sensitivity_toggle.action_item.enabled

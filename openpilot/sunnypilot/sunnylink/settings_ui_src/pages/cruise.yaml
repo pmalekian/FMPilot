@@ -391,3 +391,14 @@ sections:
       - type: param
         key: CustomLeadSensitivity
         equals: true
+    - key: IgnoreStationaryRadarGhosts
+      widget: toggle
+      title: Ignore Stationary Radar Ghosts
+      description: >-
+        Don't treat a standing-still radar point, like a guardrail on a ramp or curve, as the car ahead while the
+        camera sees that car moving. A car the camera sees braking hard is still taken from the radar.
+      enablement:
+      - $ref: '#/macros/longitudinal'
+      - type: param
+        key: CustomLeadSensitivity
+        equals: true

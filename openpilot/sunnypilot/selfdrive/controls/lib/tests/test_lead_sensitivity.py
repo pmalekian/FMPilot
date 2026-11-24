@@ -32,10 +32,10 @@ def track(ident, d_rel, y_rel, v_lead, v_ego):
   return t
 
 
-def custom(tracks, msg, v_ego, config, prob=None, low_speed_override=True):
+def custom(tracks, msg, v_ego, config, prob=None, low_speed_override=True, **kwargs):
   prob = msg.prob if prob is None else prob
   return get_lead_custom(v_ego, True, {t.identifier: t for t in tracks}, msg, v_ego, prob, CP, CP_SP, config,
-                         low_speed_override=low_speed_override)
+                         low_speed_override=low_speed_override, **kwargs)
 
 
 def stock(tracks, msg, v_ego, prob=None, low_speed_override=True):
