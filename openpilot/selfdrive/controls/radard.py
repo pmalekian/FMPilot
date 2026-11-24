@@ -16,6 +16,7 @@ from openpilot.common.simple_kalman import KF1D
 from opendbc.car import structs
 from opendbc.car.hyundai.values import HyundaiFlags
 from opendbc.sunnypilot.car.hyundai.values import HyundaiFlagsSP
+from openpilot.sunnypilot.selfdrive.controls.lib.lead_sensitivity import LeadSensitivityConfig, LeadSensitivitySettings
 
 
 # Default lead acceleration decay set to 50% at 1s
@@ -182,6 +183,32 @@ def get_lead(v_ego: float, ready: bool, tracks: dict[int, Track], lead_msg: capn
   return lead_dict
 
 
+def get_lead_custom(v_ego: float, ready: bool, tracks: dict[int, Track], lead_msg: capnp._DynamicStructReader,
+                    model_v_ego: float, lead_prob: float, CP: structs.CarParams, CP_SP: structs.CarParamsSP,
+                    config: LeadSensitivityConfig, low_speed_override: bool = True) -> dict[str, Any]:
+  # Custom Lead Sensitivity: get_lead with separate cutoffs for radar-matched and camera-only leads
+  if len(tracks) > 0 and ready and lead_prob > config.match:
+    track = match_vision_to_track(v_ego, lead_msg, tracks)
+  else:
+    track = None
+
+  lead_dict = {'present': False}
+  if track is not None:
+    lead_dict = track.get_RadarState(lead_prob)
+    lead_dict = get_custom_yrel(CP, CP_SP, lead_dict, lead_msg)
+  elif ready and lead_prob > config.camera:
+    lead_dict = get_RadarState_from_vision(lead_msg, v_ego, model_v_ego, lead_prob)
+
+  if low_speed_override:
+    low_speed_tracks = [c for c in tracks.values() if c.potential_low_speed_lead(v_ego)]
+    if len(low_speed_tracks) > 0:
+      closest_track = min(low_speed_tracks, key=lambda c: c.dRel)
+      if (not lead_dict['present']) or (closest_track.dRel < lead_dict['dRel']):
+        lead_dict = closest_track.get_RadarState()
+
+  return lead_dict
+
+
 def get_custom_yrel(CP: structs.CarParams, CP_SP: structs.CarParamsSP, lead_dict: dict[str, Any],
                     lead_msg: capnp._DynamicStructReader) -> dict[str, Any]:
   if CP.brand == "hyundai" and (CP_SP.flags & HyundaiFlagsSP.ENHANCED_SCC or
@@ -192,9 +219,10 @@ def get_custom_yrel(CP: structs.CarParams, CP_SP: structs.CarParamsSP, lead_dict
 
 
 class RadarD:
-  def __init__(self, CP: structs.CarParams, CP_SP: structs.CarParams, delay: float = 0.0):
+  def __init__(self, CP: structs.CarParams, CP_SP: structs.CarParams, delay: float = 0.0, params=None):
     self.CP = CP
     self.CP_SP = CP_SP
+    self.lead_sensitivity = LeadSensitivitySettings(params)  # params=None keeps stock behavior
 
     self.current_time = 0.0
     self.tracks: dict[int, Track] = {}
@@ -248,6 +276,7 @@ class RadarD:
     else:
       model_v_ego = self.v_ego
     leads_v3 = sm['modelV2'].leadsV3
+    self.lead_sensitivity.update()
     if len(leads_v3) > 1:
       for i in range(2):
         # Asymmetric filter on lead prob to keep lead when uncertain
@@ -256,6 +285,16 @@ class RadarD:
           self.lead_prob_filters[i].x = lead_prob
         else:
           self.lead_prob_filters[i].update(lead_prob)
+
+      config = self.lead_sensitivity.config
+      if config is not None:
+        self.radar_state.leadOne = get_lead_custom(self.v_ego, self.ready, self.tracks, leads_v3[0], model_v_ego,
+                                                   self.lead_prob_filters[0].x, self.CP, self.CP_SP, config,
+                                                   low_speed_override=True)
+        self.radar_state.leadTwo = get_lead_custom(self.v_ego, self.ready, self.tracks, leads_v3[1], model_v_ego,
+                                                   self.lead_prob_filters[1].x, self.CP, self.CP_SP, config,
+                                                   low_speed_override=False)
+        return
 
       self.radar_state.leadOne = get_lead(self.v_ego, self.ready, self.tracks, leads_v3[0], model_v_ego, self.lead_prob_filters[0].x,
                                           self.CP, self.CP_SP, low_speed_override=True)
@@ -288,7 +327,7 @@ def main() -> None:
   sm = messaging.SubMaster(['modelV2', 'carState', 'radarTracks'], poll='modelV2')
   pm = messaging.PubMaster(['radarState'])
 
-  RD = RadarD(CP, CP_SP, CP.radarDelay)
+  RD = RadarD(CP, CP_SP, CP.radarDelay, Params())
 
   while 1:
     sm.update()
