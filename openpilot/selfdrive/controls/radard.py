@@ -16,6 +16,10 @@ from openpilot.common.simple_kalman import KF1D
 from opendbc.car import structs
 from opendbc.car.hyundai.values import HyundaiFlags
 from opendbc.sunnypilot.car.hyundai.values import HyundaiFlagsSP
+from openpilot.sunnypilot.selfdrive.controls.lib.lead_sensitivity import (
+  RELEASE_MARGIN, LeadHandoff, LeadSensitivityConfig, LeadSensitivitySettings, camera_on_path, same_car, stationary_ghost,
+  track_fits_camera,
+)
 
 
 # Default lead acceleration decay set to 50% at 1s
@@ -114,7 +118,8 @@ def laplacian_pdf(x: float, mu: float, b: float):
   return math.exp(-abs(x-mu)/b)
 
 
-def match_vision_to_track(v_ego: float, lead: capnp._DynamicStructReader, tracks: dict[int, Track]):
+def match_vision_to_track(v_ego: float, lead: capnp._DynamicStructReader, tracks: dict[int, Track],
+                          preferred: Track | None = None):
   offset_vision_dist = lead.x[0] - RADAR_TO_CAMERA
 
   def prob(c):
@@ -125,16 +130,19 @@ def match_vision_to_track(v_ego: float, lead: capnp._DynamicStructReader, tracks
     # This isn't exactly right, but it's a good heuristic
     return prob_d * prob_y * prob_v
 
-  track = max(tracks.values(), key=prob)
+  candidates = [max(tracks.values(), key=prob)]
+  # Smooth Lead Handoffs: first try the radar point already being followed, while it still fits the camera's car
+  if preferred is not None and track_fits_camera(preferred, lead, v_ego, offset_vision_dist):
+    candidates.insert(0, preferred)
 
-  # if no 'sane' match is found return -1
-  # stationary radar points can be false positives
-  dist_sane = abs(track.dRel - offset_vision_dist) < max([(offset_vision_dist)*.25, 5.0])
-  vel_sane = (abs(track.vRel + v_ego - lead.v[0]) < 10) or (v_ego + track.vRel > 3)
-  if dist_sane and vel_sane:
-    return track
-  else:
-    return None
+  for track in candidates:
+    # if no 'sane' match is found return -1
+    # stationary radar points can be false positives
+    dist_sane = abs(track.dRel - offset_vision_dist) < max([(offset_vision_dist)*.25, 5.0])
+    vel_sane = (abs(track.vRel + v_ego - lead.v[0]) < 10) or (v_ego + track.vRel > 3)
+    if dist_sane and vel_sane:
+      return track
+  return None
 
 
 def get_RadarState_from_vision(lead_msg: capnp._DynamicStructReader, v_ego: float, model_v_ego: float, lead_prob: float):
@@ -182,6 +190,62 @@ def get_lead(v_ego: float, ready: bool, tracks: dict[int, Track], lead_msg: capn
   return lead_dict
 
 
+def get_lead_custom(v_ego: float, ready: bool, tracks: dict[int, Track], lead_msg: capnp._DynamicStructReader,
+                    model_v_ego: float, lead_prob: float, CP: structs.CarParams, CP_SP: structs.CarParamsSP,
+                    config: LeadSensitivityConfig, low_speed_override: bool = True,
+                    handoff: LeadHandoff | None = None, model_path=None) -> dict[str, Any]:
+  # Custom Lead Sensitivity: get_lead with separate cutoffs for radar-matched and camera-only leads,
+  # and optionally Smooth Lead Handoffs and Ignore Stationary Radar Ghosts
+  if handoff is not None:
+    ready = ready and all(len(getattr(lead_msg, field)) for field in ('x', 'y', 'v', 'a', 'xStd', 'yStd', 'vStd'))
+
+  # the car being followed, predicted to this frame
+  reference = handoff.predict(handoff.measurement, v_ego) if handoff is not None else None
+  preferred = None
+  if reference is not None and reference['radar']:
+    candidate = tracks.get(reference['radarTrackId'])
+    if candidate is not None and same_car(reference, candidate.get_RadarState()):
+      preferred = candidate
+
+  # the car being followed keeps its lead until confidence falls RELEASE_MARGIN below the cutoff
+  release_margin = RELEASE_MARGIN if reference is not None else 0.0
+
+  lead_dict = {'present': False}
+  ghost = False
+  if len(tracks) > 0 and ready and lead_prob > config.match - release_margin:
+    track = match_vision_to_track(v_ego, lead_msg, tracks, preferred)
+    if track is not None:
+      radar_lead = get_custom_yrel(CP, CP_SP, track.get_RadarState(lead_prob), lead_msg)
+      if lead_prob > config.match or same_car(reference, radar_lead):
+        if config.ignore_ghosts and stationary_ghost(track.vLead, lead_msg.v[0], lead_msg.a[0]):
+          ghost = True  # a standing-still point can't be the moving car: fall back to the camera
+        else:
+          lead_dict = radar_lead
+
+  camera = None
+  if ready and not lead_dict['present'] and (handoff is not None or lead_prob > config.camera):
+    camera = get_RadarState_from_vision(lead_msg, v_ego, model_v_ego, lead_prob)
+    if lead_prob > config.camera or (lead_prob > config.camera - release_margin and same_car(reference, camera)):
+      lead_dict = camera
+
+  low_speed = False
+  if low_speed_override:
+    low_speed_tracks = [c for c in tracks.values() if c.potential_low_speed_lead(v_ego)]
+    if len(low_speed_tracks) > 0:
+      closest_track = min(low_speed_tracks, key=lambda c: c.dRel)
+      if (not lead_dict['present']) or (closest_track.dRel < lead_dict['dRel']):
+        lead_dict = closest_track.get_RadarState()
+        low_speed = True
+
+  if handoff is not None:
+    # hold on the raw confidence: the asymmetric filter on lead_prob can outlast a car that is gone
+    camera_supports_hold = (not lead_dict['present'] and camera is not None and
+                            lead_msg.prob > config.match - RELEASE_MARGIN and camera_on_path(lead_msg, model_path))
+    lead_dict = handoff.update(lead_dict, camera, camera_supports_hold, v_ego, lead_prob, reset=low_speed or ghost)
+
+  return lead_dict
+
+
 def get_custom_yrel(CP: structs.CarParams, CP_SP: structs.CarParamsSP, lead_dict: dict[str, Any],
                     lead_msg: capnp._DynamicStructReader) -> dict[str, Any]:
   if CP.brand == "hyundai" and (CP_SP.flags & HyundaiFlagsSP.ENHANCED_SCC or
@@ -192,9 +256,12 @@ def get_custom_yrel(CP: structs.CarParams, CP_SP: structs.CarParamsSP, lead_dict
 
 
 class RadarD:
-  def __init__(self, CP: structs.CarParams, CP_SP: structs.CarParams, delay: float = 0.0):
+  def __init__(self, CP: structs.CarParams, CP_SP: structs.CarParams, delay: float = 0.0, params=None):
     self.CP = CP
     self.CP_SP = CP_SP
+    self.lead_sensitivity = LeadSensitivitySettings(params)  # params=None keeps stock behavior
+    self.lead_config: LeadSensitivityConfig | None = None
+    self.lead_handoffs = [LeadHandoff(), LeadHandoff()]
 
     self.current_time = 0.0
     self.tracks: dict[int, Track] = {}
@@ -248,6 +315,13 @@ class RadarD:
     else:
       model_v_ego = self.v_ego
     leads_v3 = sm['modelV2'].leadsV3
+    self.lead_sensitivity.update()
+    config = self.lead_sensitivity.config
+    if config != self.lead_config or len(leads_v3) < 2:
+      for handoff in self.lead_handoffs:
+        handoff.reset()
+    self.lead_config = config
+
     if len(leads_v3) > 1:
       for i in range(2):
         # Asymmetric filter on lead prob to keep lead when uncertain
@@ -256,6 +330,17 @@ class RadarD:
           self.lead_prob_filters[i].x = lead_prob
         else:
           self.lead_prob_filters[i].update(lead_prob)
+
+      if config is not None:
+        handoffs = self.lead_handoffs if config.smooth else [None, None]
+        model_path = sm['modelV2'].position if config.smooth else None
+        self.radar_state.leadOne = get_lead_custom(self.v_ego, self.ready, self.tracks, leads_v3[0], model_v_ego,
+                                                   self.lead_prob_filters[0].x, self.CP, self.CP_SP, config,
+                                                   low_speed_override=True, handoff=handoffs[0], model_path=model_path)
+        self.radar_state.leadTwo = get_lead_custom(self.v_ego, self.ready, self.tracks, leads_v3[1], model_v_ego,
+                                                   self.lead_prob_filters[1].x, self.CP, self.CP_SP, config,
+                                                   low_speed_override=False, handoff=handoffs[1], model_path=model_path)
+        return
 
       self.radar_state.leadOne = get_lead(self.v_ego, self.ready, self.tracks, leads_v3[0], model_v_ego, self.lead_prob_filters[0].x,
                                           self.CP, self.CP_SP, low_speed_override=True)
@@ -288,7 +373,7 @@ def main() -> None:
   sm = messaging.SubMaster(['modelV2', 'carState', 'radarTracks'], poll='modelV2')
   pm = messaging.PubMaster(['radarState'])
 
-  RD = RadarD(CP, CP_SP, CP.radarDelay)
+  RD = RadarD(CP, CP_SP, CP.radarDelay, Params())
 
   while 1:
     sm.update()

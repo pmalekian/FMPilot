@@ -35,6 +35,10 @@ def _stop_distance_label(v: int) -> str:
   return f"{v / 10:.1f}m"
 
 
+def _percent_label(v: int) -> str:
+  return f"{v}%"
+
+
 def _t_follow_offset_label(v: int) -> str:
   if v == 0:
     return tr("Default")
@@ -125,6 +129,46 @@ class CruiseLayout(Widget):
       label_callback=_t_follow_offset_label,
       inline=True)
 
+    self.lead_sensitivity_toggle = toggle_item_sp(
+      title=tr("Custom Lead Sensitivity"),
+      description=tr("Adjust when sunnypilot starts following a car ahead, and how steady that lead stays. " +
+                     "When off, sunnypilot uses its standard lead detection and the settings below are ignored."),
+      param="CustomLeadSensitivity",
+      callback=self._on_lead_sensitivity_toggle)
+
+    self.camera_lead_confidence = option_item_sp(
+      title=tr("Camera-only Lead Confidence"),
+      description=tr("How sure the camera must be to follow a car the radar doesn't confirm. " +
+                     "Lower values pick up cars sooner but can admit false leads. Default 50%."),
+      param="CameraLeadConfidence",
+      min_value=25, max_value=50, value_change_step=5,
+      label_callback=_percent_label,
+      inline=True)
+
+    self.radar_lead_confidence = option_item_sp(
+      title=tr("Radar-matched Lead Confidence"),
+      description=tr("How sure the camera must be before sunnypilot tries to confirm a car with radar. " +
+                     "Lower values get radar distance and speed sooner. " +
+                     "Keep at or below Camera-only Lead Confidence. Default 50%."),
+      param="RadarLeadConfidence",
+      min_value=25, max_value=50, value_change_step=5,
+      label_callback=_percent_label,
+      inline=True)
+
+    self.smooth_lead_handoffs = toggle_item_sp(
+      title=tr("Smooth Lead Handoffs"),
+      description=tr("Keep the same car steady as the lead when sunnypilot switches between radar and camera, " +
+                     "or the car briefly drops out. Changes that mean more room are eased in; " +
+                     "closer or slower always applies at once."),
+      param="SmoothLeadHandoffs")
+
+    self.ignore_radar_ghosts = toggle_item_sp(
+      title=tr("Ignore Stationary Radar Ghosts"),
+      description=tr("Don't treat a standing-still radar point, like a guardrail on a ramp or curve, " +
+                     "as the car ahead while the camera sees that car moving. " +
+                     "A car the camera sees braking hard is still taken from the radar."),
+      param="IgnoreStationaryRadarGhosts")
+
     self.sla_settings_button = simple_button_item_sp(
       button_text=lambda: tr("Speed Limit"),
       button_width=800,
@@ -154,6 +198,11 @@ class CruiseLayout(Widget):
       self.stop_distance_option,
       self.stop_distance_personality,
       self.following_time_offset,
+      self.lead_sensitivity_toggle,
+      self.camera_lead_confidence,
+      self.radar_lead_confidence,
+      self.smooth_lead_handoffs,
+      self.ignore_radar_ghosts,
       self.rivian_resume_toggle,
       self.sla_settings_button,
     ]
@@ -212,6 +261,7 @@ class CruiseLayout(Widget):
         # has_longitudinal_control) instead of leaving it always-on here.
         self.curve_speed_toggle.action_item.set_enabled(has_long)
         self.following_time_offset.action_item.set_enabled(has_long and ui_state.is_offroad())
+        self.lead_sensitivity_toggle.action_item.set_enabled(has_long)
         self.stop_distance_option.action_item.set_enabled(has_long and ui_state.is_offroad())
         self.stop_distance_personality.action_item.set_enabled(has_long and ui_state.is_offroad())
       else:
@@ -226,6 +276,7 @@ class CruiseLayout(Widget):
         self.scc_m_toggle.action_item.set_enabled(False)
         self.curve_speed_toggle.action_item.set_enabled(False)
         self.following_time_offset.action_item.set_enabled(False)
+        self.lead_sensitivity_toggle.action_item.set_enabled(False)
         self.stop_distance_option.action_item.set_enabled(False)
         self.stop_distance_personality.action_item.set_enabled(False)
 
@@ -245,6 +296,7 @@ class CruiseLayout(Widget):
       self.icbm_toggle.set_description(tr(ONROAD_ONLY_DESCRIPTION))
       self.rivian_resume_toggle.action_item.set_enabled(False)
       self.following_time_offset.action_item.set_enabled(False)
+      self.lead_sensitivity_toggle.action_item.set_enabled(False)
       self.stop_distance_option.action_item.set_enabled(False)
       self.stop_distance_personality.action_item.set_enabled(False)
 
@@ -271,6 +323,7 @@ class CruiseLayout(Widget):
         self.custom_acc_toggle.show_description(True)
 
     self._on_custom_acc_toggle(self.custom_acc_toggle.action_item.get_state())
+    self._on_lead_sensitivity_toggle(self.lead_sensitivity_toggle.action_item.get_state())
 
   def _on_stop_distance_changed(self, value: int) -> None:
     below_max = value < 60
@@ -283,3 +336,12 @@ class CruiseLayout(Widget):
     self.custom_acc_long_increment.set_visible(state)
     self.custom_acc_short_increment.action_item.set_enabled(self.custom_acc_toggle.action_item.enabled)
     self.custom_acc_long_increment.action_item.set_enabled(self.custom_acc_toggle.action_item.enabled)
+
+  def _lead_sensitivity_items(self):
+    return [self.camera_lead_confidence, self.radar_lead_confidence, self.smooth_lead_handoffs, self.ignore_radar_ghosts]
+
+  def _on_lead_sensitivity_toggle(self, state):
+    enabled = self.lead_sensitivity_toggle.action_item.enabled
+    for item in self._lead_sensitivity_items():
+      item.set_visible(state)
+      item.action_item.set_enabled(enabled)
