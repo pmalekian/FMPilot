@@ -380,3 +380,14 @@ sections:
       - type: param
         key: CustomLeadSensitivity
         equals: true
+    - key: SmoothLeadHandoffs
+      widget: toggle
+      title: Smooth Lead Handoffs
+      description: >-
+        Keep the same car steady as the lead when sunnypilot switches between radar and camera, or the car briefly
+        drops out. Changes that mean more room are eased in; closer or slower always applies at once.
+      enablement:
+      - $ref: '#/macros/longitudinal'
+      - type: param
+        key: CustomLeadSensitivity
+        equals: true
