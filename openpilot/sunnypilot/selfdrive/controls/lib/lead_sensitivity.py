@@ -130,18 +130,25 @@ def stationary_ghost(track_v_lead: float, vision_v: float, vision_a: float) -> b
   return abs(track_v_lead) < GHOST_TRACK_MAX_SPEED and vision_v > GHOST_VISION_MIN_SPEED and vision_a > GHOST_VISION_BRAKING
 
 
+def same_car_distance_margin(distance: float) -> float:
+  """4-10 m: 10% of the gap."""
+  return max(4.0, min(10.0, 0.1 * distance))
+
+
 def same_car(predicted: dict | None, measured: dict | None) -> bool:
   if predicted is None or measured is None:
     return False
-  distance_margin = max(4.0, min(10.0, 0.1 * predicted['dRel']))
-  return (abs(measured['dRel'] - predicted['dRel']) < distance_margin and
+  return (abs(measured['dRel'] - predicted['dRel']) < same_car_distance_margin(predicted['dRel']) and
           abs(measured['yRel'] - predicted['yRel']) < SAME_CAR_LATERAL and
           abs(measured['vRel'] - predicted['vRel']) < SAME_CAR_SPEED)
 
 
-def track_fits_camera(track, lead_msg, v_ego: float) -> bool:
-  """The radar point already being followed is still beside and moving with the camera's car."""
-  return abs(track.yRel + lead_msg.y[0]) < SAME_CAR_LATERAL and abs(track.vRel + v_ego - lead_msg.v[0]) < SAME_CAR_SPEED
+def track_fits_camera(track, lead_msg, v_ego: float, vision_distance: float) -> bool:
+  """The radar point already being followed is still at, beside and moving with the camera's car. The distance check
+  matters at long range: radard's own pairing allows 25% of the gap, so without it a car that cuts in 15-20 m closer
+  could lose to the point already followed."""
+  return (abs(track.dRel - vision_distance) < same_car_distance_margin(vision_distance) and
+          abs(track.yRel + lead_msg.y[0]) < SAME_CAR_LATERAL and abs(track.vRel + v_ego - lead_msg.v[0]) < SAME_CAR_SPEED)
 
 
 def camera_on_path(lead_msg, model_path) -> bool:

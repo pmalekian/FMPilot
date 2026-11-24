@@ -132,7 +132,7 @@ def match_vision_to_track(v_ego: float, lead: capnp._DynamicStructReader, tracks
 
   candidates = [max(tracks.values(), key=prob)]
   # Smooth Lead Handoffs: first try the radar point already being followed, while it still fits the camera's car
-  if preferred is not None and track_fits_camera(preferred, lead, v_ego):
+  if preferred is not None and track_fits_camera(preferred, lead, v_ego, offset_vision_dist):
     candidates.insert(0, preferred)
 
   for track in candidates:

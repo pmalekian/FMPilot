@@ -173,6 +173,23 @@ def test_followed_radar_point_yields_when_it_no_longer_fits_the_car():
   assert select(measure(33.0), [moved_off_path, alternate], handoff=handoff)['radarTrackId'] == 8
 
 
+@pytest.mark.parametrize(('far', 'near'), ((40.0, 30.0), (95.0, 80.0), (120.0, 100.0)))
+def test_far_followed_point_yields_to_a_closer_cut_in(far, near):
+  # radard's pairing allows 25% of the gap, so at long range the followed point used to pass while the camera
+  # had already moved to a car 15-20 m closer
+  v_ego, path = 30.0, SimpleNamespace(x=[0.0, 200.0], y=[0.0, 0.0])
+  handoff = LeadHandoff()
+  followed = track(1, far, 0.0, 28.0, v_ego)
+  for _ in range(5):
+    select(measure(far, 28.0), [followed], handoff=handoff, v_ego=v_ego, model_path=path)
+  cut_in = track(2, near, 0.2, 27.0, v_ego)
+  camera = measure(near, 27.0, lateral=0.2)
+  lead = select(camera, [followed, cut_in], handoff=handoff, v_ego=v_ego, model_path=path)
+  assert lead['radarTrackId'] == 2 and lead['dRel'] == near
+  stock = get_lead(v_ego, True, {1: followed, 2: cut_in}, camera, v_ego, camera.prob, CP, CP_SP)
+  assert stock['radarTrackId'] == 2
+
+
 # --- radard ---
 
 class RadarInputs(dict):
