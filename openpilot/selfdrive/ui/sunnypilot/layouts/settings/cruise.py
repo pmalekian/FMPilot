@@ -155,6 +155,13 @@ class CruiseLayout(Widget):
       label_callback=_percent_label,
       inline=True)
 
+    self.smooth_lead_handoffs = toggle_item_sp(
+      title=tr("Smooth Lead Handoffs"),
+      description=tr("Keep the same car steady as the lead when sunnypilot switches between radar and camera, " +
+                     "or the car briefly drops out. Changes that mean more room are eased in; " +
+                     "closer or slower always applies at once."),
+      param="SmoothLeadHandoffs")
+
     self.sla_settings_button = simple_button_item_sp(
       button_text=lambda: tr("Speed Limit"),
       button_width=800,
@@ -187,6 +194,7 @@ class CruiseLayout(Widget):
       self.lead_sensitivity_toggle,
       self.camera_lead_confidence,
       self.radar_lead_confidence,
+      self.smooth_lead_handoffs,
       self.rivian_resume_toggle,
       self.sla_settings_button,
     ]
@@ -322,7 +330,7 @@ class CruiseLayout(Widget):
     self.custom_acc_long_increment.action_item.set_enabled(self.custom_acc_toggle.action_item.enabled)
 
   def _lead_sensitivity_items(self):
-    return [self.camera_lead_confidence, self.radar_lead_confidence]
+    return [self.camera_lead_confidence, self.radar_lead_confidence, self.smooth_lead_handoffs]
 
   def _on_lead_sensitivity_toggle(self, state):
     enabled = self.lead_sensitivity_toggle.action_item.enabled
