@@ -180,6 +180,20 @@ def test_sticky_track_yields_when_it_no_longer_matches_the_car():
   assert select(measure(33.0), [moved_off_path, alternate], handoff=handoff)[0]['radarTrackId'] == 8
 
 
+@pytest.mark.parametrize(('far', 'near'), ((40.0, 30.0), (95.0, 80.0), (120.0, 100.0)))
+def test_far_sticky_track_yields_to_a_closer_cut_in(far, near):
+  # sane() allows 25% of the gap, so at long range the followed point used to pass while the camera had already
+  # moved to a car 15-20 m closer
+  v_ego, path = 30.0, SimpleNamespace(x=[0.0, 200.0], y=[0.0, 0.0])
+  handoff = FmLeadHandoff()
+  followed = track(1, far, 0.0, 28.0, v_ego)
+  for _ in range(5):
+    select(measure(far, 28.0), [followed], handoff=handoff, v_ego=v_ego, model_path=path)
+  cut_in = track(2, near, 0.2, 27.0, v_ego)
+  lead = select(measure(near, 27.0, lateral=0.2), [followed, cut_in], handoff=handoff, v_ego=v_ego, model_path=path)[0]
+  assert lead['radarTrackId'] == 2 and lead['dRel'] == near
+
+
 class SettingsParams:
   def __init__(self, values):
     self.values = values

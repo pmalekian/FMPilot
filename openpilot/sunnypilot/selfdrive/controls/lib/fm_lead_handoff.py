@@ -12,11 +12,15 @@ SAME_CAR_SPEED = 4.0   # m/s
 HOLD_PATH_MARGIN = 2.0  # m from the model path where the camera sees the object
 
 
+def same_car_distance_margin(distance):
+  """4-10 m: 10% of the gap."""
+  return max(4.0, min(10.0, 0.1 * distance))
+
+
 def same_car(predicted, measured):
   if predicted is None or measured is None:
     return False
-  distance_margin = max(4.0, min(10.0, 0.1 * predicted['dRel']))
-  return (abs(measured['dRel'] - predicted['dRel']) < distance_margin and
+  return (abs(measured['dRel'] - predicted['dRel']) < same_car_distance_margin(predicted['dRel']) and
           abs(measured['yRel'] - predicted['yRel']) < SAME_CAR_LATERAL and
           abs(measured['vRel'] - predicted['vRel']) < SAME_CAR_SPEED)
 

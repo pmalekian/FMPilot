@@ -17,7 +17,7 @@ from opendbc.car import structs
 from opendbc.car.hyundai.values import HyundaiFlags
 from opendbc.sunnypilot.car.hyundai.values import HyundaiFlagsSP
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_lead_handoff import (
-  FmLeadHandoff, RELEASE_MARGIN, SAME_CAR_LATERAL, SAME_CAR_SPEED, camera_on_path, same_car,
+  FmLeadHandoff, RELEASE_MARGIN, SAME_CAR_LATERAL, SAME_CAR_SPEED, camera_on_path, same_car, same_car_distance_margin,
 )
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_radar import (
   ADMIT_CAMERA, ADMIT_LOW_SPEED, ADMIT_RADAR, SHADOW_CONFIGS, FmLeadTrace, FmRadarLeadStatus, FmRadarSettings, stationary_ghost,
@@ -138,7 +138,10 @@ def match_vision_to_track(v_ego: float, lead: capnp._DynamicStructReader, tracks
     vel_sane = abs(track.vRel + v_ego - lead.v[0]) < 10 or v_ego + track.vRel > 3
     return dist_sane and vel_sane
 
+  # The followed point must also be at the camera's distance: sane() allows 25% of the gap, so at long range a car
+  # that cuts in 15-20 m closer could otherwise lose to the point already followed.
   if (preferred is not None and sane(preferred) and
+      abs(preferred.dRel - offset_vision_dist) < same_car_distance_margin(offset_vision_dist) and
       abs(preferred.yRel + lead.y[0]) < SAME_CAR_LATERAL and
       abs(preferred.vRel + v_ego - lead.v[0]) < SAME_CAR_SPEED):
     return preferred
