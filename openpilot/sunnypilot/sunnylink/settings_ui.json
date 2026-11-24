@@ -1380,6 +1380,89 @@
               ]
             }
           ]
+        },
+        {
+          "id": "custom_lead_sensitivity",
+          "title": "Lead Detection",
+          "description": "",
+          "enablement": [
+            {
+              "type": "capability",
+              "field": "has_longitudinal_control",
+              "equals": true
+            }
+          ],
+          "items": [
+            {
+              "key": "CustomLeadSensitivity",
+              "widget": "toggle",
+              "title": "Custom Lead Sensitivity",
+              "description": "Adjust when sunnypilot starts following a car ahead, and how steady that lead stays. When off, sunnypilot uses its standard lead detection and the settings below are ignored.",
+              "enablement": [
+                {
+                  "type": "capability",
+                  "field": "has_longitudinal_control",
+                  "equals": true
+                }
+              ]
+            }
+          ],
+          "sub_panels": [
+            {
+              "id": "custom_lead_sensitivity_settings",
+              "label": "Custom Lead Sensitivity Settings",
+              "trigger_key": "CustomLeadSensitivity",
+              "trigger_condition": {
+                "type": "param",
+                "key": "CustomLeadSensitivity",
+                "equals": true
+              },
+              "items": [
+                {
+                  "key": "CameraLeadConfidence",
+                  "widget": "option",
+                  "title": "Camera-only Lead Confidence",
+                  "description": "How sure the camera must be, in percent, to follow a car the radar doesn't confirm. Lower values pick up cars sooner but can admit false leads. Default 50%.",
+                  "min": 25,
+                  "max": 50,
+                  "step": 5,
+                  "enablement": [
+                    {
+                      "type": "capability",
+                      "field": "has_longitudinal_control",
+                      "equals": true
+                    },
+                    {
+                      "type": "param",
+                      "key": "CustomLeadSensitivity",
+                      "equals": true
+                    }
+                  ]
+                },
+                {
+                  "key": "RadarLeadConfidence",
+                  "widget": "option",
+                  "title": "Radar-matched Lead Confidence",
+                  "description": "How sure the camera must be, in percent, before sunnypilot tries to confirm a car with radar. Lower values get radar distance and speed sooner. Keep at or below Camera-only Lead Confidence. Default 50%.",
+                  "min": 25,
+                  "max": 50,
+                  "step": 5,
+                  "enablement": [
+                    {
+                      "type": "capability",
+                      "field": "has_longitudinal_control",
+                      "equals": true
+                    },
+                    {
+                      "type": "param",
+                      "key": "CustomLeadSensitivity",
+                      "equals": true
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
         }
       ]
     },
