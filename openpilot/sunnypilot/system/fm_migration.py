@@ -72,6 +72,15 @@ def run(params, migrations=None) -> list[str]:
 
 # --- mappings, one per reshaped setting (registered at import, run in this order) ---
 
+
+@migration("lane_keep_mode")
+def _lane_keep_mode(params):
+  """Lane Keeping (FM_LaneKeepMode): kept as set on fm-dev-nav-settle; unset -> from AP's LaneCenteringEnabled, then
+  LaneGuardEnabled, then sunnypilot's Blendful toggle (Off writes nothing: it is the default)."""
+  from openpilot.sunnypilot.selfdrive.controls.lib.fm_lane_keep_mode import get_lane_keep_mode, migrate_lane_keep_mode
+  wrote = migrate_lane_keep_mode(params)
+  return f"FM_LaneKeepMode {get_lane_keep_mode(params)}" + (" (from the older toggles)" if wrote else "")
+
 OLD_MAX_TORQUE_DEFAULT = 480  # fm-dev-nav-settle's FM_MaxTorque default
 
 

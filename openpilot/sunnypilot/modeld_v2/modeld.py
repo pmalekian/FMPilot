@@ -41,6 +41,7 @@ from openpilot.selfdrive.modeld.modeld import ChestnutGpuState
 from openpilot.sunnypilot.modeld_v2.fill_model_msg import fill_model_msg, fill_pose_msg, PublishState, get_curvature_from_output
 from openpilot.sunnypilot.modeld_v2.parse_model_outputs import Parser
 from openpilot.sunnypilot.modeld_v2.blendful import Blendful
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_lane_keep_mode import MODE_BLENDFUL, get_lane_keep_mode
 from openpilot.sunnypilot.modeld_v2.constants import ModelConstants, Plan
 from openpilot.sunnypilot.modeld_v2.meta_helper import load_meta_constants
 from openpilot.sunnypilot.modeld_v2.camera_offset_helper import CameraOffsetHelper
@@ -432,7 +433,7 @@ def main(demo=False):
       model.lat_delay = get_lat_delay(params, sm["lateralDelay"].lateralDelay)
       model.PLANPLUS_CONTROL = params.get("PlanplusControl", return_default=True)
       camera_offset_helper.set_offset(params.get("CameraOffset", return_default=True))
-      blendful_enabled = params.get_bool("Blendful")
+      blendful_enabled = get_lane_keep_mode(params) == MODE_BLENDFUL  # FM Pilot: the Lane Keeping selector picks Blendful
     lat_delay = model.lat_delay + model.LAT_SMOOTH_SECONDS
     if sm.updated["extrinsicsCalibration"] and sm.seen['narrowRoadCameraState'] and sm.seen['deviceState']:
       device_from_calib_euler = np.array(sm["extrinsicsCalibration"].rpyCalib, dtype=np.float32)

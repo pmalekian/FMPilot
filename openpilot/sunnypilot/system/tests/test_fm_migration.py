@@ -192,3 +192,36 @@ class TestLowSpeed(OpenpilotTestCase):
   def test_old_keys_untouched(self):
     p = self.migrate(FM_LowSpeedFFEnabled=False, FM_LowSpeedFFStepLeft=4, FM_LowSpeedGainEnabled=True, FM_LowSpeedGainPercent=55)
     assert (p.get("FM_LowSpeedFFEnabled"), p.get("FM_LowSpeedFFStepLeft"), p.get("FM_LowSpeedGainPercent")) == (False, 4, 55)
+
+
+class TestLaneKeepMode(OpenpilotTestCase):
+  """Lane Keeping: a mode set on fm-dev-nav-settle is kept; unset -> Lane Centering, then Lane Guard, then Blendful."""
+  KEYS = ("FM_LaneKeepMode", "LaneCenteringEnabled", "LaneGuardEnabled", "Blendful", FLAG)
+
+  def migrate(self, **old):
+    params = Params()
+    for k in self.KEYS:
+      params.remove(k)
+    for k, v in old.items():
+      params.put(k, v, block=True)
+    assert run(params, [m for m in fm_migration.MIGRATIONS if m[0] == "lane_keep_mode"]) == ["lane_keep_mode"]
+    return params
+
+  def test_his_setup_carries_over(self):
+    assert self.migrate(FM_LaneKeepMode=3, LaneCenteringEnabled=True).get("FM_LaneKeepMode") == 3
+
+  def test_legacy_centering(self):
+    assert self.migrate(LaneCenteringEnabled=True, LaneGuardEnabled=True).get("FM_LaneKeepMode") == 1
+
+  def test_legacy_guard(self):
+    assert self.migrate(LaneGuardEnabled=True, Blendful=True).get("FM_LaneKeepMode") == 2
+
+  def test_legacy_blendful(self):
+    assert self.migrate(Blendful=True).get("FM_LaneKeepMode") == 3
+
+  def test_fresh_install_writes_nothing(self):
+    assert self.migrate().get("FM_LaneKeepMode") is None
+
+  def test_old_keys_untouched(self):
+    p = self.migrate(LaneGuardEnabled=True, Blendful=True)
+    assert p.get("LaneGuardEnabled") is True and p.get("Blendful") is True
