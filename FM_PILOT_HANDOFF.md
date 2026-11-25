@@ -73,7 +73,8 @@ ruff check .
 | PR 7 Lane Keeping | merged, PR #11 (`99a2b44`): `FM_LaneKeepMode` Off / Lane Centering / Lane Guard / Blendful (Off default), Lane Guard (gerrylum rx-wb `17ea338`) via `fm_lateral.py`, Blendful at 0.3 m/s with the blue line only; migration `lane_keep_mode` |
 | PR 8 Model Lateral Smoothing | merged, PR #12 (`31be347ac`): Small and Big Model Default / 0.00 s / 0.10 s choices, both modelds; migration `model_lateral_smoothing` |
 | PR 9 Calmer Crawl-Speed Steering and Calmer Straight Pull-Away | Two Off-by-default toggles for the action-head curvature floor in both modelds and Jetlink. Existing settings retain their keys. |
-| PRs 10-18 | not started |
+| PR 10 Turn Hold, Smooth Turn Start, Turn Assist logging | PR open (branch `fm-sync/pr10-turn-hold`): `fm_turn_assist.py` via `fm_lateral.py` (controlsd passes its SubMaster with `modelDataV2SP` and its curvature), logged in `fmControls.turnAssist`; six Turn Hold options folded, old keys declared, not read; keys unchanged, no migration. Turn Path Tightest Radius (`FM_TurnPathMinRadius`) is read but has no Sunnylink entry until PR 11's Turn Lead Settings. Turn Lead and the carry plug into `update()` where its comments say |
+| PRs 11-18 | not started |
 
 ## Reference (unchanged from before)
 
