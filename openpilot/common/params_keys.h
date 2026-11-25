@@ -353,6 +353,14 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"FM_TurnRestartAfterStop", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"FM_TurnPathMinRadius", {PERSISTENT | BACKUP, FLOAT, "12.0"}},  // Turn Path Tightest Radius, 8-20 m (Hold Path Source, Turn Lead)
     {"FM_TurnPhaseIn", {PERSISTENT | BACKUP, BOOL, "0"}},  // Smooth Turn Start
+    // Turn Lead Settings: same keys and meaning as on fm-dev-nav-settle, so existing values carry (Adaptive Look-Ahead
+    // and Wait for the Corner defaulted on there; fresh installs start off here)
+    {"FM_TurnLeadEnabled", {PERSISTENT | BACKUP, BOOL, "0"}},
+    {"FM_TurnLeadMinSpeed", {PERSISTENT | BACKUP, FLOAT, "7.0"}},  // mph, 2-7
+    {"FM_TurnLeadAdaptive", {PERSISTENT | BACKUP, BOOL, "0"}},  // Adaptive Look-Ahead
+    {"FM_TurnLeadGate", {PERSISTENT | BACKUP, BOOL, "0"}},  // Wait for the Corner
+    {"FM_TurnLeadGateDist", {PERSISTENT | BACKUP, FLOAT, "5.0"}},  // Turn Lead Start Distance, m, 3-10
+    {"FM_TurnLeadYield", {PERSISTENT | BACKUP, BOOL, "0"}},  // Turn Lead Yields to Your Hands
     // old (fm-dev-nav-settle) Turn Hold options, folded (always on with Turn Hold): never read, never written
     {"FM_TurnNudgeEnabled", {PERSISTENT | BACKUP, BOOL}},
     {"FM_TurnHoldEarlyCorrection", {PERSISTENT | BACKUP, BOOL}},

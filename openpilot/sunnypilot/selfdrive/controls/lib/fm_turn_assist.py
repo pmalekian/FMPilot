@@ -1,11 +1,40 @@
 """
-FM Pilot: Turn Hold and Smooth Turn Start, for blinker turns at low speed, and the Turn Assist log (fmControls.turnAssist).
+FM Pilot: Turn Lead, Turn Hold and Smooth Turn Start, for blinker turns at low speed, and the Turn Assist log
+(fmControls.turnAssist).
 
-Turn Hold acts only while a turn desire is active (the blinker turn that modeld's DesireHelper publishes as
+Turn Lead and Turn Hold act only while a turn desire is active (the blinker turn that modeld's DesireHelper publishes as
 modelDataV2SP.laneTurnDirection, from sunnypilot's Lane Turn Desire), only while openpilot is steering, and only at low
-speed: full below 15 mph, fading out by 20 mph. It fades with speed over half a second. An active hold also fades over
-half a second when the turn desire ends. It only changes the requested curvature, so every steering limit after it still
-applies.
+speed: full below 15 mph, fading out by 20 mph. They fade with speed over half a second. An active hold also fades over
+half a second when the turn desire ends. They only change the requested curvature, so every steering limit after them
+still applies.
+
+Turn Lead (FM_TurnLeadEnabled, off by default) starts the turn on time when a model turns in late. Between Turn Lead Min
+Speed (FM_TurnLeadMinSpeed, 2 to 7 mph, default 7; full strength about 2.2 mph above it) and about 16 mph it reads the
+curve of the planned path 1.3 s ahead (4 to 14 m) and, if that bends harder toward the turn than the model's request,
+asks for 85% of it instead. It fades out as the truck's actual curve catches up (gone once the truck turns as tightly as
+the path asks), and stays out when the truck is about to stop short of that point, the model steers away from the turn
+or a lane change is under way. Its request never goes tighter than Turn Path Tightest Radius (FM_TurnPathMinRadius, 8 to
+20 m, default 12; shared with Hold Path Source and Turn Nudge). Options (Turn Lead Settings, off by default):
+  - Adaptive Look-Ahead (FM_TurnLeadAdaptive): instead of a fixed 1.3 s, it reads the path as far ahead as the steering
+    actually lags: 0.5 s for a gentle curve (50 m radius or wider) up to 0.9 s for a tight one (12.5 m or tighter), never
+    closer than 3 m, judged by the path's tightest bend toward the turn in the next 17 m. That is about openpilot's
+    0.25 s steering delay plus the time the torque needs to build at the current ramp. A fixed 1.3 s at 12 to 16 mph
+    asks for the turn 7 to 9 m before it starts (it cut the curb on 0000003a--83).
+  - Wait for the Corner (FM_TurnLeadGate) and Turn Lead Start Distance (FM_TurnLeadGateDist, 3 to 10 m, default 5): Turn
+    Lead only acts once the point where the planned path has turned more than 10 degrees toward the turn is within that
+    distance (fading in over the 2 m before it). That point is 2 to 3 m into a 12 m corner, so at 5 m the lead starts
+    about 2 to 3 m before the corner itself. Once the truck is turning, the path ahead bends right away, so the gate stays
+    open; once the turn straightens out it closes.
+  - Turn Lead Yields to Your Hands (FM_TurnLeadYield): a press against the turn while Turn Lead is adding (0.25 s, or
+    1.5 Nm at once) pauses Turn Lead before the truck has turned 10 degrees (back 0.5 s after you let go) and ends it for
+    the rest of the turn after that; a press before Turn Lead starts changes nothing. 000000af--8 +52.3 s: he pushed out
+    at 1.75 Nm and Turn Lead kept adding 0.017-0.040 1/m.
+Turn Lead runs before Turn Hold, so Turn Hold holds whatever Turn Lead asked for. Ported from StarPilot's Model Turn
+Assist "turn lead" (openpilot/starpilot/lateral/model_turn_assist.py, Dom branch, Nov 2026, firestar5683 and StarPilot
+contributors, MIT), with FM Pilot changes: a smooth speed fade in place of StarPilot's hard cutoff at 7 m/s, the low end
+as a setting (StarPilot: fixed 3 m/s, about 6.7 mph) so it can reach turns pulling away from a stop, and the radius cap as
+a setting (StarPilot: fixed 0.12 1/m, about 8 m) defaulting gentler, to 12 m. The look-ahead, gate and yield options are
+FM Pilot's own.
 
 Turn Hold keeps a model from letting go of a turn halfway (TSFDOM eases from about an 11 m radius to 30 m mid-turn). It
 tracks the turn's peak request and keeps the request at no less than 90% of it, a floor that drops by 15% of the peak per
@@ -52,18 +81,19 @@ Options (Turn Hold Settings, off by default):
     second instead of keeping its floor until 75 degrees. In 00000073 (--8 +34.8 s, --8 +46.5 s, --2 +45.8 s) the floor
     kept the request 1 to 2.5 s tighter than the model until he steered out.
   - Stop Before Turning Starts Over: a stop before the truck has turned 10 degrees (a queue, a creep to the line) starts
-    the turn over, so nothing learned on the way (the hold's peak, a release) carries into the turn.
+    the turn over, so nothing learned on the way (the hold's peak, a release, Turn Lead paused or switched off by your
+    hands) carries into the turn.
 
-Smooth Turn Start (FM_TurnPhaseIn, off by default): whatever Turn Hold (and its nudge) adds on top of the model's request
-eases in over about 0.3 s (a 0.12 s low-pass) instead of arriving in one step; it still drops at once, so handing back to
-the model is never delayed. A step makes openpilot's torque controller saturate and then swing the other way as the truck
-catches up (00000068--1 +24.3 s). The model's own request is never filtered.
+Smooth Turn Start (FM_TurnPhaseIn, off by default): whatever Turn Lead, Turn Hold and Turn Nudge add on top of the model's
+request eases in over about 0.3 s (a 0.12 s low-pass) instead of arriving in one step; it still drops at once, so handing
+back to the model is never delayed. A step makes openpilot's torque controller saturate and then swing the other way as
+the truck catches up (00000068--1 +24.3 s: Turn Lead stepped from 0.016 to 0.050 1/m in 0.1 s, the request went to the
+cap, then briefly steered out of the left turn at +25.4 s). The model's own request is never filtered.
 
-Hold Path Source and Hold Adds Your Steering come from StarPilot's Model Turn Assist curvature hold
-(openpilot/starpilot/lateral/model_turn_assist.py, Dom branch, Nov 2026, firestar5683 and StarPilot contributors, MIT).
-Ported from fm-dev-nav-settle ca08aac9 (fm_turn_assist.py) with the toggles above folded; Turn Boost is dropped. Turn Lead
-(plan PR 11) runs before Turn Hold in the same update, so Turn Hold holds whatever it asks for, and Finish Turn After
-Signal Cancels (plan PR 12) supplies the turn's sign after the blinker cancels: both plug in where update() says so.
+Turn Lead, Hold Path Source and Hold Adds Your Steering come from StarPilot's Model Turn Assist "turn lead" and curvature
+hold (openpilot/starpilot/lateral/model_turn_assist.py, Dom branch, Nov 2026, firestar5683 and StarPilot contributors,
+MIT). Ported from fm-dev-nav-settle ca08aac9 (fm_turn_assist.py) with the toggles above folded; Turn Boost is dropped.
+Finish Turn After Signal Cancels (plan PR 12) supplies the turn's sign after the blinker cancels, where update() says so.
 """
 import math
 from collections import deque
@@ -83,7 +113,13 @@ PARAM_HOLD_DRIVER = "FM_TurnHoldDriverAdds"
 PARAM_HOLD_FOLLOW_EXIT = "FM_TurnHoldFollowExit"
 PARAM_RESTART_AFTER_STOP = "FM_TurnRestartAfterStop"
 PARAM_PHASE_IN = "FM_TurnPhaseIn"  # Smooth Turn Start
-PARAM_MIN_RADIUS = "FM_TurnPathMinRadius"  # Turn Path Tightest Radius (shared with Turn Lead)
+PARAM_MIN_RADIUS = "FM_TurnPathMinRadius"  # Turn Path Tightest Radius (Turn Lead, Hold Path Source, Turn Nudge)
+PARAM_LEAD = "FM_TurnLeadEnabled"
+PARAM_LEAD_MIN_SPEED = "FM_TurnLeadMinSpeed"  # mph
+PARAM_LEAD_ADAPTIVE = "FM_TurnLeadAdaptive"  # Adaptive Look-Ahead
+PARAM_LEAD_GATE = "FM_TurnLeadGate"  # Wait for the Corner
+PARAM_LEAD_GATE_DIST = "FM_TurnLeadGateDist"  # Turn Lead Start Distance, m
+PARAM_LEAD_YIELD = "FM_TurnLeadYield"  # Turn Lead Yields to Your Hands
 # Folded into Turn Hold on fm-dev-sync (always on with it). Their old keys stay declared and are never read.
 FOLDED_KEYS = ("FM_TurnNudgeEnabled", "FM_TurnHoldEarlyCorrection", "FM_TurnHoldReleaseDebounce",
                "FM_TurnHoldStartsAtTurnIn", "FM_TurnHoldSteeringOnly", "FM_TurnHoldSteadyPeak")
@@ -119,8 +155,36 @@ HOLD_STEADY_MAX_SPEED = 5 * CV.MPH_TO_MS
 HOLD_STEADY_TIME = 0.3  # s
 HOLD_STEADY_FRAMES = int(round(HOLD_STEADY_TIME / DT_CTRL))
 
-LEAD_DECEL_GATE = -0.5  # m/s^2: braking harder than this counts as stopping (Turn Nudge; Turn Lead uses it too)
-LEAD_MODEL_OPPOSE = 0.003  # 1/m: Turn Nudge needs more room than this between the path and the request
+# Turn Lead Yields to Your Hands: a press against the turn while Turn Lead is adding (HOLD_AGAINST_TIME, or
+# HOLD_AGAINST_TORQUE_FIRM at once) pauses it before the truck has turned HOLD_START_TURNED, until you have let go
+# for LEAD_YIELD_RESUME; past that it ends Turn Lead for the turn. 000000af--8 +52.3 s: he pushed out at 1.75 Nm and
+# Turn Lead kept adding 0.017-0.040 1/m.
+LEAD_YIELD_RESUME = 0.5  # s
+LEAD_YIELD_NONE, LEAD_YIELD_PAUSED, LEAD_YIELD_OFF = 0, 1, 2
+
+# Turn Lead (from StarPilot's TURN_LEAD_*)
+LEAD_TIME = 1.3  # s of travel to the path point it reads
+LEAD_DIST = (4.0, 14.0)  # m
+LEAD_PROBE_SPAN = 3.0  # m: a second point this much further, the gentler of the two is used
+LEAD_MIN_SPEED_LIMITS = (2.0, 7.0)  # mph, Turn Lead Min Speed setting; 7 is about StarPilot's 3 m/s
+LEAD_MIN_SPEED_DEFAULT = 7.0  # mph
+LEAD_FADE_IN = 1.0  # m/s (about 2.2 mph) from the min speed to full strength
+LEAD_FULL_TO, LEAD_MAX_SPEED = 6.0, 7.0  # m/s, about 13.4 and 15.7 mph
+LEAD_SCALE = 0.85
+LEAD_ENGAGED_FRAC = 0.5  # full until the truck turns half as tightly as the path asks, gone when it turns as tightly
+LEAD_MODEL_OPPOSE = 0.003  # 1/m: no Lead while the model steers away from the turn by more than this; Turn Nudge needs
+                           # more room than this between the path and the request
+LEAD_STOP_MARGIN = 1.5
+LEAD_DECEL_GATE = -0.5  # m/s^2: braking harder than this counts as stopping (Turn Lead, Turn Nudge)
+# Adaptive Look-Ahead: seconds of travel to read ahead, by how tight the path bends there (1/m)
+LEAD_ADAPTIVE_CURVATURE = (0.02, 0.08)  # 50 m and 12.5 m radius
+LEAD_ADAPTIVE_TIME = (0.5, 0.9)  # s
+LEAD_ADAPTIVE_DIST = (3.0, 14.0)  # m
+# Wait for the Corner (Start Distance gate)
+LEAD_GATE_HEADING = 10.0  # deg toward the turn: where the path counts as turning
+LEAD_GATE_DIST_LIMITS = (3.0, 10.0)  # m, setting
+LEAD_GATE_DIST_DEFAULT = 5.0
+LEAD_GATE_FADE = 2.0  # m: from no lead to full lead
 
 # Turn Hold path source (from StarPilot's CURVATURE_HOLD_PLAN_* / ONSET_* / REACH_*)
 HOLD_PATH_MAX_SPEED = 2.0 * CV.MPH_TO_MS
@@ -186,6 +250,51 @@ def plan_turn_onset(model_v2) -> float:
   return math.inf
 
 
+def plan_turn_onset_toward(model_v2, sign: int, heading_deg: float = LEAD_GATE_HEADING) -> float:
+  """Distance to the first planned point where the path heads more than heading_deg toward the turn (right for sign +1:
+  the calibrated frame's y is to the right), or inf."""
+  try:
+    xs, ys = model_v2.position.x, model_v2.position.y
+    for i in range(1, min(len(xs), len(ys))):
+      dx, dy = float(xs[i]) - float(xs[i - 1]), float(ys[i]) - float(ys[i - 1])
+      if abs(dx) < 0.001 and abs(dy) < 0.001:
+        continue
+      if sign * math.degrees(math.atan2(dy, dx)) > heading_deg:
+        return math.hypot(float(xs[i]), float(ys[i]))
+  except (AttributeError, IndexError, TypeError, ValueError, OverflowError):
+    pass
+  return math.inf
+
+
+def plan_max_curvature(model_v2, sign: int, max_dist: float, spacing: float = 1.5) -> float:
+  """Tightest bend toward the turn (>= 0, 1/m) along the planned path within max_dist: heading change between points
+  at least `spacing` m apart, over the distance between their segment midpoints."""
+  try:
+    xs, ys = model_v2.position.x, model_v2.position.y
+  except AttributeError:
+    return 0.0
+  pts = [(0.0, 0.0)]
+  for x, y in zip(xs, ys, strict=False):
+    try:
+      x, y = float(x), float(y)
+    except (TypeError, ValueError, OverflowError):
+      return 0.0
+    if not (math.isfinite(x) and math.isfinite(y)):
+      return 0.0
+    if math.hypot(x - pts[-1][0], y - pts[-1][1]) >= spacing:
+      pts.append((x, y))
+    if math.hypot(x, y) > max_dist:
+      break
+  best, prev, s = 0.0, None, 0.0
+  for (x0, y0), (x1, y1) in zip(pts, pts[1:], strict=False):
+    seg = math.hypot(x1 - x0, y1 - y0)
+    heading, mid = math.atan2(y1 - y0, x1 - x0), s + seg / 2.0
+    if prev is not None:
+      best = max(best, sign * (heading - prev[0]) / (mid - prev[1]))
+    prev, s = (heading, mid), s + seg
+  return best
+
+
 def plan_dual_probe(model_v2, d_near: float, d_far: float) -> float:
   """The gentler of the path's curvature at two distances, 0 if they disagree on direction. From StarPilot."""
   try:
@@ -219,6 +328,12 @@ class FmTurnAssist:
     self.restart_after_stop = False
     self.phase_in = False
     self.max_curvature = 1.0 / MIN_RADIUS_DEFAULT
+    self.lead_enabled = False
+    self.lead_min_speed = LEAD_MIN_SPEED_DEFAULT * CV.MPH_TO_MS
+    self.lead_adaptive = False
+    self.lead_gate = False
+    self.lead_gate_dist = LEAD_GATE_DIST_DEFAULT
+    self.lead_yield = False
     self.restarts = 0  # Stop Before Turning Starts Over: times this turn was started over (logged)
     self.amount = 0.0  # 0..1 fade
     self._reset_turn(0)
@@ -239,6 +354,22 @@ class FmTurnAssist:
     if not math.isfinite(radius):
       radius = MIN_RADIUS_DEFAULT
     self.max_curvature = 1.0 / float(np.clip(radius, *MIN_RADIUS_LIMITS))
+    self.lead_enabled = self.params.get_bool(PARAM_LEAD)
+    self.lead_min_speed = self._read_float(PARAM_LEAD_MIN_SPEED, LEAD_MIN_SPEED_DEFAULT, LEAD_MIN_SPEED_LIMITS) * CV.MPH_TO_MS
+    self.lead_adaptive = self.params.get_bool(PARAM_LEAD_ADAPTIVE)
+    self.lead_gate = self.params.get_bool(PARAM_LEAD_GATE)
+    self.lead_gate_dist = self._read_float(PARAM_LEAD_GATE_DIST, LEAD_GATE_DIST_DEFAULT, LEAD_GATE_DIST_LIMITS)
+    self.lead_yield = self.params.get_bool(PARAM_LEAD_YIELD)
+
+  def _read_float(self, key: str, default: float, limits) -> float:
+    """A number setting, clipped to its limits; unset, unreadable or not finite -> default (as fm-dev-nav-settle)."""
+    try:
+      value = float(self.params.get(key, return_default=True) or default)
+    except (TypeError, ValueError):
+      value = default
+    if not math.isfinite(value):
+      value = default
+    return float(np.clip(value, *limits))
 
   def _reset_turn(self, sign: int) -> None:
     self.sign = sign
@@ -261,18 +392,54 @@ class FmTurnAssist:
     self.exit_fade_curvature = 0.0  # toward: what was applied when it started
     self.applied = 0.0  # toward: what the last frame applied (after Smooth Turn Start)
     self.steady = deque(maxlen=HOLD_STEADY_FRAMES)  # Hold Ignores Crawl Spikes: the last 0.3 s of the hold's input
+    self.lead_prev = 0.0  # Turn Lead Yields to Your Hands: what Turn Lead added last frame
+    self.lead_against = 0.0
+    self.lead_paused = False
+    self.lead_resume = 0.0
+    self.lead_off = False
 
   def _clear_log(self, desired_curvature: float) -> None:
     """Per-frame record of what Turn Assist did, for fmControls.turnAssist. Nothing here feeds back into control."""
     self.log_source = SOURCE_NONE
     self.log_in = self.log_out = float(desired_curvature)
-    self.log_driver = self.log_path = self.log_floor = 0.0
+    self.log_lead = self.log_driver = self.log_path = self.log_floor = 0.0
     self.log_nudge = self.log_smooth_cut = self.log_exit = self.log_floor_level = 0.0
     self.log_early = False
 
   @property
   def enabled(self) -> bool:
-    return self.hold_enabled
+    return self.hold_enabled or self.lead_enabled
+
+  def lead_curvature(self, model_v2, sign: int, v_ego: float, a_ego: float, actual_curvature: float) -> float:
+    """Turn Lead's request toward the turn (>= 0, before the fade), or 0."""
+    lo = self.lead_min_speed
+    speed_w = float(np.interp(v_ego, [lo, lo + LEAD_FADE_IN, LEAD_FULL_TO, LEAD_MAX_SPEED], [0.0, 1.0, 1.0, 0.0]))
+    if model_v2 is None or speed_w <= 0.0:
+      return 0.0
+    d_near = self.lead_distance(model_v2, sign, v_ego)
+    if a_ego < LEAD_DECEL_GATE and v_ego ** 2 / (2.0 * -a_ego) < LEAD_STOP_MARGIN * d_near:
+      return 0.0  # stopping short of the point it reads
+    lead = sign * plan_dual_probe(model_v2, d_near, d_near + LEAD_PROBE_SPAN) * LEAD_SCALE
+    lead = min(lead, self.max_curvature)
+    if lead <= 0.0:
+      return 0.0
+    engaged = max(sign * actual_curvature, 0.0) / lead
+    engage_w = float(np.clip((1.0 - engaged) / (1.0 - LEAD_ENGAGED_FRAC), 0.0, 1.0))
+    gate_w = 1.0
+    if self.lead_gate:
+      onset = plan_turn_onset_toward(model_v2, sign)
+      gate_w = float(np.interp(onset, [self.lead_gate_dist, self.lead_gate_dist + LEAD_GATE_FADE], [1.0, 0.0])) \
+        if math.isfinite(onset) else 0.0
+    return lead * speed_w * engage_w * gate_w
+
+  def lead_distance(self, model_v2, sign: int, v_ego: float) -> float:
+    """How far ahead Turn Lead reads the path: a fixed 1.3 s of travel, or with Adaptive Look-Ahead 0.5 to 0.9 s by how
+    tightly the planned path bends toward the turn anywhere in the next 17 m."""
+    if not self.lead_adaptive:
+      return float(np.clip(LEAD_TIME * v_ego, *LEAD_DIST))
+    bend = plan_max_curvature(model_v2, sign, LEAD_DIST[1] + LEAD_PROBE_SPAN)
+    lead_time = float(np.interp(bend, LEAD_ADAPTIVE_CURVATURE, LEAD_ADAPTIVE_TIME))
+    return float(np.clip(lead_time * v_ego, *LEAD_ADAPTIVE_DIST))
 
   def hold_path_curvature(self, model_v2, sign: int) -> float:
     """Turn Hold's path source toward the turn (>= 0, before the fade), or 0."""
@@ -345,9 +512,9 @@ class FmTurnAssist:
       self.restarts = 0
     elif (self.restart_after_stop and sign != 0 and not lat_active and v_ego < HOLD_MOVING_SPEED
           and self.turned < HOLD_START_TURNED
-          and (self.peak > 0.0 or self.hold_released or self.turned > 0.0)):
+          and (self.peak > 0.0 or self.hold_released or self.lead_off or self.lead_paused or self.turned > 0.0)):
       # Stop Before Turning Starts Over: stopped before the truck has turned 10 degrees (a queue, a creep to the line):
-      # nothing learned on the way (hold peak, a release) carries into the turn. Turn Lead (PR 11) adds its own state here.
+      # nothing learned on the way (hold peak, a release, Turn Lead paused or switched off by a press) carries into the turn
       self._reset_turn(sign)
       self.restarts = min(self.restarts + 1, 255)
     if sign != 0:
@@ -365,7 +532,15 @@ class FmTurnAssist:
     out = desired_curvature
     toward = sign * out  # positive when the request turns the turn's way
 
-    # Turn Lead (plan PR 11) goes here, before Turn Hold, so Turn Hold holds whatever it asked for
+    # Turn Lead, before Turn Hold, so Turn Hold holds whatever it asked for
+    lead_yields = self.lead_enabled and self.lead_yield and self._lead_yield(sign, steering_pressed, steering_torque)
+    if self.lead_enabled and not lane_changing and toward > -LEAD_MODEL_OPPOSE and not lead_yields:
+      lead = self.lead_curvature(model_v2, sign, v_ego, a_ego, actual_curvature)
+      if lead > max(toward, 0.0):
+        out = sign * (toward + (lead - toward) * self.amount)
+        self.log_lead = sign * out - toward
+        toward = sign * out
+    self.lead_prev = self.log_lead
 
     before_hold = out
     model_toward = sign * desired_curvature
@@ -447,10 +622,30 @@ class FmTurnAssist:
     self.log_out = self._smooth_start(desired_curvature, out, sign)
     return self.log_out
 
+  def _lead_yield(self, sign: int, steering_pressed: bool, steering_torque: float) -> bool:
+    """Turn Lead Yields to Your Hands: True while Turn Lead must not add this frame. Only a press against the turn
+    made while Turn Lead is adding counts, so pressing before it starts (straightening, a creep) changes nothing."""
+    if self.lead_off:
+      return True
+    against = steering_pressed and sign * steering_torque > 0.0
+    engaged = against and (self.lead_prev > LEAD_MODEL_OPPOSE or self.lead_paused)
+    self.lead_against = self.lead_against + DT_CTRL if engaged else 0.0
+    if engaged and (self.lead_against >= HOLD_AGAINST_TIME - 1e-6 or sign * steering_torque >= HOLD_AGAINST_TORQUE_FIRM):
+      if self.turned >= HOLD_START_TURNED:
+        self.lead_off, self.lead_paused = True, False  # into the turn: you are steering it, for the rest of it
+      else:
+        self.lead_paused, self.lead_resume = True, LEAD_YIELD_RESUME  # before turn-in: back once you let go
+      return True
+    if self.lead_paused:
+      self.lead_resume = LEAD_YIELD_RESUME if against else self.lead_resume - DT_CTRL
+      if self.lead_resume <= 0.0:
+        self.lead_paused = False
+    return self.lead_paused
+
   def fill_log(self, msg) -> None:
     """Write this frame's record into fmControls.turnAssist. msg is a fresh message, so a field at its default (0,
-    False, none) is left alone: with no turn only the request in and out are written, 2 fields instead of 20, on every
-    control step. Turn Lead's fields (lead, leadYield) stay 0 until plan PR 11."""
+    False, none) is left alone: with no turn only the request in and out are written, 2 fields instead of 22, on every
+    control step."""
     if self.sign == 0 and self.log_source == SOURCE_NONE and self.amount == 0.0 and self.log_exit == 0.0:
       # no turn and nothing fading: _reset_turn(0) and _clear_log() left every other field at 0
       if self.log_in:
@@ -464,6 +659,7 @@ class FmTurnAssist:
       ("amount", float(self.amount)),
       ("requestIn", float(self.log_in)),
       ("requestOut", float(self.log_out)),
+      ("lead", float(self.log_lead)),
       ("driverAdds", float(self.log_driver)),
       ("holdPath", float(self.log_path)),
       ("holdFloor", float(self.log_floor)),
@@ -479,6 +675,7 @@ class FmTurnAssist:
       ("releaseReason", int(self.release_reason)),
       ("earlyCorrection", bool(self.log_early)),
       ("againstTime", float(self.against_time)),
+      ("leadYield", LEAD_YIELD_OFF if self.lead_off else (LEAD_YIELD_PAUSED if self.lead_paused else LEAD_YIELD_NONE)),
       ("restarts", int(self.restarts)),
     ):
       if value:

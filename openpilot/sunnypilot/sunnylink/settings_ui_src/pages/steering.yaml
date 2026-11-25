@@ -546,11 +546,14 @@ sections:
   - key: FM_TurnPhaseIn
     widget: toggle
     title: Smooth Turn Start
-    description: 'Whatever Turn Hold adds on top of the model eases in over about a third of a second instead of
-      arriving all at once, so the steering doesn''t grab and then swing back. It still lets go at once, so handing
-      back to the model isn''t delayed. The model''s own steering is never slowed.'
+    description: 'Whatever Turn Lead and Turn Hold add on top of the model eases in over about a third of a second
+      instead of arriving all at once, so the steering doesn''t grab and then swing back. It still lets go at once, so
+      handing back to the model isn''t delayed. The model''s own steering is never slowed.'
     enablement:
-    - {type: param, key: FM_TurnHoldEnabled, equals: true}
+    - type: any
+      conditions:
+      - {type: param, key: FM_TurnHoldEnabled, equals: true}
+      - {type: param, key: FM_TurnLeadEnabled, equals: true}
   - key: FM_LowSpeedCorrectionStrength
     widget: option
     title: Low-Speed Correction Strength
@@ -611,6 +614,14 @@ sections:
       through without ending it; it ignores the wheel while openpilot isn''t steering; below 5 mph it only holds a
       request the model kept up for 0.3 seconds; and a deliberate nudge into the turn at 2 to 8 mph adds a little
       extra steering when the path just ahead already bends that way.'
+  - key: FM_TurnLeadEnabled
+    widget: toggle
+    title: Turn Lead
+    description: During a blinker turn from Turn Lead Min Speed up to about 16 mph, start turning on time when the model
+      turns in late. Reads the curve of the planned path just ahead and asks for it until the truck catches up, then hands
+      back to the model. Never asks for a tighter turn than Turn Path Tightest Radius. Works with Turn Hold (which then
+      holds what Turn Lead asked for), but using one at a time makes each turn easier to judge. From StarPilot's Model
+      Turn Assist.
   sub_panels:
   - id: turn_hold_settings
     label: Turn Hold Settings
@@ -625,7 +636,7 @@ sections:
       title: Hold Path Source
       description: When starting a turn from a stop or a crawl (under about 2 mph), also take the turn from the planned
         path, so the truck turns even if the model's steering request still says straight. Never tighter than Turn Path
-        Tightest Radius (12 m unless changed). From StarPilot's Model Turn Assist.
+        Tightest Radius (12 m unless changed on Turn Lead Settings). From StarPilot's Model Turn Assist.
       enablement:
       - {type: param, key: FM_TurnHoldEnabled, equals: true}
     - key: FM_TurnHoldDriverAdds
@@ -651,6 +662,80 @@ sections:
       title: Stop Before Turning Starts Over
       description: If the truck stops before it has turned 10 degrees (waiting in a line, creeping up to the stop line),
         the turn starts over when you pull away. Nothing from the creep carries into the real turn - not Turn Hold's
-        remembered curve, not a hold you released. A turn you pause partway through (past 10 degrees) keeps everything.
+        remembered curve, not a hold you released, not Turn Lead paused or switched off by your hands. A turn you pause
+        partway through (past 10 degrees) keeps everything.
       enablement:
       - {type: param, key: FM_TurnHoldEnabled, equals: true}
+  - id: turn_lead_settings
+    label: Turn Lead Settings
+    trigger_key: FM_TurnLeadEnabled
+    trigger_condition:
+      type: param
+      key: FM_TurnLeadEnabled
+      equals: true
+    items:
+    - key: FM_TurnLeadMinSpeed
+      widget: option
+      title: Turn Lead Min Speed
+      description: Lowest speed Turn Lead works at; it reaches full strength about 2 mph above this. Lower it to help
+        turns that start late when pulling away from a stop. 7 mph is about StarPilot's fixed value and the default.
+        Below 2 mph, Turn Hold's Hold Path Source covers turns from a stop.
+      min: 2
+      max: 7
+      step: 1
+      unit: mph
+      enablement:
+      - {type: param, key: FM_TurnLeadEnabled, equals: true}
+    - key: FM_TurnLeadAdaptive
+      widget: toggle
+      title: Adaptive Look-Ahead
+      description: Reads the path only as far ahead as the steering actually lags, 0.5 s for a gentle curve up to 0.9 s
+        for a tight turn, instead of a fixed 1.3 s, so the turn doesn't start several meters before the corner. Off is
+        the fixed 1.3 s.
+      enablement:
+      - {type: param, key: FM_TurnLeadEnabled, equals: true}
+    - key: FM_TurnLeadGate
+      widget: toggle
+      title: Wait for the Corner
+      description: Turn Lead only starts once the corner is close, within Turn Lead Start Distance, instead of as soon
+        as the planned path shows a turn somewhere ahead. Stops it from turning toward the curb before you reach the
+        corner.
+      enablement:
+      - {type: param, key: FM_TurnLeadEnabled, equals: true}
+    - key: FM_TurnLeadGateDist
+      widget: option
+      title: Turn Lead Start Distance
+      description: With Wait for the Corner, how close the corner has to be (where the planned path has turned 10
+        degrees, a couple of meters into it) before Turn Lead acts. Smaller starts later. Default 5 m, about 2 to 3 m
+        before the corner.
+      min: 3
+      max: 10
+      step: 1
+      unit: m
+      enablement:
+      - {type: param, key: FM_TurnLeadEnabled, equals: true}
+      - {type: param, key: FM_TurnLeadGate, equals: true}
+    - key: FM_TurnLeadYield
+      widget: toggle
+      title: Turn Lead Yields to Your Hands
+      description: If you hold the wheel against the turn while Turn Lead is adding steering (a quarter second, or
+        firmly), Turn Lead backs off. Before the truck has turned 10 degrees it only pauses and comes back half a second
+        after you let go; once the truck is turning, it stays off for the rest of that turn. Pressing before Turn Lead
+        starts changes nothing.
+      enablement:
+      - {type: param, key: FM_TurnLeadEnabled, equals: true}
+    - key: FM_TurnPathMinRadius
+      widget: option
+      title: Turn Path Tightest Radius
+      description: The tightest turn Turn Lead may ask for on its own, as a radius. Hold Path Source (Turn Hold
+        Settings) and Turn Hold's built-in nudge share this setting. Smaller is stronger; 8 m is the strongest. Default
+        12 m. Your own steering (Hold Adds Your Steering) isn't limited by it.
+      min: 8
+      max: 20
+      step: 1
+      unit: m
+      enablement:
+      - type: any
+        conditions:
+        - {type: param, key: FM_TurnLeadEnabled, equals: true}
+        - {type: param, key: FM_TurnHoldPathSource, equals: true}
