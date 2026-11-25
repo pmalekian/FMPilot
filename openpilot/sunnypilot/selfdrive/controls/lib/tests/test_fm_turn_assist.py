@@ -1,10 +1,10 @@
-"""FM Pilot: Turn Hold, Smooth Turn Start and the Turn Assist log (fm_turn_assist.py).
+"""FM Pilot: Turn Lead, Turn Hold, Smooth Turn Start and the Turn Assist log (fm_turn_assist.py).
 
 Ported from fm-dev-nav-settle ca08aac9 (test_fm_turn_assist.py). Turn Nudge, Hold Through Early Correction, Ignore Brief
 Hand Blips, Hold Starts at Turn-In, Hold Only Counts While Steering and Hold Ignores Crawl Spikes are folded into Turn
 Hold (always on with it), so the tests that drove them off are gone and the ones that relied on them being off now turn
-the truck past 10 degrees, press firmly or press long enough. Turn Boost (dropped), Turn Lead (plan PR 11) and Finish
-Turn After Signal Cancels (plan PR 12) tests are not here.
+the truck past 10 degrees, press firmly or press long enough. Turn Lead and its options came with plan PR 11. Turn Boost
+(dropped) and Finish Turn After Signal Cancels (plan PR 12) tests are not here.
 """
 import math
 from pathlib import Path
@@ -22,17 +22,23 @@ from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_assist import (FmTurnAs
                                                                          FADE_TIME, PARAM_MIN_RADIUS, MIN_RADIUS_DEFAULT,
                                                                          PARAM_HOLD_PATH, PARAM_HOLD_DRIVER, PARAM_PHASE_IN,
                                                                          PHASE_IN_TAU, HOLD_AGAINST_TIME, PARAM_HOLD_FOLLOW_EXIT,
-                                                                         PARAM_RESTART_AFTER_STOP, FOLDED_KEYS, turn_sign)
+                                                                         PARAM_RESTART_AFTER_STOP, FOLDED_KEYS, turn_sign,
+                                                                         PARAM_LEAD, PARAM_LEAD_MIN_SPEED, PARAM_LEAD_ADAPTIVE,
+                                                                         PARAM_LEAD_GATE, PARAM_LEAD_GATE_DIST, PARAM_LEAD_YIELD,
+                                                                         plan_circle_curvature)
 
 LEFT, RIGHT, NONE = TurnDirection.turnLeft, TurnDirection.turnRight, TurnDirection.none
 FADE_STEPS = int(FADE_TIME / DT_CTRL) + 2
 SETTING_KEYS = (PARAM_HOLD, PARAM_HOLD_PATH, PARAM_HOLD_DRIVER, PARAM_HOLD_FOLLOW_EXIT, PARAM_RESTART_AFTER_STOP, PARAM_PHASE_IN)
+LEAD_TOGGLES = (PARAM_LEAD, PARAM_LEAD_ADAPTIVE, PARAM_LEAD_GATE, PARAM_LEAD_YIELD)
 
 
 class FakeParams:
   def __init__(self, **values):
     self.values = {PARAM_HOLD: False, PARAM_HOLD_PATH: False, PARAM_HOLD_DRIVER: False, PARAM_HOLD_FOLLOW_EXIT: False,
-                   PARAM_RESTART_AFTER_STOP: False, PARAM_PHASE_IN: False, PARAM_MIN_RADIUS: MIN_RADIUS_DEFAULT} | values
+                   PARAM_RESTART_AFTER_STOP: False, PARAM_PHASE_IN: False, PARAM_MIN_RADIUS: MIN_RADIUS_DEFAULT,
+                   PARAM_LEAD: False, PARAM_LEAD_MIN_SPEED: 7.0, PARAM_LEAD_ADAPTIVE: False, PARAM_LEAD_GATE: False,
+                   PARAM_LEAD_GATE_DIST: 5.0, PARAM_LEAD_YIELD: False} | values
     self.reads = set()
 
   def get_bool(self, key):
@@ -700,6 +706,27 @@ class TestRestartAfterStop:
     a.fill_log(m)
     assert m.restarts == 1
 
+  @pytest.mark.parametrize("turned_deg,state", [(15.0, "lead_off"), (0.0, "lead_paused")])
+  def test_on_rearms_turn_lead_yielded_on_the_creep(self, turned_deg, state):
+    """Turn Lead switched off (or paused) by your hands on the creep doesn't carry into the turn."""
+    a = FmTurnAssist(FakeParams(**{PARAM_LEAD: True, PARAM_LEAD_YIELD: True, PARAM_RESTART_AFTER_STOP: True}))
+    run(a, 0.0, RIGHT, steps=FADE_STEPS, model=path(15.0), actual=0.0)
+    a.turned = math.radians(turned_deg)
+    run(a, 0.0, RIGHT, steps=30, model=path(15.0), actual=0.0, pressed=True, torque=1.0)
+    assert getattr(a, state)
+    a.turned = 0.0  # back under 10 deg (a shortcut: the creep turned back), then a stop
+    run(a, 0.0, RIGHT, mph=0.0, steps=5, model=path(15.0), actual=0.0, lat=False)
+    assert not a.lead_off and not a.lead_paused and a.restarts == 1
+
+  def test_off_keeps_turn_lead_switched_off(self):
+    a = FmTurnAssist(FakeParams(**{PARAM_LEAD: True, PARAM_LEAD_YIELD: True}))
+    run(a, 0.0, RIGHT, steps=FADE_STEPS, model=path(15.0), actual=0.0)
+    a.turned = math.radians(15.0)
+    run(a, 0.0, RIGHT, steps=30, model=path(15.0), actual=0.0, pressed=True, torque=1.0)
+    a.turned = 0.0
+    run(a, 0.0, RIGHT, mph=0.0, steps=50, model=path(15.0), actual=0.0, lat=False)
+    assert a.lead_off and a.restarts == 0
+
 
 class TestSmoothTurnStart:
   """Smooth Turn Start (FM_TurnPhaseIn): what Turn Hold adds eases in over about 0.3 s and drops at once; the model's
@@ -852,10 +879,11 @@ class TestTurnAssistLog:
     m = self.logged(a)
     assert m.holdFloor > 0.0 and m.smoothCut == pytest.approx(m.holdFloor - out, rel=1e-4) and m.smoothCut > 0.0
 
-  def test_turn_lead_fields_stay_zero(self):
-    """Turn Lead (plan PR 11) isn't here yet: its fields stay at their defaults, whatever happens."""
+  def test_turn_lead_fields_stay_zero_with_turn_lead_off(self):
+    """With Turn Lead off (its options on), its fields stay at their defaults, whatever happens."""
     rng = np.random.default_rng(7)
-    a = hold(**{PARAM_HOLD_DRIVER: True, PARAM_HOLD_PATH: True, PARAM_PHASE_IN: True})
+    a = hold(**{PARAM_HOLD_DRIVER: True, PARAM_HOLD_PATH: True, PARAM_PHASE_IN: True, PARAM_LEAD_ADAPTIVE: True,
+                PARAM_LEAD_GATE: True, PARAM_LEAD_YIELD: True, PARAM_LEAD_MIN_SPEED: 2.0})
     for i in range(3000):
       k = 0.08 * math.sin(i / 50)
       run(a, k, RIGHT if (i // 400) % 2 else LEFT, mph=float(rng.uniform(0, 12)), actual=k * 0.8,
@@ -863,8 +891,31 @@ class TestTurnAssistLog:
       m = self.logged(a)
       assert m.lead == 0.0 and m.leadYield == 0 and str(m.source) != "carry"
 
+  def test_lead_logged(self):
+    a = FmTurnAssist(FakeParams(**{PARAM_LEAD: True, PARAM_LEAD_MIN_SPEED: 2.0}))
+    model = path(10, start=0.0)
+    out = run(a, 0.0, RIGHT, mph=5, steps=FADE_STEPS, actual=0.0, model=model)
+    m = self.logged(a)
+    assert m.lead == pytest.approx(out, rel=1e-4) and m.lead > 0.0 and not m.holdActive and m.leadYield == 0
+    run(a, 0.0, NONE, steps=FADE_STEPS)
+    assert self.logged(a).lead == 0.0  # Turn Lead has no cancel fade
+
+  def test_turned_counts_with_turn_lead_only(self):
+    a = FmTurnAssist(FakeParams(**{PARAM_LEAD: True}))
+    v = 10 * CV.MPH_TO_MS
+    run(a, 0.05, RIGHT, steps=100, actual=0.05)
+    assert self.logged(a).turned == pytest.approx(math.degrees(0.05 * v * DT_CTRL * 100), rel=1e-3)
+
+  def test_lead_smooth_start_cut_logged(self):
+    a = FmTurnAssist(FakeParams(**{PARAM_LEAD: True, PARAM_LEAD_MIN_SPEED: 2.0, PARAM_PHASE_IN: True}))
+    run(a, 0.0, RIGHT, mph=5, steps=FADE_STEPS, actual=0.0)  # no model: no lead yet
+    run(a, 0.0, RIGHT, mph=5, actual=0.0, model=path(10, start=0.0))
+    m = self.logged(a)
+    assert m.lead > 0.0 and m.smoothCut > 0.0 and m.requestOut < m.lead
+
   def test_logging_changes_nothing(self):
-    opts = {PARAM_HOLD_DRIVER: True, PARAM_HOLD_PATH: True, PARAM_PHASE_IN: True}
+    opts = {PARAM_HOLD_DRIVER: True, PARAM_HOLD_PATH: True, PARAM_PHASE_IN: True, PARAM_LEAD: True, PARAM_LEAD_MIN_SPEED: 2.0,
+            PARAM_LEAD_YIELD: True}
     a, b = hold(**opts), hold(**opts)
     model = path(10, start=0.0)
     for k, act, d in [(0.0, 0.0, RIGHT), (0.02, 0.05, RIGHT), (0.01, 0.09, RIGHT), (0.01, 0.05, NONE)] * 30:
@@ -969,11 +1020,19 @@ class TestFmLateralWiring:
         lat.update(0.09, SimpleNamespace(), CS, True, False, 0.001, sm)
       assert lat.update(0.03, SimpleNamespace(), CS, True, False, 0.001, sm) == 0.03
 
-  def test_turn_hold_off_skips_the_update(self):
-    lat = self._lateral(**{PARAM_HOLD: False})
-    lat.turn_assist.update = lambda *a, **k: (_ for _ in ()).throw(AssertionError("not with Turn Hold off"))
+  def test_turn_hold_and_lead_off_skips_the_update(self):
+    lat = self._lateral(**{PARAM_HOLD: False, PARAM_LEAD_ADAPTIVE: True, PARAM_LEAD_GATE: True, PARAM_LEAD_YIELD: True})
+    lat.turn_assist.update = lambda *a, **k: (_ for _ in ()).throw(AssertionError("not with Turn Hold and Lead off"))
     CS = SimpleNamespace(vEgo=4.0, steeringPressed=False, leftBlinker=False, rightBlinker=True)
     assert lat.update(0.05, SimpleNamespace(), CS, True, False, 0.0, self.ControlsdSM(RIGHT)) == 0.05
+
+  def test_turn_lead_alone_runs(self):
+    lat = self._lateral(**{PARAM_HOLD: False, PARAM_LEAD: True})
+    CS = SimpleNamespace(vEgo=10 * CV.MPH_TO_MS, steeringPressed=False, leftBlinker=False, rightBlinker=True)
+    out = 0.0
+    for _ in range(FADE_STEPS):
+      out = lat.update(0.0, path(15.0), CS, True, False, 0.0, self.ControlsdSM(RIGHT))
+    assert out > 0.02
 
   def test_controlsd_subscribes_to_the_turn_desire_and_passes_its_submaster(self):
     import ast
@@ -1009,9 +1068,11 @@ class TestSettings:
   def test_defaults_off(self):
     from openpilot.common.params import Params
     params = Params()
-    for key in SETTING_KEYS:
+    for key in SETTING_KEYS + LEAD_TOGGLES:
       assert params.get_default_value(key) is False, key
     assert params.get_default_value(PARAM_MIN_RADIUS) == pytest.approx(MIN_RADIUS_DEFAULT)
+    assert params.get_default_value(PARAM_LEAD_MIN_SPEED) == pytest.approx(7.0)
+    assert params.get_default_value(PARAM_LEAD_GATE_DIST) == pytest.approx(5.0)
     for key in FOLDED_KEYS:  # still declared, so switching back to fm-dev-nav-settle keeps them; no default written
       assert params.get_default_value(key) is None, key
 
@@ -1019,6 +1080,19 @@ class TestSettings:
     a = FmTurnAssist(FakeParams())
     assert not a.enabled and not a.hold_path and not a.hold_driver and not a.hold_follow_exit
     assert not a.restart_after_stop and not a.phase_in
+    assert not a.lead_enabled and not a.lead_adaptive and not a.lead_gate and not a.lead_yield
+    assert a.lead_min_speed == pytest.approx(7.0 * CV.MPH_TO_MS) and a.lead_gate_dist == 5.0
+    assert a.max_curvature == pytest.approx(1 / MIN_RADIUS_DEFAULT)
+
+  def test_fresh_install_with_real_params_is_off(self):
+    """Unset keys read through Params' declared defaults: Turn Lead and its options off, 7 mph, 5 m, 12 m."""
+    from openpilot.common.params import Params
+    from openpilot.common.prefix import OpenpilotPrefix
+    with OpenpilotPrefix():  # an empty params store, as on a fresh install
+      a = FmTurnAssist(Params())
+    assert not a.lead_enabled and not a.lead_adaptive and not a.lead_gate and not a.lead_yield
+    assert a.lead_min_speed == pytest.approx(7.0 * CV.MPH_TO_MS) and a.lead_gate_dist == pytest.approx(5.0)
+    assert a.max_curvature == pytest.approx(1 / MIN_RADIUS_DEFAULT)
 
   def test_smooth_turn_start_goes_first_in_fm_smoothing(self):
     keys = [item["key"] for item in self._sections()["fm_smoothing"]["items"]]
@@ -1033,8 +1107,305 @@ class TestSettings:
                                                       PARAM_RESTART_AFTER_STOP]
     assert all(item["widget"] == "toggle" for item in sub["items"])
 
+  def test_every_turn_assist_setting_is_declared(self):
+    from openpilot.common.params import Params
+    params = Params()
+    for key in SETTING_KEYS + LEAD_TOGGLES + (PARAM_LEAD_MIN_SPEED, PARAM_LEAD_GATE_DIST, PARAM_MIN_RADIUS):
+      assert params.check_key(key), key
+
   def test_folded_keys_not_in_the_settings(self):
     text = self.STEERING_YAML.read_text()
     for key in FOLDED_KEYS:
       assert key not in text
     assert "Nov 20" not in text
+
+
+def lead(**values):
+  return FmTurnAssist(FakeParams(**({PARAM_LEAD: True} | values)))
+
+
+class TestTurnLead:
+  """Turn Lead (FM_TurnLeadEnabled): starts the turn on time from the planned path's curve ahead. From StarPilot's Model
+  Turn Assist "turn lead"."""
+
+  def test_off_by_default(self):
+    a = FmTurnAssist(FakeParams())
+    assert run(a, 0.0, RIGHT, steps=FADE_STEPS, model=path(10.0), actual=0.0) == 0.0
+
+  def test_path_geometry_sign(self):
+    p = path(10.0, start=0.0)
+    assert plan_circle_curvature(p.position.x, p.position.y, 7.0) == pytest.approx(0.1, rel=0.05)  # right is positive
+    q = path(10.0, start=0.0, side=-1)
+    assert plan_circle_curvature(q.position.x, q.position.y, 7.0) == pytest.approx(-0.1, rel=0.05)
+
+  def test_turns_in_when_model_is_late(self):
+    a = lead()
+    assert a.enabled and not a.hold_enabled
+    out = run(a, 0.0, RIGHT, steps=FADE_STEPS, model=path(15.0), actual=0.0)
+    assert 0.02 < out <= 1 / MIN_RADIUS_DEFAULT + 1e-9
+
+  def test_left_turn(self):
+    assert run(lead(), 0.0, LEFT, steps=FADE_STEPS, model=path(15.0, side=-1), actual=0.0) < -0.02
+
+  def test_never_toward_the_other_side(self):
+    assert run(lead(), 0.0, RIGHT, steps=FADE_STEPS, model=path(15.0, side=-1), actual=0.0) == 0.0
+
+  @pytest.mark.parametrize("setting,radius", [(MIN_RADIUS_DEFAULT, MIN_RADIUS_DEFAULT), (8.0, 8.0), (3.0, 8.0), (40.0, 20.0),
+                                              (None, MIN_RADIUS_DEFAULT), ("x", MIN_RADIUS_DEFAULT),
+                                              (float("nan"), MIN_RADIUS_DEFAULT)])
+  def test_tight_radius_cap(self, setting, radius):
+    """Turn Path Tightest Radius caps Turn Lead's request (a 5 m corner asks for more than any setting allows)."""
+    a = lead(**{PARAM_MIN_RADIUS: setting})
+    out = run(a, 0.0, RIGHT, steps=FADE_STEPS, model=path(5.0, start=0.0), actual=0.0)
+    assert out == pytest.approx(1 / radius)
+
+  def test_hands_back_as_truck_catches_up(self):
+    a = lead()
+    half = run(a, 0.0, RIGHT, steps=FADE_STEPS, model=path(15.0), actual=0.0)
+    assert run(a, 0.0, RIGHT, model=path(15.0), actual=half) == 0.0  # turning as tightly as the path asks: model again
+
+  def test_never_reduces_model_request(self):
+    assert run(lead(), 0.09, RIGHT, steps=FADE_STEPS, model=path(15.0), actual=0.0) == 0.09
+
+  @pytest.mark.parametrize("mph,active", [(5, False), (9, True), (13, True), (17, False)])
+  def test_speed_band(self, mph, active):
+    out = run(lead(), 0.0, RIGHT, mph=mph, steps=FADE_STEPS, model=path(15.0), actual=0.0)
+    assert (out > 0.0) == active
+
+  @pytest.mark.parametrize("setting,mph,active", [(7.0, 6, False), (3.0, 2, False), (3.0, 4, True), (2.0, 3, True),
+                                                  (1.0, 1.5, False), (10.0, 6, False), (None, 6, False), ("x", 8, True)])
+  def test_min_speed_setting(self, setting, mph, active):
+    """Below and above Turn Lead Min Speed (clipped to 2..7 mph; unset or unreadable -> 7)."""
+    out = run(lead(**{PARAM_LEAD_MIN_SPEED: setting}), 0.0, RIGHT, mph=mph, steps=FADE_STEPS, model=path(15.0), actual=0.0)
+    assert (out > 0.0) == active
+
+  def test_full_strength_about_2_mph_above_min(self):
+    full = run(lead(**{PARAM_LEAD_MIN_SPEED: 3.0}), 0.0, RIGHT, mph=9, steps=FADE_STEPS, model=path(15.0, start=0.0),
+               actual=0.0)  # a circle: same curve at any distance
+    b = lead(**{PARAM_LEAD_MIN_SPEED: 3.0})
+    assert run(b, 0.0, RIGHT, mph=5.3, steps=FADE_STEPS, model=path(15.0, start=0.0), actual=0.0) == pytest.approx(full, rel=0.05)
+
+  def test_not_when_stopping_short(self):
+    assert run(lead(), 0.0, RIGHT, steps=FADE_STEPS, model=path(15.0), actual=0.0, a_ego=-3.0) == 0.0
+
+  def test_not_when_model_steers_away(self):
+    assert run(lead(), -0.01, RIGHT, steps=FADE_STEPS, model=path(15.0), actual=0.0) == -0.01
+
+  def test_not_during_lane_change(self):
+    assert run(lead(), 0.0, RIGHT, steps=FADE_STEPS, model=path(15.0), actual=0.0, lane_changing=True) == 0.0
+
+  def test_not_while_openpilot_isnt_steering(self):
+    assert run(lead(), 0.0, RIGHT, steps=FADE_STEPS, model=path(15.0), actual=0.0, lat=False) == 0.0
+
+  def test_no_turn_no_lead(self):
+    assert run(lead(), 0.0, NONE, steps=FADE_STEPS, model=path(15.0), actual=0.0) == 0.0
+
+  def test_no_path_no_lead(self):
+    a = lead()
+    assert run(a, 0.0, RIGHT, steps=FADE_STEPS, model=None, actual=0.0) == 0.0
+    assert run(a, 0.0, RIGHT, steps=FADE_STEPS, model=SimpleNamespace(), actual=0.0) == 0.0
+
+  def test_hold_keeps_what_lead_asked(self):
+    """Turn Lead runs before Turn Hold: the hold's peak is Turn Lead's request, and the floor holds it."""
+    a = lead(**{PARAM_HOLD: True})
+    asked = run(a, 0.0, RIGHT, steps=FADE_STEPS, model=path(15.0), actual=0.0)
+    assert a.peak == pytest.approx(asked)
+    assert run(a, 0.0, RIGHT, model=path(None), actual=0.0) == pytest.approx(asked * 0.9, rel=0.02)
+
+  def test_nudge_needs_turn_hold(self):
+    """Turn Nudge is part of Turn Hold: Turn Lead alone never nudges."""
+    a = lead(**{PARAM_LEAD_MIN_SPEED: 7.0})  # below 7 mph Turn Lead adds nothing, so only a nudge could
+    model = path(12, start=0.0)
+    run(a, 0.0, RIGHT, mph=4, steps=FADE_STEPS, actual=0.0, model=model)
+    assert run(a, 0.0, RIGHT, mph=4, steps=30, actual=0.0, model=model, pressed=True, torque=-1.0) == 0.0
+
+
+class TestAdaptiveLookAhead:
+  """Adaptive Look-Ahead: Turn Lead reads 0.5 s (gentle) to 0.9 s (tight) ahead instead of a fixed 1.3 s, at least 3 m."""
+
+  def _assist(self, adaptive):
+    return lead(**{PARAM_LEAD_MIN_SPEED: 2.0, PARAM_LEAD_ADAPTIVE: adaptive})
+
+  def test_off_is_the_fixed_1_3_s(self):
+    v = 13 * CV.MPH_TO_MS
+    assert self._assist(False).lead_distance(path(12, start=2.0), 1, v) == pytest.approx(1.3 * v)
+
+  @pytest.mark.parametrize("radius,seconds", [(60, 0.5), (10, 0.9)])
+  def test_on_reads_by_how_tight(self, radius, seconds):
+    v = 14 * CV.MPH_TO_MS
+    assert self._assist(True).lead_distance(path(radius, start=0.0), 1, v) == pytest.approx(max(seconds * v, 3.0), rel=0.15)
+
+  @pytest.mark.parametrize("radius", [8, 12, 20, 50])
+  def test_plan_max_curvature_finds_the_corner(self, radius):
+    from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_assist import plan_max_curvature
+    for side in (1, -1):
+      assert plan_max_curvature(path(radius, start=6.0, side=side), side, 17.0) == pytest.approx(1 / radius, rel=0.2)
+      assert plan_max_curvature(path(radius, start=6.0, side=side), -side, 17.0) == 0.0
+    assert plan_max_curvature(path(None), 1, 17.0) == 0.0
+    assert plan_max_curvature(path(12, start=20.0), 1, 17.0) == 0.0  # past the window
+    assert plan_max_curvature(SimpleNamespace(), 1, 17.0) == 0.0
+
+  def test_on_never_closer_than_3_m(self):
+    assert self._assist(True).lead_distance(path(None), 1, 3 * CV.MPH_TO_MS) == pytest.approx(3.0)
+
+  @pytest.mark.parametrize("side,direction", [(1, RIGHT), (-1, LEFT)])
+  def test_corner_5_5_m_ahead_waits_with_adaptive(self, side, direction):
+    """At 13 mph a fixed 1.3 s (7.5 m) already reads into a corner 5.5 m ahead; 0.9 s (5.2 m) doesn't yet."""
+    model = path(12, start=5.5, side=side)
+    fixed = run(self._assist(False), 0.0, direction, mph=13, steps=FADE_STEPS, actual=0.0, model=model)
+    adaptive = run(self._assist(True), 0.0, direction, mph=13, steps=FADE_STEPS, actual=0.0, model=model)
+    assert side * fixed > 0.003
+    assert side * adaptive < 0.001  # its probe point is at most 0.5 m into the corner
+
+  @pytest.mark.parametrize("side,direction", [(1, RIGHT), (-1, LEFT)])
+  def test_corner_right_ahead_still_leads(self, side, direction):
+    model = path(12, start=1.0, side=side)
+    assert side * run(self._assist(True), 0.0, direction, mph=13, steps=FADE_STEPS, actual=0.0, model=model) > 0.03
+
+
+class TestWaitForTheCorner:
+  """Wait for the Corner + Turn Lead Start Distance: no Turn Lead until the path has turned 10 degrees toward the turn
+  within the set distance."""
+
+  def _lead(self, model, direction, gate=None, mph=13):
+    values = {PARAM_LEAD_MIN_SPEED: 2.0}
+    if gate is not None:
+      values |= {PARAM_LEAD_GATE: True, PARAM_LEAD_GATE_DIST: gate}
+    return run(lead(**values), 0.0, direction, mph=mph, steps=FADE_STEPS, actual=0.0, model=model)
+
+  @pytest.mark.parametrize("side,direction", [(1, RIGHT), (-1, LEFT)])
+  def test_corner_too_far_waits(self, side, direction):
+    model = path(12, start=5.5, side=side)  # 10 degree point at about 8.5 m
+    assert side * self._lead(model, direction) > 0.003  # gate off: the fixed 1.3 s reads into it
+    assert self._lead(model, direction, gate=5.0) == 0.0
+    assert side * self._lead(model, direction, gate=10.0) > 0.003
+
+  @pytest.mark.parametrize("side,direction", [(1, RIGHT), (-1, LEFT)])
+  def test_corner_close_leads(self, side, direction):
+    model = path(12, start=1.0, side=side)  # 10 degree point at about 4 m
+    assert self._lead(model, direction, gate=5.0) == pytest.approx(self._lead(model, direction))
+
+  def test_distance_off_without_the_toggle(self):
+    """Turn Lead Start Distance does nothing while Wait for the Corner is off."""
+    model = path(12, start=5.5)
+    a = lead(**{PARAM_LEAD_MIN_SPEED: 2.0, PARAM_LEAD_GATE_DIST: 3.0})
+    assert run(a, 0.0, RIGHT, mph=13, steps=FADE_STEPS, actual=0.0, model=model) == pytest.approx(self._lead(model, RIGHT))
+
+  def test_bend_the_other_way_does_not_open_it(self):
+    from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_assist import plan_turn_onset_toward
+    assert math.isinf(plan_turn_onset_toward(path(12, start=1.0, side=-1), 1))
+    assert 3.0 < plan_turn_onset_toward(path(12, start=1.0, side=1), 1) < 4.5  # 2-3 m into the corner
+    assert math.isinf(plan_turn_onset_toward(path(None), 1))
+    assert math.isinf(plan_turn_onset_toward(SimpleNamespace(), 1))
+
+  @pytest.mark.parametrize("value,dist", [(50.0, 10.0), (1.0, 3.0), ("x", 5.0), (None, 5.0), (float("nan"), 5.0), (7.0, 7.0)])
+  def test_gate_setting_is_clamped(self, value, dist):
+    assert FmTurnAssist(FakeParams(**{PARAM_LEAD_GATE_DIST: value})).lead_gate_dist == dist
+
+
+class TestLeadYield:
+  """Turn Lead Yields to Your Hands (FM_TurnLeadYield, off by default): a press against the turn while Turn Lead is
+  adding pauses it before 10 deg turned (back 0.5 s after you let go) and ends it for the turn after that
+  (000000af--8 +52.3 s: he pushed out at 1.75 Nm and Turn Lead kept adding)."""
+
+  def _assist(self, on, **extra):
+    return lead(**({PARAM_LEAD_YIELD: on} | extra))
+
+  def _leading(self, a):
+    out = run(a, 0.0, RIGHT, steps=FADE_STEPS, model=path(15.0), actual=0.0)
+    assert out > 0.02
+    return out
+
+  def _press(self, a, steps, torque=1.0):  # positive (left) torque is against a right turn
+    return run(a, 0.0, RIGHT, steps=steps, model=path(15.0), actual=0.0, pressed=True, torque=torque)
+
+  def test_off_keeps_leading_against_your_hands(self):
+    a = self._assist(False)
+    lead_out = self._leading(a)
+    assert self._press(a, 60) == pytest.approx(lead_out)
+
+  def test_pauses_before_turn_in_and_comes_back(self):
+    a = self._assist(True)
+    lead_out = self._leading(a)
+    assert self._press(a, 30) == 0.0
+    m = turn_assist_msg()
+    a.fill_log(m)
+    assert m.leadYield == 1
+    assert run(a, 0.0, RIGHT, steps=30, model=path(15.0), actual=0.0) == 0.0  # 0.3 s after letting go: still paused
+    assert run(a, 0.0, RIGHT, steps=30, model=path(15.0), actual=0.0) == pytest.approx(lead_out)  # back after 0.5 s
+
+  def test_ends_for_the_turn_once_turning(self):
+    a = self._assist(True)
+    self._leading(a)
+    a.turned = math.radians(15.0)
+    assert self._press(a, 30) == 0.0
+    assert run(a, 0.0, RIGHT, steps=300, model=path(15.0), actual=0.0) == 0.0
+    m = turn_assist_msg()
+    a.fill_log(m)
+    assert m.leadYield == 2
+
+  def test_firm_press_acts_at_once(self):
+    a = self._assist(True)
+    self._leading(a)
+    assert self._press(a, 1, torque=1.6) == 0.0
+
+  def test_brief_light_press_ignored(self):
+    a = self._assist(True)
+    lead_out = self._leading(a)
+    assert self._press(a, 10, torque=0.8) == pytest.approx(lead_out)
+
+  def test_press_before_lead_starts_does_nothing(self):
+    a = self._assist(True)
+    run(a, 0.0, RIGHT, steps=60, model=path(None), actual=0.0, pressed=True, torque=1.0)  # straight path: no lead yet
+    assert self._leading(a) > 0.02
+
+  def test_press_into_the_turn_never_yields(self):
+    a = self._assist(True)
+    lead_out = self._leading(a)
+    assert self._press(a, 60, torque=-1.0) == pytest.approx(lead_out)
+
+  def test_new_turn_resets(self):
+    a = self._assist(True)
+    self._leading(a)
+    a.turned = math.radians(15.0)
+    self._press(a, 30)
+    run(a, 0.0, NONE, steps=5)
+    assert self._leading(a) > 0.02
+
+  def test_hold_still_holds_after_lead_yields(self):
+    """With Turn Hold on too, a yield only stops Turn Lead: the hold's own rules decide whether it lets go."""
+    a = self._assist(True, **{PARAM_HOLD: True})
+    asked = self._leading(a)
+    assert a.peak == pytest.approx(asked)
+    a.turned = math.radians(15.0)
+    out = self._press(a, 1, torque=1.6)  # firm: Turn Lead off, and the hold released (a 1.5 Nm press past 10 deg)
+    assert a.lead_off and a.hold_released and out == 0.0
+
+
+class TestTurnHoldOnlyUnchanged:
+  """With Turn Lead off, its options (stored on, as from fm-dev-nav-settle) change nothing: Turn Hold, Smooth Turn Start
+  and the log behave as before plan PR 11 (tools/fm/tests/pr11_turn_lead_equivalence.py also compares against PR 10's
+  module itself)."""
+  LEAD_OPTIONS_ON = {PARAM_LEAD_ADAPTIVE: True, PARAM_LEAD_GATE: True, PARAM_LEAD_GATE_DIST: 3.0, PARAM_LEAD_YIELD: True,
+                     PARAM_LEAD_MIN_SPEED: 2.0}
+
+  @pytest.mark.parametrize("seed", range(4))
+  def test_lead_options_without_turn_lead_change_nothing(self, seed):
+    rng = np.random.default_rng(seed)
+    opts = {PARAM_HOLD_DRIVER: bool(seed & 1), PARAM_HOLD_PATH: True, PARAM_PHASE_IN: bool(seed & 2),
+            PARAM_HOLD_FOLLOW_EXIT: True, PARAM_RESTART_AFTER_STOP: True}
+    a, b = hold(**opts), hold(**(opts | self.LEAD_OPTIONS_ON))
+    models = [path(r, start=st, side=sd) for r in (8.0, 12.0, 20.0) for st in (0.0, 4.0) for sd in (1, -1)] + [None]
+    model, direction = models[0], RIGHT
+    for i in range(4000):
+      if i % 300 == 0:
+        model, direction = models[int(rng.integers(len(models)))], (RIGHT, LEFT, NONE)[int(rng.integers(3))]
+      k = 0.08 * math.sin(i / 60) + float(rng.normal(0, 0.005))
+      args = {"mph": float(rng.uniform(0, 18)), "actual": k * 0.7, "pressed": bool(rng.random() < 0.1),
+              "torque": float(rng.uniform(-2, 2)), "model": model, "lat": bool(rng.random() < 0.97)}
+      assert run(a, k, direction, **args) == run(b, k, direction, **args)
+      ma, mb = turn_assist_msg(), turn_assist_msg()
+      a.fill_log(ma)
+      b.fill_log(mb)
+      assert ma.to_dict() == mb.to_dict()
+    assert not b.lead_off and not b.lead_paused and b.lead_prev == 0.0

@@ -5,8 +5,8 @@ rear-axle off-tracking and clip_curvature, so they work the same with torque and
   - Lane Guard (from gerrylum's rx-wb, with its Rivian tune; selfdrive/controls/lib/lane_guard.py): a small correction
     only when the planned path brings the body too close to a lane line or road edge. One choice of the Lane Keeping
     selector (FM_LaneKeepMode, fm_lane_keep_mode.py), so it never runs together with lane centering or Blendful.
-  - Turn Hold and Smooth Turn Start (fm_turn_assist.py): a steadier request during low-speed blinker turns. Applied
-    first, so Lane Guard and AP's off-tracking still apply to the result.
+  - Turn Lead, Turn Hold and Smooth Turn Start (fm_turn_assist.py): a turn started on time and a steadier request
+    during low-speed blinker turns. Applied first, so Lane Guard and AP's off-tracking still apply to the result.
 
 Ported from fm-dev-nav-settle ca08aac9 (FM's own copy of gerrylum's off-tracking is dropped: AP's rivian_offtrack runs
 after this).
