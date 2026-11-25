@@ -73,8 +73,9 @@ ruff check .
 | PR 7 Lane Keeping | merged, PR #11 (`99a2b44`): `FM_LaneKeepMode` Off / Lane Centering / Lane Guard / Blendful (Off default), Lane Guard (gerrylum rx-wb `17ea338`) via `fm_lateral.py`, Blendful at 0.3 m/s with the blue line only; migration `lane_keep_mode` |
 | PR 8 Model Lateral Smoothing | merged, PR #12 (`31be347ac`): Small and Big Model Default / 0.00 s / 0.10 s choices, both modelds; migration `model_lateral_smoothing` |
 | PR 9 Calmer Crawl-Speed Steering and Calmer Straight Pull-Away | Two Off-by-default toggles for the action-head curvature floor in both modelds and Jetlink. Existing settings retain their keys. |
-| PR 10 Turn Hold, Smooth Turn Start, Turn Assist logging | PR open (branch `fm-sync/pr10-turn-hold`): `fm_turn_assist.py` via `fm_lateral.py` (controlsd passes its SubMaster with `modelDataV2SP` and its curvature), logged in `fmControls.turnAssist`; six Turn Hold options folded, old keys declared, not read; keys unchanged, no migration. Turn Path Tightest Radius (`FM_TurnPathMinRadius`) is read but has no Sunnylink entry until PR 11's Turn Lead Settings. Turn Lead and the carry plug into `update()` where its comments say |
-| PRs 11-18 | not started |
+| PR 10 Turn Hold, Smooth Turn Start, Turn Assist logging | merged, PR #16 (`19574d7`): `fm_turn_assist.py` via `fm_lateral.py` (controlsd passes its SubMaster with `modelDataV2SP` and its curvature), logged in `fmControls.turnAssist`; six Turn Hold options folded, old keys declared, not read; keys unchanged, no migration. Turn Path Tightest Radius (`FM_TurnPathMinRadius`) is read but has no Sunnylink entry until PR 11's Turn Lead Settings. Turn Lead and the carry plug into `update()` where its comments say |
+| PR 11 Turn Lead | PR open (branch `fm-sync/pr11-turn-lead`): Turn Lead in `fm_turn_assist.py` before Turn Hold, Turn Lead Settings sub-page (Min Speed, Adaptive Look-Ahead, Wait for the Corner + Start Distance, Yields to Your Hands, Turn Path Tightest Radius); keys unchanged, no migration; Adaptive Look-Ahead and Wait for the Corner now default off (on in `ca08aac9`), stored values carry; `lead`/`leadYield` logged; Smooth Turn Start works with Turn Lead alone |
+| PRs 12-18 | not started |
 
 ## Reference (unchanged from before)
 
