@@ -101,3 +101,37 @@ def _release_guard(params):
   value = (old if old in (75, 150) else 150) if on else 0
   written = put_if_unset(params, "FM_ReleaseGuardLimit", value)
   return f"FM_ReleaseGuardLimit {value} (on {on}, max {old})" + ("" if written else ", already set: kept")
+
+
+OLD_FF_STEP_DEFAULT = 1  # fm-dev-nav-settle's default step: Gentle
+
+
+@migration("low_speed_feedforward")
+def _low_speed_feedforward(params):
+  """Feedforward: master off -> both Off; on -> each side's step (0-4; unset or bad -> Gentle, the old default)."""
+  on = params.get("FM_LowSpeedFFEnabled")
+  if on is None:
+    return "no old setting"
+  notes = []
+  for side in ("Left", "Right"):
+    old = params.get(f"FM_LowSpeedFFStep{side}")
+    step = (old if old in (0, 1, 2, 3, 4) else OLD_FF_STEP_DEFAULT) if on else 0
+    written = put_if_unset(params, f"FM_LowSpeedFF{side}", step)
+    notes.append(f"{side} {step} (old {old})" + ("" if written else " kept"))
+  return f"on {on}: " + ", ".join(notes)
+
+
+OLD_GAIN_PERCENT_DEFAULT = 70  # fm-dev-nav-settle's default
+
+
+@migration("low_speed_correction")
+def _low_speed_correction(params):
+  """Low-Speed Correction Strength: Calmer Low-Speed Correction off -> 100 (stock); on -> its percent, 40-100 (unset ->
+  70, the old default)."""
+  on = params.get("FM_LowSpeedGainEnabled")
+  if on is None:
+    return "no old setting"
+  old = params.get("FM_LowSpeedGainPercent")
+  value = min(max(int(OLD_GAIN_PERCENT_DEFAULT if old is None else old), 40), 100) if on else 100
+  written = put_if_unset(params, "FM_LowSpeedCorrectionStrength", value)
+  return f"FM_LowSpeedCorrectionStrength {value} (on {on}, percent {old})" + ("" if written else ", already set: kept")

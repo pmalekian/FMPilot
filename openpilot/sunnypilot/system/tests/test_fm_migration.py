@@ -149,3 +149,46 @@ class TestReleaseGuard(OpenpilotTestCase):
   def test_old_keys_untouched(self):
     params = self.migrate(FM_ReleaseGuard=True, FM_ReleaseGuardMax=75)
     assert params.get("FM_ReleaseGuard") is True and params.get("FM_ReleaseGuardMax") == 75
+
+
+class TestLowSpeed(OpenpilotTestCase):
+  """Feedforward: master off -> both Off, else per side; Low-Speed Correction Strength: off -> 100, else percent."""
+  KEYS = ("FM_LowSpeedFFLeft", "FM_LowSpeedFFRight", "FM_LowSpeedCorrectionStrength", "FM_LowSpeedFFEnabled",
+          "FM_LowSpeedFFStepLeft", "FM_LowSpeedFFStepRight", "FM_LowSpeedGainEnabled", "FM_LowSpeedGainPercent", FLAG)
+
+  def migrate(self, **old):
+    params = Params()
+    for k in self.KEYS:
+      params.remove(k)
+    for k, v in old.items():
+      params.put(k, v, block=True)
+    names = ("low_speed_feedforward", "low_speed_correction")
+    assert run(params, [m for m in fm_migration.MIGRATIONS if m[0] in names]) == list(names)
+    return params
+
+  def test_his_setup_carries_over(self):
+    p = self.migrate(FM_LowSpeedFFEnabled=True, FM_LowSpeedFFStepLeft=1, FM_LowSpeedFFStepRight=2,
+                     FM_LowSpeedGainEnabled=True, FM_LowSpeedGainPercent=70)
+    assert (p.get("FM_LowSpeedFFLeft"), p.get("FM_LowSpeedFFRight"), p.get("FM_LowSpeedCorrectionStrength")) == (1, 2, 70)
+
+  def test_master_off_is_both_off(self):
+    p = self.migrate(FM_LowSpeedFFEnabled=False, FM_LowSpeedFFStepLeft=4, FM_LowSpeedFFStepRight=3)
+    assert (p.get("FM_LowSpeedFFLeft"), p.get("FM_LowSpeedFFRight")) == (0, 0)
+
+  def test_on_with_unset_steps_is_gentle(self):
+    p = self.migrate(FM_LowSpeedFFEnabled=True)
+    assert (p.get("FM_LowSpeedFFLeft"), p.get("FM_LowSpeedFFRight")) == (1, 1)
+
+  def test_calmer_off_is_stock(self):
+    assert self.migrate(FM_LowSpeedGainEnabled=False, FM_LowSpeedGainPercent=40).get("FM_LowSpeedCorrectionStrength") == 100
+
+  def test_calmer_on_unset_is_70(self):
+    assert self.migrate(FM_LowSpeedGainEnabled=True).get("FM_LowSpeedCorrectionStrength") == 70
+
+  def test_fresh_install_writes_nothing(self):
+    p = self.migrate()
+    assert all(p.get(k) is None for k in ("FM_LowSpeedFFLeft", "FM_LowSpeedFFRight", "FM_LowSpeedCorrectionStrength"))
+
+  def test_old_keys_untouched(self):
+    p = self.migrate(FM_LowSpeedFFEnabled=False, FM_LowSpeedFFStepLeft=4, FM_LowSpeedGainEnabled=True, FM_LowSpeedGainPercent=55)
+    assert (p.get("FM_LowSpeedFFEnabled"), p.get("FM_LowSpeedFFStepLeft"), p.get("FM_LowSpeedGainPercent")) == (False, 4, 55)

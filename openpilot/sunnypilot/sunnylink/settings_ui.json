@@ -857,13 +857,134 @@
           "id": "fm_feedforward",
           "title": "Feedforward Settings",
           "description": "FM Pilot - extra steering torque for the wheel angle a slow turn needs, per side",
-          "items": []
+          "items": [
+            {
+              "key": "FM_LowSpeedFFLeft",
+              "widget": "multiple_button",
+              "title": "Low-Speed Feedforward, Left Turns",
+              "description": "Under about 10 mph openpilot's feedforward asks for almost nothing even in a tight turn, so the correction supplies all the torque, late. This adds torque for the wheel angle the turn needs, full under 10 mph and gone by 16 mph. Gentle 40 %, Medium 60 %, Firm 80 %, Full 100 % of a table fitted on your Nov 11 drives (Full never adds more than the gap measured). Off = stock. Not with Lateral Jerk or NNLC.",
+              "options": [
+                {
+                  "value": 0,
+                  "label": "Off"
+                },
+                {
+                  "value": 1,
+                  "label": "Gentle"
+                },
+                {
+                  "value": 2,
+                  "label": "Medium"
+                },
+                {
+                  "value": 3,
+                  "label": "Firm"
+                },
+                {
+                  "value": 4,
+                  "label": "Full"
+                }
+              ],
+              "enablement": [
+                {
+                  "type": "capability",
+                  "field": "brand",
+                  "equals": "rivian"
+                },
+                {
+                  "type": "not",
+                  "condition": {
+                    "type": "param",
+                    "key": "LateralJerkTorqueController",
+                    "equals": true
+                  }
+                },
+                {
+                  "type": "not",
+                  "condition": {
+                    "type": "param",
+                    "key": "NeuralNetworkLateralControl",
+                    "equals": true
+                  }
+                }
+              ]
+            },
+            {
+              "key": "FM_LowSpeedFFRight",
+              "widget": "multiple_button",
+              "title": "Low-Speed Feedforward, Right Turns",
+              "description": "Same as left turns, for right turns. Off on both sides is the feature off.",
+              "options": [
+                {
+                  "value": 0,
+                  "label": "Off"
+                },
+                {
+                  "value": 1,
+                  "label": "Gentle"
+                },
+                {
+                  "value": 2,
+                  "label": "Medium"
+                },
+                {
+                  "value": 3,
+                  "label": "Firm"
+                },
+                {
+                  "value": 4,
+                  "label": "Full"
+                }
+              ],
+              "enablement": [
+                {
+                  "type": "capability",
+                  "field": "brand",
+                  "equals": "rivian"
+                },
+                {
+                  "type": "not",
+                  "condition": {
+                    "type": "param",
+                    "key": "LateralJerkTorqueController",
+                    "equals": true
+                  }
+                },
+                {
+                  "type": "not",
+                  "condition": {
+                    "type": "param",
+                    "key": "NeuralNetworkLateralControl",
+                    "equals": true
+                  }
+                }
+              ]
+            }
+          ]
         },
         {
           "id": "fm_smoothing",
           "title": "FM Smoothing Settings",
           "description": "FM Pilot - calmer steering at low speed and when turns start",
-          "items": []
+          "items": [
+            {
+              "key": "FM_LowSpeedCorrectionStrength",
+              "widget": "option",
+              "title": "Low-Speed Correction Strength",
+              "description": "How much of openpilot's low-speed steering correction is kept below about 16 mph (back to normal by 20 mph; highway unchanged). 100 % = stock; lower is calmer: less push to the limit and back mid-turn, but also less torque early in a turn.",
+              "min": 40,
+              "max": 100,
+              "step": 5,
+              "unit": "%",
+              "enablement": [
+                {
+                  "type": "capability",
+                  "field": "brand",
+                  "equals": "rivian"
+                }
+              ]
+            }
+          ]
         },
         {
           "id": "fm_model_smoothing",

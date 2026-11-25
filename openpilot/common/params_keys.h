@@ -324,6 +324,15 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     // old (fm-dev-nav-settle) Release Guard toggle + level, now the drop-down: read once by the migration, never written
     {"FM_ReleaseGuard", {PERSISTENT | BACKUP, BOOL}},
     {"FM_ReleaseGuardMax", {PERSISTENT | BACKUP, INT}},
+    {"FM_LowSpeedFFLeft", {PERSISTENT | BACKUP, INT, "0"}},   // Low-Speed Feedforward, left turns: 0 Off, 1 Gentle, 2 Medium, 3 Firm, 4 Full
+    {"FM_LowSpeedFFRight", {PERSISTENT | BACKUP, INT, "0"}},  // right turns, same steps
+    {"FM_LowSpeedCorrectionStrength", {PERSISTENT | BACKUP, INT, "100"}},  // 40-100 %, 100 = stock
+    // old (fm-dev-nav-settle) feedforward toggle + steps and Calmer Low-Speed Correction: read once by the migration
+    {"FM_LowSpeedFFEnabled", {PERSISTENT | BACKUP, BOOL}},
+    {"FM_LowSpeedFFStepLeft", {PERSISTENT | BACKUP, INT}},
+    {"FM_LowSpeedFFStepRight", {PERSISTENT | BACKUP, INT}},
+    {"FM_LowSpeedGainEnabled", {PERSISTENT | BACKUP, BOOL}},
+    {"FM_LowSpeedGainPercent", {PERSISTENT | BACKUP, INT}},
 
     // Rivian
     {"RivianResumeEnabled", {PERSISTENT | BACKUP, BOOL, "0"}},
