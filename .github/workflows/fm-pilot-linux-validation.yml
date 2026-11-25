@@ -42,9 +42,11 @@ jobs:
         run: PYTHONPATH="$PWD" python openpilot/sunnypilot/sunnylink/tools/validate_settings_ui.py "$RUNNER_TEMP/settings_ui.json"
       - name: Affected unit tests
         run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          uv pip install --python "$(command -v python)" pytest
           report="$RUNNER_TEMP/affected.xml"
           status=0
-          ./tools/op.sh test -v --junitxml="$report" openpilot/sunnypilot/modeld_v2/tests openpilot/sunnypilot/system/tests openpilot/sunnypilot/sunnylink/tests openpilot/sunnypilot/models/tests/test_default_model.py openpilot/system/manager/test/test_manager.py || status=$?
+          python -m pytest -v --junitxml="$report" openpilot/sunnypilot/modeld_v2/tests openpilot/sunnypilot/system/tests openpilot/sunnypilot/sunnylink/tests openpilot/sunnypilot/models/tests/test_default_model.py openpilot/system/manager/test/test_manager.py || status=$?
           if [ "$status" -ne 0 ] && [ "$status" -ne 1 ]; then exit "$status"; fi
           python - "$report" "$status" <<'PY'
           import sys
@@ -63,11 +65,14 @@ jobs:
                 f"{skipped} skipped, {len(failures)} failed, {len(errors)} errors")
           unexpected = []
           for case in failures:
-              key = (case.get("classname", "").split(".")[-1], case.get("name"))
+              module, _, _ = case.get("classname", "").rpartition(".")
+              key = (module.split(".")[-1], case.get("name"))
               failure = case.find("failure")
               details = failure.get("message", "") + (failure.text or "")
               if key not in documented or (
                   key[0] == "test_manager" and "ScreenSaverCustomText" not in details
+              ) or (
+                  key[0] == "test_default_model" and "combined_hash == current_hash" not in details
               ):
                   unexpected.append(key)
               else:
