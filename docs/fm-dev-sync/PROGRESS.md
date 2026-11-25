@@ -14,10 +14,20 @@ Plan PR numbers (BUILD_PLAN.md) differ from GitHub PR numbers. Status as of Nov 
 | 7 | Lane Keeping, Lane Guard, Blendful | #11 | `99a2b44` |
 | 8 | Model Lateral Smoothing | #12 | `31be347ac` |
 | 9 | Calmer Crawl-Speed Steering and Calmer Straight Pull-Away | #13 | `ce45f40de` |
+| 10 | Turn Hold, Smooth Turn Start, Turn Assist logging | #16 | `19574d7` |
 
 ## Owners and next PR
 - **ChatGPT:** plan PRs 8, 9, 16, 17, 18. Next assigned: **PR 16** Top Readout after its dependencies merge.
-- **Claude:** plan PRs 10-15. Next: **PR 10** Turn Hold, Smooth Turn Start, Turn Assist logging.
+- **Claude:** plan PRs 10-15. Next: **PR 11** Turn Lead.
+  M1 full suites passed on `d02379c` (only the 2 known failures plus sandbox-only ones: no network/display/GPU; the
+  jetlink `test_seam` large-model test fails in the sandbox because tinygrad probes `/sys`, also before PR 9).
+  PR 10 notes for PR 11: `FM_TurnPathMinRadius` is declared and read (Hold Path Source, Turn Nudge) but has no Sunnylink
+  entry yet; add it on the Turn Lead Settings sub-page (trigger `FM_TurnLeadEnabled`). Turn Lead plugs into
+  `update()` before Turn Hold (marked); add `lead_off`/`lead_paused` back to the Stop Before Turning Starts Over reset;
+  fill the `lead`/`leadYield` log fields; add Turn Lead to Smooth Turn Start's enablement and description.
+  `LEAD_DECEL_GATE` / `LEAD_MODEL_OPPOSE` are already in the module. For PR 12: use `SOURCE_CARRY`; restore
+  `HOLD_AGAINST_TORQUE` (0.5 Nm), dropped in PR 10. Fresh-install defaults for Hold Follows the Model's Exit and Smooth
+  Turn Start are now off (were on in ca08aac9); stored values carry over.
   PR 9 kept the two existing floor keys and AP's 1.0 m/s stock floor. The optional floor applies only to the
   action-head curvature conversion, independently of Turn Hold and Model Lateral Smoothing.
 
