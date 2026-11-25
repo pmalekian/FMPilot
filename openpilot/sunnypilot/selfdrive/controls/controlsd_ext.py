@@ -31,7 +31,7 @@ class ControlsExt(ModelStateBase):
     self.blinker_pause_lateral = BlinkerPauseLateral()
     self.lane_centering = LaneCenteringController(params)
     self.rivian_offtrack = RivianOfftrack(CP, params)
-    self.fm_lateral = FmLateral(CP, params)  # FM Pilot: Lane Guard (and Turn Assist, later)
+    self.fm_lateral = FmLateral(CP, params)  # FM Pilot: Turn Assist and Lane Guard
 
     cloudlog.info("controlsd_ext is waiting for CarParamsSP")
     self.CP_SP = messaging.log_from_bytes(params.get("CarParamsSP", block=True), custom.CarParamsSP)
@@ -132,12 +132,17 @@ class ControlsExt(ModelStateBase):
     pm.send('carControlSP', cc_sp_send)
 
   def fm_controls_ext(self, sm: messaging.SubMaster):
-    """FM Pilot's own controls message (fmControls, cereal/custom.capnp): Release Guard, and later Turn Assist and the
-    low-speed parts. Fields are only written when they aren't at their default (0 / False): the message is fresh, so the
+    """FM Pilot's own controls message (fmControls, cereal/custom.capnp): Turn Assist, Release Guard and the low-speed
+    parts. Fields are only written when they aren't at their default (0 / False): the message is fresh, so the
     logged values are the same and a step with nothing to report costs almost nothing."""
     msg = messaging.new_message('fmControls')
     msg.valid = sm['carState'].canValid
     fm = msg.fmControls
+
+    # Turn Assist: what each part added to the request this frame and why Turn Hold let go
+    turn_assist = getattr(getattr(self, 'fm_lateral', None), 'turn_assist', None)
+    if turn_assist is not None:
+      turn_assist.fill_log(fm.turnAssist)
 
     guard = getattr(getattr(self, 'LaC', None), 'fm_release_guard', None)
     if guard is not None and (guard.active or guard.amount or guard.cut or guard.limit):
