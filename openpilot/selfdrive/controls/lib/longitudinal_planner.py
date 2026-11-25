@@ -7,7 +7,6 @@ from openpilot.common.constants import CV
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.common.realtime import DT_MDL
 from openpilot.selfdrive.modeld.constants import ModelConstants
-from openpilot.selfdrive.controls.lib.accel_boost import AccelBoost
 from openpilot.selfdrive.controls.lib.longcontrol import LongCtrlState
 from openpilot.selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import LongitudinalMpc, LongitudinalPlanSource
 from openpilot.selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import T_IDXS as T_IDXS_MPC
@@ -16,7 +15,7 @@ from openpilot.selfdrive.car.cruise import V_CRUISE_MAX, V_CRUISE_UNSET
 from openpilot.common.swaglog import cloudlog
 
 from openpilot.sunnypilot.selfdrive.controls.lib.longitudinal_planner import LongitudinalPlannerSP
-from openpilot.sunnypilot.selfdrive.controls.lib.acceleration_control import AccelerationControl
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_accel_boost_mode import FmAccelBoostMode
 
 J_CRUISE_VALS = [1.6, 1.2, 0.8, 0.6]
 J_CRUISE_BP = [0., 10.0, 25., 40.]
@@ -39,8 +38,9 @@ class LongitudinalPlanner(LongitudinalPlannerSP):
     LongitudinalPlannerSP.__init__(self, self.CP, CP_SP, self.mpc)
     self.fcw = False
     self.dt = dt
-    self.accel_boost = AccelBoost()
-    self.acceleration_control = AccelerationControl(CP)
+    # FM Pilot: the Accel Boost picker (FM_AccelBoostMode, fm_accel_boost_mode.py) owns Gas Override Boost, sunnypilot's
+    # Acceleration Boost, EVP Set Speed, AP's Acceleration Control and OP Personality, and runs at most one of them
+    self.accel_boost = FmAccelBoostMode(CP)
 
     self.v_desired_filter = FirstOrderFilter(init_v, 2.0, self.dt)
     self.a_cruise = init_a
@@ -111,10 +111,10 @@ class LongitudinalPlanner(LongitudinalPlannerSP):
     self.a_cruise = get_cruise_accel(v_cruise, v_ego, self.a_cruise, self.dt)
     cruise_should_stop = should_stop(v_ego, self.a_cruise)
 
-    # Acceleration Control first: Gas Override Boost latches "the model is limiting" from the candidate it is
-    # given, so it has to see the lifted one or it learns a boost from overrides where the lead was the limit.
-    output_a_target_e2e = self.acceleration_control.update(sm, output_a_target_e2e, self.scc.governor.throttle_scale())
-    output_a_target_e2e = self.accel_boost.update(sm, output_a_target_e2e, output_a_target_mpc, self.a_cruise)
+    # FM Pilot: the one boost picked (Off adds nothing). AP's Acceleration Control and Gas Override Boost used to run here
+    # one after the other; they are separate picker modes now, so the order between them no longer matters.
+    output_a_target_e2e = self.accel_boost.update(sm, output_a_target_e2e, output_a_target_mpc, self.a_cruise,
+                                                  self.scc.governor.throttle_scale())
 
     candidates = [(output_a_target_mpc, self.mpc.source, output_should_stop_mpc),
                   (self.a_cruise, LongitudinalPlanSource.cruise, cruise_should_stop),
@@ -145,10 +145,16 @@ class LongitudinalPlanner(LongitudinalPlannerSP):
     longitudinalPlan.fcw = self.fcw
 
     longitudinalPlan.aTarget = float(self.output_a_target)
-    longitudinalPlan.accelBoost = float(self.accel_boost.total_boost)
+    longitudinalPlan.accelBoost = float(self.accel_boost.applied)  # FM Pilot: what the picked boost added, every mode
     longitudinalPlan.shouldStop = bool(self.output_should_stop)
     longitudinalPlan.allowBrake = True
 
     pm.send('longitudinalPlan', plan_send)
 
-    self.publish_longitudinal_plan_sp(sm, pm, self.acceleration_control.boost)
+    self.publish_longitudinal_plan_sp(sm, pm, self.accel_boost.acceleration_control_boost)
+
+    # FM Pilot: the Accel Boost mode in use (its amount is longitudinalPlan.accelBoost)
+    fm_plan_send = messaging.new_message('fmPlan')
+    fm_plan_send.valid = plan_send.valid
+    fm_plan_send.fmPlan.accelBoostMode = int(self.accel_boost.mode)
+    pm.send('fmPlan', fm_plan_send)
