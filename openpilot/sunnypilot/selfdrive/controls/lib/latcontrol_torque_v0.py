@@ -72,7 +72,7 @@ class LatControlTorque(LatControl):
       self.update_limits()
 
     # FM Pilot Max Torque, Headroom: max request past 1.0 at low speed; 1.0 is AP's behavior
-    fm_max = self.fm_torque.update(CS.vEgo)
+    fm_max = self.fm_torque.update(CS.vEgoRaw)  # the speed the car code picks its cap with
     if fm_max != self.steer_max:
       self.steer_max = fm_max
       self.update_limits()
