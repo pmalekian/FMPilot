@@ -12,6 +12,8 @@ from openpilot.common.pid import PIDController
 from openpilot.sunnypilot.selfdrive.controls.lib.latcontrol_torque_ext import LatControlTorqueExt
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_torque_mode import FmTorqueMode
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_release_guard import FmReleaseGuard
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_low_speed_gain import FmLowSpeedGain
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_low_speed_ff import FmLowSpeedFF
 
 # At higher speeds (25+mph) we can assume:
 # Lateral acceleration achieved by a specific car correlates to
@@ -58,6 +60,10 @@ class LatControlTorque(LatControl):
     self.fm_torque = FmTorqueMode(CP, CP_SP)
     # FM Pilot Release Guard (Rivian, Stock by default): limits P's push against you while you steer into a turn
     self.fm_release_guard = FmReleaseGuard(CP)
+    # FM Pilot Low-Speed Correction Strength (Rivian, 100 % = stock): scales KP_INTERP below 7 m/s
+    self.fm_low_speed = FmLowSpeedGain(CP)
+    # FM Pilot Low-Speed Steering Feedforward (Rivian, Off both sides): torque from the asked wheel angle under ~16 mph
+    self.fm_low_speed_ff = FmLowSpeedFF(CP)
 
   def update_torque_parameters(self, latAccelFactor, latAccelOffset, friction):
     self.torque_params.latAccelFactor = latAccelFactor
@@ -74,6 +80,8 @@ class LatControlTorque(LatControl):
     if self.extension.update_override_torque_params(self.torque_params):
       self.update_limits()
 
+    self.fm_low_speed.apply(self, INTERP_SPEEDS, KP_INTERP)
+
     # FM Pilot Max Torque, Headroom: max request past 1.0 at low speed; 1.0 is AP's behavior
     fm_max = self.fm_torque.update(CS.vEgoRaw)  # the speed the car code picks its cap with
     if fm_max != self.steer_max:
@@ -82,6 +90,8 @@ class LatControlTorque(LatControl):
       # with Lateral Jerk or NNLC the PID works in torque units and the extension owns its limits (controlsd sets them
       # each frame); put them back, or the accel-based limit above would stand for this frame
       self.extension.update_limits()
+
+    fm_ff = self.fm_low_speed_ff.update(desired_curvature, CS.vEgo, VM, self.torque_params.latAccelFactor)
 
     pid_log = log.ControlsState.LateralTorqueState.new_message()
     pid_log.version = VERSION
@@ -117,6 +127,7 @@ class LatControlTorque(LatControl):
       ff -= self.torque_params.latAccelOffset
       # TODO jerk is weighted by lat_delay for legacy reasons, but should be made independent of it
       ff += get_friction(error, lateral_accel_deadzone, FRICTION_THRESHOLD, self.torque_params)
+      ff += fm_ff  # FM Pilot Low-Speed Steering Feedforward
 
       freeze_integrator = steer_limited_by_safety or CS.steeringPressed or CS.vEgo < 5
       output_lataccel = self.pid.update(pid_log.error,

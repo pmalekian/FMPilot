@@ -144,6 +144,17 @@ class ControlsExt(ModelStateBase):
       release_guard.amount = float(guard.amount * guard.enabled)
       release_guard.cut = float(guard.cut)
       release_guard.limit = float(guard.limit)
+
+    # Low-Speed Steering Feedforward and Low-Speed Correction Strength (on the torque controllers only)
+    lac = getattr(self, 'LaC', None)
+    low_ff = getattr(lac, 'fm_low_speed_ff', None)
+    if low_ff is not None and (feedforward := float(getattr(low_ff, 'last', 0.0))):
+      fm.lowSpeed.feedforward = feedforward
+    low_gain = getattr(lac, 'fm_low_speed', None)
+    if low_gain is not None and low_gain.available:
+      fm.lowSpeed.gainScale = low_gain.factor(float(sm['carState'].vEgo))
+    else:
+      fm.lowSpeed.gainScale = 1.0
     return msg
 
   def run_ext(self, sm: messaging.SubMaster, pm: messaging.PubMaster) -> None:
