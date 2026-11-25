@@ -181,7 +181,6 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"OpviewEnabled", {PERSISTENT | BACKUP, BOOL}},
     {"EnableGithubRunner", {PERSISTENT | BACKUP, BOOL}},
     {"GreenLightAlert", {PERSISTENT | BACKUP, BOOL, "0"}},
-    {"GithubRunnerSufficientVoltage", {CLEAR_ON_MANAGER_START , BOOL}},
     {"HasAcceptedTermsSP", {PERSISTENT, STRING, "0"}},
     {"HideVEgoUI", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"IntelligentCruiseButtonManagement", {PERSISTENT | BACKUP , BOOL}},
@@ -197,7 +196,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"LaneCenteringSingleLine", {PERSISTENT | BACKUP, BOOL, "0"}},  // keep clear of the one trusted line when the other is not trusted
     {"LaneCenteringSingleLineEdgeDist", {PERSISTENT | BACKUP, FLOAT, "1.5"}},  // m in model units, from a line at the road edge, 1.5 = normal position
     {"LaneCenteringSingleLineLaneDist", {PERSISTENT | BACKUP, FLOAT, "1.5"}},  // m in model units, from a center or lane line, 1.5 = normal position
-    {"LastGPSPositionLLK", {PERSISTENT, STRING}},
+    {"LastGPSPositionFused", {PERSISTENT, STRING}},
     {"LeadDepartAlert", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"MaxTimeOffroad", {PERSISTENT | BACKUP, INT, "1800"}},
     {"ModelRunnerTypeCache", {CLEAR_ON_ONROAD_TRANSITION, INT}},
