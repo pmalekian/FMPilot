@@ -450,6 +450,7 @@ def main(demo=False):
 
     sm.update(0)
     desire = DH.desire
+    model_desire = DH.model_desire  # FM Pilot: DH.desire, except for Turn Pulse on Pull-Away
     is_rhd = sm["driverMonitoringState"].isRHD
     frame_id = sm["narrowRoadCameraState"].frameId
     car_state = sm["carState"]
@@ -481,8 +482,8 @@ def main(demo=False):
     traffic_convention[int(is_rhd)] = 1
 
     vec_desire = np.zeros(model.constants.DESIRE_LEN, dtype=np.float32)
-    if desire >= 0 and desire < model.constants.DESIRE_LEN:
-      vec_desire[desire] = 1
+    if model_desire >= 0 and model_desire < model.constants.DESIRE_LEN:
+      vec_desire[model_desire] = 1
 
     # tracked dropped frames
     vipc_dropped_frames = max(0, meta_main.frame_id - last_vipc_frame_id - 1)

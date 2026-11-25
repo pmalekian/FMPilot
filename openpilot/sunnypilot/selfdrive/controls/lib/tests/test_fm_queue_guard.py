@@ -137,7 +137,7 @@ class TestDesireHelperQueueGuard:
     dh.update(cs(0.0, left=True), False, 0.0, lead=self.lead(3.0))
     assert dh.fm_queue_hold
     assert dh.lane_turn_direction == TurnDirection.none
-    assert dh.desire == log.Desire.none
+    assert dh.desire == dh.model_desire == log.Desire.none
     dh.update(cs(1.0, left=True), True, 0.0, lead=self.lead(12.0))
     assert not dh.fm_queue_hold
     assert dh.lane_turn_direction == TurnDirection.turnLeft

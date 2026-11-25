@@ -4,6 +4,7 @@ from openpilot.common.realtime import DT_MDL
 from openpilot.sunnypilot.selfdrive.controls.lib.auto_lane_change import AutoLaneChangeController, AutoLaneChangeMode
 from openpilot.sunnypilot.selfdrive.controls.lib.lane_turn_desire import LaneTurnController
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_queue_guard import FmQueueGuard
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_pulse import FmTurnPulse
 
 LaneChangeState = log.LaneChangeState
 LaneChangeDirection = log.LaneChangeDirection
@@ -26,11 +27,13 @@ class DesireHelper:
     self.lane_change_timer = 0.0
     self.prev_one_blinker = False
     self.desire = log.Desire.none
+    self.model_desire = log.Desire.none  # what modeld feeds the model; FM Pilot's Turn Pulse on Pull-Away can differ
     self.alc = AutoLaneChangeController(self)
     self.lane_turn_controller = LaneTurnController(self)
     self.lane_turn_direction = TurnDirection.none
     self.fm_queue_guard = FmQueueGuard()  # FM Pilot: a turn waits while stopped close behind a car
     self.fm_queue_hold = False
+    self.fm_turn_pulse = FmTurnPulse()  # FM Pilot: fresh turn pulse to the model when pulling away from a stop
 
   @staticmethod
   def get_lane_change_direction(CS):
@@ -117,5 +120,7 @@ class DesireHelper:
           self.desire = log.Desire.laneChangeLeft
         elif self.lane_change_direction == LaneChangeDirection.right:
           self.desire = log.Desire.laneChangeRight
+
+    self.model_desire = self.fm_turn_pulse.update(self.desire, v_ego)
 
     self.alc.update_state()

@@ -366,6 +366,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"FM_TurnCarryThrough", {PERSISTENT | BACKUP, BOOL, "0"}},
     // Pre/Post Turn Behavior: same keys and meaning as on fm-dev-nav-settle (off there too), so existing values carry
     {"FM_TurnQueueGuard", {PERSISTENT | BACKUP, BOOL, "0"}},  // Queue Guard
+    {"FM_TurnPulseOnPullAway", {PERSISTENT | BACKUP, BOOL, "0"}},  // Turn Pulse on Pull-Away
     // old (fm-dev-nav-settle) Turn Hold options, folded (always on with Turn Hold): never read, never written
     {"FM_TurnNudgeEnabled", {PERSISTENT | BACKUP, BOOL}},
     {"FM_TurnHoldEarlyCorrection", {PERSISTENT | BACKUP, BOOL}},
