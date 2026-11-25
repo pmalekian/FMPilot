@@ -16,19 +16,22 @@ Plan PR numbers (BUILD_PLAN.md) differ from GitHub PR numbers. Status as of Nov 
 | 9 | Calmer Crawl-Speed Steering and Calmer Straight Pull-Away | #13 | `ce45f40de` |
 | 10 | Turn Hold, Smooth Turn Start, Turn Assist logging | #16 | `19574d7` |
 | 11 | Turn Lead | #17 | `b1b1800` |
+| 12 | Finish Turn After Signal Cancels | #18 | `48c343f` |
 
 ## Owners and next PR
 - **ChatGPT:** plan PRs 8, 9, 16, 17, 18. Next assigned: **PR 16** Top Readout after its dependencies merge.
-- **Claude:** plan PRs 10-15. Next: **PR 12** Finish Turn After Signal Cancels.
+- **Claude:** plan PRs 10-15. Next: **PR 13** Pre/Post Turn Behavior.
   M1 full suites passed on `d02379c` (only the 2 known failures plus sandbox-only ones: no network/display/GPU; the
   jetlink `test_seam` large-model test fails in the sandbox because tinygrad probes `/sys`, also before PR 9).
-  Notes for PR 12: the carry starts from `sign` at the top of `update()` and uses `SOURCE_CARRY`; Turn Lead follows the
-  carried sign (ca08aac9 `test_lead_keeps_working`). Restore `HOLD_AGAINST_TORQUE` (0.5 Nm, dropped in PR 10) for the
-  carry's firm-press exit. Enablement is Turn Hold or Turn Lead (`self.enabled`). For equivalence, extend
-  `tools/fm/tests/pr11_turn_lead_equivalence.py` with `FM_TurnCarryThrough` on both sides, Carry Only at Turn-In on.
+  Notes for PR 13: Queue Guard (ca08aac9 `fm_queue_guard.py`, wired in `desire_helper.py`) hides the turn desire from
+  Turn Assist; add a test that a Queue Guard hold can't start a carry (ca08aac9 relies on the 0.01 1/m start curve and
+  the carry ending when lateral is off). Carry state (`carry_sign`, `carry_done`) lives outside `_reset_turn`; Turn
+  Pulse and Settle After Turn (`modeld_v2/fm_turn_settle.py`) should treat the end of a carry as the end of the turn.
+  `FOLDED_KEYS` lists 7 keys (incl. `FM_TurnCarryTurnInOnly`). Equivalence scripts for PRs 10-12 are in
+  `tools/fm/tests/pr1{0,1,2}_*_equivalence.py`.
   Fresh-install defaults now off where ca08aac9 had them on (stored values carry over): Hold Follows the Model's Exit,
-  Smooth Turn Start (PR 10); Adaptive Look-Ahead, Wait for the Corner (PR 11). Turn Path Tightest Radius is on the Turn
-  Lead page, so it shows only while Turn Lead is on, though Hold Path Source and Turn Nudge use it too.
+  Smooth Turn Start (PR 10); Adaptive Look-Ahead, Wait for the Corner (PR 11); Finish Turn After Signal Cancels (PR 12).
+  Turn Path Tightest Radius is on the Turn Lead page, so it shows only while Turn Lead is on.
 
 ## Conventions
 - FM log messages use the free slots 14-19, from the top: `fmControls` @145, `fmModel` @144, `fmPlan` @143,
