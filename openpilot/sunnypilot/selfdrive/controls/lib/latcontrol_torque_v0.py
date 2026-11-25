@@ -11,6 +11,7 @@ from openpilot.common.pid import PIDController
 
 from openpilot.sunnypilot.selfdrive.controls.lib.latcontrol_torque_ext import LatControlTorqueExt
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_torque_mode import FmTorqueMode
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_release_guard import FmReleaseGuard
 
 # At higher speeds (25+mph) we can assume:
 # Lateral acceleration achieved by a specific car correlates to
@@ -55,6 +56,8 @@ class LatControlTorque(LatControl):
     # v0 is what runs with EnforceTorqueControl off, or on with TorqueControlTune 0, so it needs the same hook as
     # latcontrol_torque.py.
     self.fm_torque = FmTorqueMode(CP, CP_SP)
+    # FM Pilot Release Guard (Rivian, Stock by default): limits P's push against you while you steer into a turn
+    self.fm_release_guard = FmReleaseGuard(CP)
 
   def update_torque_parameters(self, latAccelFactor, latAccelOffset, friction):
     self.torque_params.latAccelFactor = latAccelFactor
@@ -85,6 +88,7 @@ class LatControlTorque(LatControl):
     if not active:
       output_torque = 0.0
       pid_log.active = False
+      self.fm_release_guard.idle()
     else:
       measured_curvature = -VM.calc_curvature(math.radians(CS.steeringAngleDeg - params.angleOffsetDeg), CS.vEgo, params.roll)
       roll_compensation = params.roll * ACCELERATION_DUE_TO_GRAVITY
@@ -120,6 +124,8 @@ class LatControlTorque(LatControl):
                                         feedforward=ff,
                                         speed=CS.vEgo,
                                         freeze_integrator=freeze_integrator)
+      output_lataccel = self.fm_release_guard.update(self.pid, True, CS.vEgo, CS.steeringPressed, CS.steeringTorque,
+                                                      measured_curvature, self.torque_params.latAccelFactor)
       output_torque = self.torque_from_lateral_accel(output_lataccel, self.torque_params)
 
       # Lateral acceleration torque controller extension updates
