@@ -18,13 +18,20 @@ Plan PR numbers (BUILD_PLAN.md) differ from GitHub PR numbers. Status as of Nov 
 | 11 | Turn Lead | #17 | `b1b1800` |
 | 12 | Finish Turn After Signal Cancels | #18 | `48c343f` |
 | 13 | Pre/Post Turn Behavior (Queue Guard, Turn Pulse, Settle After Turn + Early Right Push) | #19 | `d3406ff` |
+| 14 | Accel Boost picker + Boost bar | #20 | `e9ba455` |
 
 ## Owners and next PR
 - **ChatGPT:** plan PRs 8, 9, 16, 17, 18. Next assigned: **PR 16** Top Readout after its dependencies merge.
   **For PR 17 (Jetlink):** on ca08aac9, Settle After Turn and Blendful also ran on the Jetlink large model through
   `fm_jetlink_action.py`. On fm-dev-sync, AP's Jetlink adapter skips that hook, so Settle acts only with local models.
   Restoring it is Jetlink scope; flag it to Frankie if PR 17 doesn't cover it.
-- **Claude:** plan PRs 10-15. Next: **PR 14** Accel Boost picker.
+- **Claude:** plan PRs 10-15. Next: **PR 15** Lead.
+  PR 14: `fm_accel_boost_mode.py` alone picks the boost; `AccelBoostSP` and `AccelerationControl` are hidden and never
+  read. Migration `accel_boost_mode` keeps a stored mode (ca08aac9's 0 was already no boost); only an unset mode with
+  `AccelBoostSP` on becomes 2. `longitudinalPlan.accelBoost` = what the mode added. OP Personality verified against
+  openpilot `ff300ecf` (#39430) and `6daa874b` (#39440); #39440's Relaxed follow-time change is not ported.
+  For PR 15: plannerd now publishes `fmPlan`; planner test harness `test_acceleration_control_planner.py`.
+  For PR 16 (Top Readout): `ui_state` and `augmented_road_view` have Boost bar hooks from PR 14.
   M2 full suites passed on `da5b06a` (same known/sandbox-only failures as M1; PR 10-13 equivalence scripts: only the
   documented PR 13 Queue Guard carry and Settle-after-carry differences).
   M1 full suites passed on `d02379c` (only the 2 known failures plus sandbox-only ones: no network/display/GPU; the
