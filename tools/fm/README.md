@@ -12,6 +12,16 @@ pip install numpy pycapnp zstandard onnx onnxruntime pytest
 ```
 Run from this folder (`cd tools/fm`); the scripts import the fork's own `cereal` from the repo, so no openpilot build is needed.
 
+### Two log layouts
+
+From `fm-dev-sync` on, FM's log data is in FM's own messages (`fmControls`, `fmModel`, `fmPlan`, `fmCarState`,
+`fmRadarLead`, `fmJetlinkStatus`) read with the repo's schema. Drives from `fm-dev-nav-settle` and earlier have it as
+fields on sunnypilot's structs (`carControlSP.turnAssist`, `carStateSP.fmSteerCap`, `modelDataV2SP.fmTurnSettle*`, ...)
+and are read with the copy of that branch's schema in `schema/fm-dev-nav-settle/`. `fmlog` picks per file: the new
+schema when the log's branch is `fm-dev-sync` (or an `fm-sync/` PR branch) or it has one of the new FM messages, else
+the old one. `FM_SCHEMA=old` or `FM_SCHEMA=new` forces one. Old-only fields (Turn Boost, Lead Shadow Log, Nav Assist)
+read as empty on new drives.
+
 Get logs from Comma Connect or from the comma. To pull several segments of one drive at your PC's `PS C:\...>` prompt
 (keeps the `<route>--<n>` folder names, which the tools read):
 ```
