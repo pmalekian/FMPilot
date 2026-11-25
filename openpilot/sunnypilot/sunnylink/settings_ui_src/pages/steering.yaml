@@ -447,8 +447,10 @@ sections:
     description: '385 = stock AP. The most steering torque openpilot may use under about 20 mph, tapering back to the
       usual limits by about 38 mph; highway limits are unchanged. The panda''s limit follows this number. Above 385
       openpilot also lets torque build faster under 25 mph and uses the full limit past 90° of steering wheel, and it
-      only reaches for the extra torque when the usual limit runs out. Only changes in off-road mode and applies from
-      the next drive.'
+      only reaches for the extra torque when the usual limit runs out. Overriding takes a firmer hand as the number
+      rises: under about 22 mph your steering fully cancels openpilot''s torque at about 2.9 Nm at 385, 3.4 Nm at 475 and
+      3.9 Nm at 580 (the driver-torque rule is unchanged; it scales with the limit). Only changes in off-road mode and
+      applies from the next drive.'
     min: 385
     max: 580
     step: 15
