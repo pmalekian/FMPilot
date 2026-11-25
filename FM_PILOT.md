@@ -28,7 +28,24 @@ Added PR by PR; each row names its settings (Sunnylink page), code and default.
 
 | Feature | Settings | Code | Default |
 |---|---|---|---|
-| FM log tools: fmlog, timeline, events, turns (with the path-vs-request turn-in timing from `fm-dev-max` `d189ccc`), lead, settle, sway, dm, jetlink, maclog, and their tests. They read drives from `fm-dev-nav-settle` and earlier with a copy of that branch's schema | none | `tools/fm/` (`schema/fm-dev-nav-settle/`) | n/a |
+| FM log tools: fmlog, timeline, events, turns (with the path-vs-request turn-in timing from `fm-dev-max` `d189ccc`), lead, settle, sway, dm, jetlink, maclog, and their tests. They read `fm-dev-sync` drives with the repo's schema and drives from `fm-dev-nav-settle` and earlier with a copy of that branch's schema, picked per file (`FM_SCHEMA=old|new` forces one) | none | `tools/fm/` (`fmlog.py`, `schema/fm-dev-nav-settle/`) | n/a |
+
+## Log messages
+
+FM's log data is in FM's own messages (`cereal/custom.capnp`, the free `CustomReserved` slots taken from the top, each
+keeping its struct ID), not in fields added to sunnypilot's structs. Filled in by the feature PRs that publish them.
+
+| Message (Event field) | From | What |
+|---|---|---|
+| `fmControls` @145 | controlsd, 100 Hz | Turn Assist, Release Guard, Low-Speed Feedforward / Correction Strength |
+| `fmModel` @144 | modeld / modeld_v2, 20 Hz | Queue Guard, Settle After Turn |
+| `fmPlan` @143 | plannerd, 20 Hz | Accel Boost mode (0 Off, 1 Gas, 2 Sunny Boost, 3 EVP Set Speed, 4 AP Accel Control, 5 OP Personality); the amount is `longitudinalPlan.accelBoost` |
+| `fmCarState` @142 | card, 100 Hz | Rivian torque readout: EPAS taking torque, cap now, Max Torque in force |
+| `fmRadarLead` @141 | radard, 20 Hz | lead source, confidence, cutoffs, ghost drops, decisions for both lead slots |
+| `fmJetlinkStatus` @140 | fm_jetlinkstatusd, 1 Hz | which Jetlink model drives, link state |
+
+FM's one event, `fmLaneChangeRoadEdgeQuiet`, is `OnroadEventSP` @38, after AP's Jetlink events (@35-37). Slot 10
+(@136) is sunnypilot's `gpsLocationSP`. `tools/fm` reads both this layout and the older one (see its README).
 
 ## Settings migration
 
