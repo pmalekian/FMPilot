@@ -97,6 +97,14 @@ _services: dict[str, tuple] = {
   "modelDataV2SP": (True, 20., 10, QueueSize.BIG),
   "gpsLocationSP": (True, 20., 20),
 
+  # FM Pilot (custom.capnp, FM's own messages)
+  "fmControls": (True, 100., 10),
+  "fmModel": (True, 20., 10),
+  "fmPlan": (True, 20., 10),
+  "fmCarState": (True, 100., 10),
+  "fmRadarLead": (True, 20., 5),
+  "fmJetlinkStatus": (True, 1., 1),
+
   # debug
   "uiDebug": (True, 0., 1),
   "testJoystick": (True, 0.),

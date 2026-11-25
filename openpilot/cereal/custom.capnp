@@ -396,6 +396,8 @@ struct OnroadEventSP @0xda96579883444c35 {
     jetlinkReady @35;
     jetlinkLinkLost @36;
     jetlinkChime @37;
+    # FM Pilot (after AP's last event, @37): the road-edge lane change block as a small gray message, no sound
+    fmLaneChangeRoadEdgeQuiet @38;
   }
 }
 
@@ -551,20 +553,216 @@ struct CustomReserved12 @0x9ccdc8676701b412 {
 struct CustomReserved13 @0xcd96dafb67a082d0 {
 }
 
-struct CustomReserved14 @0xb057204d7deadf3f {
+# ---------------------------------------------------------------------------------------------------------------------
+# FM Pilot's own messages (fm-dev-sync). FM data lives here, in the free CustomReserved slots taken from the top
+# (19 down), instead of in fields appended to sunnypilot's structs, so sunnypilot or AdventurePilot adding fields to
+# their structs never collides with FM. Logging only unless a field says otherwise: nothing here is read back into
+# control. Each slot keeps its CustomReserved struct ID (log.capnp: same ID, renamed field and struct).
+# Drives from fm-dev-nav-settle and earlier use the old layout (fields on carControlSP / carStateSP / modelDataV2SP /
+# longitudinalPlanSP); tools/fm reads those with its copy of that schema.
+# ---------------------------------------------------------------------------------------------------------------------
+
+# fmControls (controlsd, 100 Hz): Turn Assist, Release Guard and the low-speed steering parts, every control step.
+struct FmControls @0xa4f1eb3323f5f582 {
+  turnAssist @0 :TurnAssist;
+  releaseGuard @1 :ReleaseGuard;
+  lowSpeed @2 :LowSpeed;
+
+  # Curvatures are 1/m. "toward" values are how much the request moved toward the turn (>= 0); others are signed like
+  # desiredCurvature: positive is to the right.
+  struct TurnAssist {
+    sign @0 :Int8;              # turn being assisted: +1 right, -1 left, 0 none
+    source @1 :Source;
+    amount @2 :Float32;         # 0..1 speed and on/off fade (full under 15 mph, gone by 20)
+    requestIn @3 :Float32;      # request coming in (model + lane keeping), signed
+    requestOut @4 :Float32;     # request going out (before controlsd's curvature limits), signed
+    lead @5 :Float32;           # toward: added by Turn Lead
+    driverAdds @6 :Float32;     # toward: added by Hold Adds Your Steering (your curve)
+    holdPath @7 :Float32;       # toward: added by Hold Path Source
+    holdFloor @8 :Float32;      # toward: added by Turn Hold's floor
+    nudge @9 :Float32;          # toward: added by Turn Nudge
+    smoothCut @10 :Float32;     # toward: held back by Smooth Turn Start this frame
+    exitFade @11 :Float32;      # toward: added by a hold fading out (after the signal cancels, or Hold Follows the Model's Exit)
+    holdActive @12 :Bool;       # Turn Hold is holding this turn (enabled, not released)
+    holdPeak @13 :Float32;      # toward: the turn's peak request Turn Hold keeps a floor under
+    holdFloorLevel @14 :Float32;  # toward: the floor this frame
+    turned @15 :Float32;        # deg the truck has turned toward the turn since it started
+    holdTurned @16 :Float32;    # deg Turn Hold counts toward its 75 deg release
+    holdTime @17 :Float32;      # s Turn Hold counts toward its 8 s release
+    releaseReason @18 :ReleaseReason;  # why Turn Hold let go of this turn (stays set for the rest of the turn)
+    earlyCorrection @19 :Bool;  # a press against the turn is passing through without releasing the hold
+    againstTime @20 :Float32;   # s the current press against the turn has lasted
+    restarts @21 :UInt8;        # Stop Before Turning Starts Over: times this turn was started over by a stop
+    leadYield @22 :UInt8;       # Turn Lead Yields to Your Hands: 0 none, 1 paused (a press before turn-in), 2 off for this turn
+
+    enum Source {
+      none @0;
+      desire @1;   # the blinker turn (laneTurnDirection)
+      carry @2;    # Finish Turn After Signal Cancels
+    }
+
+    enum ReleaseReason {
+      none @0;
+      driverAgainst @1;  # you steered against the turn
+      maxTurned @2;      # the truck turned 75 deg
+      maxTime @3;        # 8 s
+      modelExit @4;      # Hold Follows the Model's Exit: past 45 deg the model asked under half the hold's peak
+    }
+  }
+
+  struct ReleaseGuard {
+    active @0 :Bool;     # the torque controller's P term was limited this frame
+    amount @1 :Float32;  # 1 while you press into the turn under 15 mph, fading with speed and after you let go; 0 = off
+    cut @2 :Float32;     # m/s^2 lateral accel removed from the P term, signed like curvature: positive is to the right
+    limit @3 :Float32;   # m/s^2 the P term may still push against you (the Release Guard level, in controller units)
+  }
+
+  struct LowSpeed {
+    feedforward @0 :Float32;  # m/s^2 lateral accel added by Low-Speed Feedforward, positive to the right
+    gainScale @1 :Float32;    # Low-Speed Correction Strength: the P gain multiplier in force at this speed (1 = stock)
+  }
 }
 
-struct CustomReserved15 @0xbd443b539493bc68 {
+# fmModel (modeld / modeld_v2, 20 Hz): FM's turn helpers that run in modeld.
+struct FmModel @0xc86a3d38d13eb3ef {
+  queueGuard @0 :Bool;          # Queue Guard: the turn is waiting behind a car (laneTurnDirection is none meanwhile)
+  # Settle After Turn: curvature it added (1/m, positive right) and the lane center minus the plan 6 m ahead (m)
+  turnSettle @1 :Float32;
+  turnSettleOffset @2 :Float32;
+  # Settle After Turn > Early Right Push: how far right of where the window started the truck got (m, the most reached,
+  # from its own motion), what stopped or holds the push, the phase, and the curb push-back (1/m, negative = left).
+  # All 0 / none / idle with the option off.
+  turnSettlePush @3 :Float32;
+  turnSettleLimit @4 :SettleLimit;
+  turnSettlePhase @5 :SettlePhase;
+  turnSettleGuard @6 :Float32;
+
+  enum SettleLimit {
+    none @0;
+    cap @1;          # the push reached its distance (0.4 m)
+    center @2;       # a 30%+ line showed the truck centered or right of center
+    curb @3;         # a sure curb: 1.4 m from it, or the body within Lane Guard's margin (then it steers back left)
+    goingAround @4;  # the model's plan heads left (going around something): held
+    hands @5;        # you steered
+    blendful @6;     # Blendful took over (trust 0.5)
+    timeout @7;      # 6 s
+    speed @8;        # over 30 mph
+    other @9;        # lane change, openpilot not steering
+  }
+
+  enum SettlePhase {
+    idle @0;
+    push @1;         # no lane center seen: the blind push right
+    centering @2;    # a lane center is seen: Settle's centering
+    handedOff @3;    # Blendful took over; fading out
+  }
 }
 
-struct CustomReserved16 @0xfc6241ed8877b611 {
+# fmPlan (plannerd, 20 Hz): which Accel Boost is selected. What it added is longitudinalPlan.accelBoost (m/s^2), which
+# every mode publishes, so the boost bar reads one field.
+struct FmPlan @0xa30662f84033036c {
+  accelBoostMode @0 :AccelBoostMode;
+
+  enum AccelBoostMode {
+    off @0;
+    gas @1;               # Gas Override Boost (openpilot #39015 via sunnypilot)
+    sunnyBoost @2;        # sunnypilot's predictive boost (AccelBoostSP, #2089)
+    evpSetSpeed @3;       # EVPilot's Set Speed Assist
+    apAccelControl @4;    # AdventurePilot's Acceleration Control
+    opPersonality @5;     # openpilot #39430 + #39440: by personality
+  }
 }
 
-struct CustomReserved17 @0xa30662f84033036c {
+# fmCarState (card, 100 Hz): the Rivian torque readout. 0/false on other cars.
+struct FmCarState @0xfc6241ed8877b611 {
+  epasToiActive @0 :Bool;   # EPAS_SystemStatus.H_CAN_EPSS_ToiActive: the EPAS is taking our torque overlay
+  steerCap @1 :Int16;       # CAN units: most torque that may be sent right now (speed curve, incl. any high-angle cap)
+  maxTorque @2 :Int16;      # CAN units: the low-speed limit in force this drive (Max Torque; 385 = stock AP)
 }
 
-struct CustomReserved18 @0xc86a3d38d13eb3ef {
+# fmRadarLead (radard, 20 Hz): what radard did with the leads each frame (sunnypilot/selfdrive/controls/lib/fm_radar.py),
+# for the log and the Lead readout.
+struct FmRadarLead @0xbd443b539493bc68 {
+  source @0 :Source;          # where leadOne came from this frame
+  leadProb @1 :Float32;       # the camera's (filtered) lead probability leadOne was judged on; 0 without a lead
+  earlyLead @2 :Bool;         # a lead the camera is only cutoff..50% sure of (not the low-speed radar path)
+  ghostDropped @3 :Bool;      # Ignore Stationary Radar Ghosts dropped a standing-still radar point this frame; leadOne is
+                              # the camera's estimate instead
+  ghostDRel @4 :Float32;      # the dropped point (radar frame: m ahead, m left-positive, m/s); 0 when nothing was dropped
+  ghostYRel @5 :Float32;
+  ghostVLead @6 :Float32;
+  ghostTrackId @7 :Int32 = -1;  # -1 when nothing was dropped
+  ghostDrops @8 :UInt32;      # times the guard started dropping a point since radard started
+  guardEnabled @9 :Bool;      # Ignore Stationary Radar Ghosts in use
+  liveLeadProb @10 :Float32;  # the camera's (filtered) lead probability for leadOne's slot, every frame, lead or not
+  lowSpeedLead @11 :Bool;     # leadOne is the low-speed radar path (radar point straight ahead under 4 m/s)
+  earlyRadarMatches @12 :UInt32;  # times this drive a lead got a radar match while the camera was under 50% sure
+  radarThreshold @13 :Float32;    # Radar-matched Lead Confidence in force
+  cameraThreshold @14 :Float32;   # Camera-only Lead Confidence in force
+  smoothHandoffs @15 :Bool;
+  decisions @16 :List(Decision);  # leadOne, leadTwo
+
+  struct Decision {
+    source @0 :Source;
+    confidence @1 :Float32;       # filtered confidence, even when absent
+    radarTrackId @2 :Int32 = -1;
+    dRel @3 :Float32;
+    vRel @4 :Float32;
+    ghostDropped @5 :Bool;
+    ghostTrackId @6 :Int32 = -1;
+    lowSpeedLead @7 :Bool;
+    admission @8 :Admission;
+    phase @9 :Phase;
+    hysteresis @10 :Bool;         # probability cleared the release cutoff only
+  }
+
+  enum Admission {
+    none @0;
+    radar @1;
+    camera @2;
+    lowSpeed @3;
+    hold @4;
+  }
+
+  enum Phase {
+    direct @0;
+    blend @1;
+    hold @2;
+  }
+
+  enum Source {
+    none @0;
+    radar @1;                 # paired with a radar point (incl. the low-speed radar path)
+    camera @2;                # the camera's own estimate (no sane radar match, or a ghost dropped)
+  }
 }
 
-struct CustomReserved19 @0xa4f1eb3323f5f582 {
+# fmJetlinkStatus (fm_jetlinkstatusd, 1 Hz and at once on a change): what the Jetlink big-model link is doing and which
+# model is driving, read from Jetlink's own records on the comma (/dev/shm/jetlink/*.json) and the comma's params
+# (sunnypilot/fm_jetlink). initData's params are copied once at the start of the drive; this is the live value.
+# Text fields are "" when unknown.
+struct FmJetlinkStatus @0xb057204d7deadf3f {
+  recordAge @0 :Float32;       # s since modeld's runtime record was written; -1 = no record
+  bigDriving @1 :Bool;         # the big model drives modeld's frames now (record alive, answered in the last 0.25 s)
+  state @2 :Text;              # the joining model's state in modeld (Jetlink's own words: ready, joining, running, ...)
+  drivingName @3 :Text;        # the model the Mac is running, while the big model drives (Jetlink's model index name)
+  drivingSha256 @4 :Text;
+  drivingCheckpoint @5 :Text;
+  serverPickName @6 :Text;     # the pick the Mac last answered the comma's hello with (a pick made in the Jetlink app)
+  serverPickSha256 @7 :Text;
+  slotName @8 :Text;           # the comma's own big-model slot (ModelManager_ActiveBundleChestnut)
+  builtName @9 :Text;          # the last engine the Mac built (JetlinkSpec)
+  builtSha256 @10 :Text;
+  builtReady @11 :Bool;
+  progressStage @12 :Text;     # JetlinkProgress: provisioning or joining stage
+  progressMsg @13 :Text;
+  linkKind @14 :Text;          # usb or cable (the iPhone), "" with no owner record
+  linkSpeed @15 :Text;         # the USB speed the owner reports
+  hostPresent @16 :Bool;       # a host is on the gadget now
+  device @17 :Text;            # what the host calls itself in its hello
+  backend @18 :Text;
+  handovers @19 :UInt16;       # drive counts, from modeld's record
+  drops @20 :UInt16;
+  lags @21 :UInt16;
+  held @22 :Bool;              # the last frame was a held (repeated) output
 }
