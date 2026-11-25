@@ -1,12 +1,12 @@
 """
-FM Pilot: Turn Lead, Turn Hold and Smooth Turn Start, for blinker turns at low speed, and the Turn Assist log
-(fmControls.turnAssist).
+FM Pilot: Turn Lead, Turn Hold, Smooth Turn Start and Finish Turn After Signal Cancels, for blinker turns at low speed,
+and the Turn Assist log (fmControls.turnAssist).
 
 Turn Lead and Turn Hold act only while a turn desire is active (the blinker turn that modeld's DesireHelper publishes as
-modelDataV2SP.laneTurnDirection, from sunnypilot's Lane Turn Desire), only while openpilot is steering, and only at low
-speed: full below 15 mph, fading out by 20 mph. They fade with speed over half a second. An active hold also fades over
-half a second when the turn desire ends. They only change the requested curvature, so every steering limit after them
-still applies.
+modelDataV2SP.laneTurnDirection, from sunnypilot's Lane Turn Desire) or Finish Turn After Signal Cancels carries it, only
+while openpilot is steering, and only at low speed: full below 15 mph, fading out by 20 mph. They fade with speed over
+half a second. An active hold also fades over half a second when the turn desire ends. They only change the requested
+curvature, so every steering limit after them still applies.
 
 Turn Lead (FM_TurnLeadEnabled, off by default) starts the turn on time when a model turns in late. Between Turn Lead Min
 Speed (FM_TurnLeadMinSpeed, 2 to 7 mph, default 7; full strength about 2.2 mph above it) and about 16 mph it reads the
@@ -90,10 +90,22 @@ back to the model is never delayed. A step makes openpilot's torque controller s
 the truck catches up (00000068--1 +24.3 s: Turn Lead stepped from 0.016 to 0.050 1/m in 0.1 s, the request went to the
 cap, then briefly steered out of the left turn at +25.4 s). The model's own request is never filtered.
 
+Finish Turn After Signal Cancels (FM_TurnCarryThrough, off by default; works with Turn Hold or Turn Lead on): when the
+turn desire ends while the truck is still turning that way (at least 0.01 1/m, a 100 m radius), for example the blinker
+cancelling or self-cancelling mid-turn, Turn Assist keeps the turn going until the truck straightens out (under 0.008
+1/m), for at most 6 s. It ends at once on steering against the turn (0.25 s, or 0.5 Nm), openpilot not steering, a lane
+change or 20 mph. Only Turn Assist's own idea of the turn is kept: the model's desire, the "Turning" alert and lane
+changes follow the blinker as before. Turn Lead and Turn Hold carry on with the carried turn; when it ends, an active hold
+fades over 0.5 s as for a cancel. In 00000070--77 +25.8 s and --78 +56.7 s the blinker went off just as the truck turned in
+and the request fell back to the model's nearly straight one. Built in (folded, always on with it; its old key
+FM_TurnCarryTurnInOnly is not read):
+  - Carry Only at Turn-In: no carry when the turn desire ends after the truck has turned 45 degrees, or once it is
+    already straightening out (turning less than 70% as tightly as at the turn's tightest): that blinker cancel is the
+    end of the turn, so an active hold fades out over 0.5 s as usual.
+
 Turn Lead, Hold Path Source and Hold Adds Your Steering come from StarPilot's Model Turn Assist "turn lead" and curvature
 hold (openpilot/starpilot/lateral/model_turn_assist.py, Dom branch, Nov 2026, firestar5683 and StarPilot contributors,
 MIT). Ported from fm-dev-nav-settle ca08aac9 (fm_turn_assist.py) with the toggles above folded; Turn Boost is dropped.
-Finish Turn After Signal Cancels (plan PR 12) supplies the turn's sign after the blinker cancels, where update() says so.
 """
 import math
 from collections import deque
@@ -120,9 +132,11 @@ PARAM_LEAD_ADAPTIVE = "FM_TurnLeadAdaptive"  # Adaptive Look-Ahead
 PARAM_LEAD_GATE = "FM_TurnLeadGate"  # Wait for the Corner
 PARAM_LEAD_GATE_DIST = "FM_TurnLeadGateDist"  # Turn Lead Start Distance, m
 PARAM_LEAD_YIELD = "FM_TurnLeadYield"  # Turn Lead Yields to Your Hands
-# Folded into Turn Hold on fm-dev-sync (always on with it). Their old keys stay declared and are never read.
+PARAM_CARRY = "FM_TurnCarryThrough"  # Finish Turn After Signal Cancels
+# Folded on fm-dev-sync (always on): six into Turn Hold, Carry Only at Turn-In into Finish Turn After Signal Cancels.
+# Their old keys stay declared and are never read.
 FOLDED_KEYS = ("FM_TurnNudgeEnabled", "FM_TurnHoldEarlyCorrection", "FM_TurnHoldReleaseDebounce",
-               "FM_TurnHoldStartsAtTurnIn", "FM_TurnHoldSteeringOnly", "FM_TurnHoldSteadyPeak")
+               "FM_TurnHoldStartsAtTurnIn", "FM_TurnHoldSteeringOnly", "FM_TurnHoldSteadyPeak", "FM_TurnCarryTurnInOnly")
 
 FULL_SPEED = 15 * CV.MPH_TO_MS
 MAX_SPEED = 20 * CV.MPH_TO_MS
@@ -161,6 +175,18 @@ HOLD_STEADY_FRAMES = int(round(HOLD_STEADY_TIME / DT_CTRL))
 # Turn Lead kept adding 0.017-0.040 1/m.
 LEAD_YIELD_RESUME = 0.5  # s
 LEAD_YIELD_NONE, LEAD_YIELD_PAUSED, LEAD_YIELD_OFF = 0, 1, 2
+
+# Finish Turn After Signal Cancels: keep the turn going while the truck is still turning that way
+CARRY_START_CURVATURE = 0.01  # 1/m (100 m): the truck must be turning at least this tightly when the turn desire ends
+CARRY_END_CURVATURE = 0.008  # 1/m (125 m): the turn is done once the truck straightens past this
+CARRY_MAX_TIME = 6.0  # s
+HOLD_AGAINST_TORQUE = 0.5  # Nm: a press against the carried turn this firm ends the carry at once (else HOLD_AGAINST_TIME)
+# Carry Only at Turn-In (folded): no carry once the truck has turned this far, or is already straightening out (its curve
+# below this share of the turn's tightest) when the turn desire ends. 00000073--8 +35.2 s: the blinker self-cancelled
+# 51 deg into a left, as the wheel unwound (16 m vs 9 m at the tightest), and the carry kept Turn Hold's floor 2 s past
+# the model.
+CARRY_TURN_IN_MAX = math.radians(45.)
+CARRY_UNWIND_FRAC = 0.7
 
 # Turn Lead (from StarPilot's TURN_LEAD_*)
 LEAD_TIME = 1.3  # s of travel to the path point it reads
@@ -213,7 +239,7 @@ MIN_RADIUS_LIMITS = (8.0, 20.0)  # m
 MIN_RADIUS_DEFAULT = 12.0
 
 # Logged in fmControls.turnAssist: where the turn came from and why Turn Hold let go (same numbers as the log enums).
-# SOURCE_CARRY is Finish Turn After Signal Cancels (plan PR 12).
+# SOURCE_CARRY is Finish Turn After Signal Cancels.
 SOURCE_NONE, SOURCE_DESIRE, SOURCE_CARRY = 0, 1, 2
 RELEASE_NONE, RELEASE_DRIVER, RELEASE_TURNED, RELEASE_TIME, RELEASE_MODEL_EXIT = 0, 1, 2, 3, 4
 
@@ -334,6 +360,11 @@ class FmTurnAssist:
     self.lead_gate = False
     self.lead_gate_dist = LEAD_GATE_DIST_DEFAULT
     self.lead_yield = False
+    self.carry_enabled = False
+    self.carry_sign = 0  # Finish Turn After Signal Cancels: the turn being carried, 0 when none
+    self.carry_time = 0.0
+    self.carry_done = False  # the carry for this turn has ended; wait for a new turn desire
+    self.carry_against = 0.0
     self.restarts = 0  # Stop Before Turning Starts Over: times this turn was started over (logged)
     self.amount = 0.0  # 0..1 fade
     self._reset_turn(0)
@@ -360,6 +391,7 @@ class FmTurnAssist:
     self.lead_gate = self.params.get_bool(PARAM_LEAD_GATE)
     self.lead_gate_dist = self._read_float(PARAM_LEAD_GATE_DIST, LEAD_GATE_DIST_DEFAULT, LEAD_GATE_DIST_LIMITS)
     self.lead_yield = self.params.get_bool(PARAM_LEAD_YIELD)
+    self.carry_enabled = self.params.get_bool(PARAM_CARRY)
 
   def _read_float(self, key: str, default: float, limits) -> float:
     """A number setting, clipped to its limits; unset, unreadable or not finite -> default (as fm-dev-nav-settle)."""
@@ -487,9 +519,10 @@ class FmTurnAssist:
              steering_pressed: bool, lat_active: bool, model_v2=None, a_ego: float = 0.0,
              lane_changing: bool = False, steering_torque: float = 0.0) -> float:
     self._clear_log(desired_curvature)
-    # Finish Turn After Signal Cancels (plan PR 12) replaces this sign with the carried turn's once the desire ends
-    sign = turn_sign(turn_direction) if self.enabled else 0
-    self.log_source = SOURCE_DESIRE if sign != 0 else SOURCE_NONE
+    desire_sign = turn_sign(turn_direction) if self.enabled else 0
+    # Finish Turn After Signal Cancels: once the desire ends, the carried turn's sign while it lasts
+    sign = self._carry(desire_sign, v_ego, actual_curvature, steering_pressed, steering_torque, lat_active, lane_changing)
+    self.log_source = SOURCE_DESIRE if desire_sign != 0 else (SOURCE_CARRY if sign != 0 else SOURCE_NONE)
     step = DT_CTRL / FADE_TIME
     if sign == 0 and self.hold_exit_amount > 0.0:
       self.turn_ended = True
@@ -680,6 +713,39 @@ class FmTurnAssist:
     ):
       if value:
         setattr(msg, name, value)
+
+  def _carry(self, sign: int, v_ego: float, actual_curvature: float, steering_pressed: bool, steering_torque: float,
+             lat_active: bool, lane_changing: bool) -> int:
+    """Finish Turn After Signal Cancels: when the turn desire ends (blinker cancelled or self-cancelled) while the truck
+    is still turning that way, keep the turn going for Turn Assist until the truck straightens out. Returns the turn's
+    sign to use this step."""
+    if sign != 0 or not self.carry_enabled or not self.enabled:
+      self.carry_sign, self.carry_time, self.carry_against = 0, 0.0, 0.0
+      self.carry_done = sign == 0  # a carry only follows a turn desire seen while this was on
+      return sign
+
+    if self.carry_sign == 0:
+      # the turn desire just ended: start only if a turn was active and the truck is turning that way now
+      if (self.carry_done or self.sign == 0 or self.turn_ended
+          or self.sign * actual_curvature < CARRY_START_CURVATURE):
+        self.carry_done = True
+        return 0
+      # Carry Only at Turn-In (folded): past 45 deg, or already straightening out, the cancel is the end of the turn
+      if self.turned >= CARRY_TURN_IN_MAX or self.sign * actual_curvature < CARRY_UNWIND_FRAC * self.peak_actual:
+        self.carry_done = True  # the usual cancel fade
+        return 0
+      self.carry_sign, self.carry_time, self.carry_against = self.sign, 0.0, 0.0
+
+    s = self.carry_sign
+    against = steering_pressed and s * steering_torque > 0.0
+    self.carry_against = self.carry_against + DT_CTRL if against else 0.0
+    self.carry_time += DT_CTRL
+    if (not lat_active or lane_changing or v_ego >= MAX_SPEED or self.carry_time > CARRY_MAX_TIME
+        or s * actual_curvature < CARRY_END_CURVATURE
+        or self.carry_against >= HOLD_AGAINST_TIME - 1e-6 or (against and s * steering_torque >= HOLD_AGAINST_TORQUE)):
+      self.carry_sign, self.carry_done = 0, True
+      return 0
+    return s
 
   def _smooth_start(self, desired_curvature: float, out: float, sign: int) -> float:
     """Smooth Turn Start: the extra request toward the turn rises through a low-pass and drops at once."""
