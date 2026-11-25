@@ -13,11 +13,13 @@ Plan PR numbers (BUILD_PLAN.md) differ from GitHub PR numbers. Status as of Nov 
 | 6 | Feedforward + Low-Speed Correction Strength | #10 | `60c057b` |
 | 7 | Lane Keeping, Lane Guard, Blendful | #11 | `99a2b44` |
 | 8 | Model Lateral Smoothing | #12 | `31be347ac` |
+| 9 | Calmer Crawl-Speed Steering and Calmer Straight Pull-Away | #13 | `ce45f40de` |
 
 ## Owners and next PR
-- **ChatGPT:** plan PRs 8, 9, 16, 17, 18. Next: **PR 9** Calmer Crawl-Speed Steering and Calmer Straight Pull-Away.
-  PR 8 keeps separate small- and big-model smoothing settings. PR 9 adjusts the curvature speed floor independently.
+- **ChatGPT:** plan PRs 8, 9, 16, 17, 18. Next assigned: **PR 16** Top Readout after its dependencies merge.
 - **Claude:** plan PRs 10-15. Next: **PR 10** Turn Hold, Smooth Turn Start, Turn Assist logging.
+  PR 9 kept the two existing floor keys and AP's 1.0 m/s stock floor. The optional floor applies only to the
+  action-head curvature conversion, independently of Turn Hold and Model Lateral Smoothing.
 
 ## Conventions
 - FM log messages use the free slots 14-19, from the top: `fmControls` @145, `fmModel` @144, `fmPlan` @143,
