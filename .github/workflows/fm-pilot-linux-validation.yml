@@ -1,7 +1,7 @@
 name: FM Pilot Linux validation
 on:
   push:
-    branches: [fm-sync/validation-pr08]
+    branches: [fm-sync/validation-pr09]
 permissions:
   contents: read
 jobs:
@@ -10,15 +10,15 @@ jobs:
     timeout-minutes: 35
     env:
       CI: 1
-      EXPECTED_HEAD: ca978e4e8ac5609750d857e9c9571c340ff0d709
-      BASE_SHA: 742232942cff8742ee0350f8114d29919efacaad
+      EXPECTED_HEAD: cb2e64f8f5a685aa4971234841c3c03030d7452e
+      BASE_SHA: 6dfb1d56e670569ca494096a75d517680fafb9dd
       GIT_CONFIG_COUNT: 1
       GIT_CONFIG_KEY_0: lfs.fetchexclude
       GIT_CONFIG_VALUE_0: openpilot/selfdrive/modeld/models/big_driving_tinygrad.pkl
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ca978e4e8ac5609750d857e9c9571c340ff0d709
+          ref: cb2e64f8f5a685aa4971234841c3c03030d7452e
           fetch-depth: 0
           persist-credentials: false
       - name: Verify exact Linux checkout and set up dependencies
@@ -46,7 +46,7 @@ jobs:
           uv pip install --python "$(command -v python)" pytest
           report="$RUNNER_TEMP/affected.xml"
           status=0
-          python -m pytest -v --junitxml="$report" openpilot/sunnypilot/modeld_v2/tests openpilot/sunnypilot/system/tests openpilot/sunnypilot/sunnylink/tests openpilot/sunnypilot/models/tests/test_default_model.py openpilot/system/manager/test/test_manager.py || status=$?
+          python -m pytest -v --junitxml="$report" openpilot/sunnypilot/modeld_v2/tests openpilot/sunnypilot/jetlink_adapter/tests openpilot/sunnypilot/system/tests openpilot/sunnypilot/sunnylink/tests openpilot/sunnypilot/models/tests/test_default_model.py openpilot/system/manager/test/test_manager.py || status=$?
           if [ "$status" -ne 0 ] && [ "$status" -ne 1 ]; then exit "$status"; fi
           python - "$report" "$status" <<'PY'
           import sys
