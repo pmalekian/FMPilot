@@ -83,6 +83,10 @@ class CruiseLayout(Widget):
       description=tr("Adds a small push on top of sunnypilot's own acceleration, stronger in Aggressive and gentler in Relaxed. " +
                      "Eases off in curves and when sunnypilot slows or stops. Never goes past your set speed, and lead-car following still comes first."),
       param="AccelBoostSP")
+    # FM Pilot: both are options of the Accel Boost picker (FM_AccelBoostMode, Sunnylink Cruise > Accel Boost) and the
+    # planner doesn't read these toggles, so they are hidden here
+    self.acceleration_control_toggle.set_visible(False)
+    self.accel_boost_toggle.set_visible(False)
 
     self.custom_acc_toggle = toggle_item_sp(
       title=tr("Custom ACC Speed Increments"),

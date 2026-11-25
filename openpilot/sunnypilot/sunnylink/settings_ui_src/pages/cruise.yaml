@@ -30,27 +30,47 @@ sections:
       label: Relaxed
     enablement:
     - $ref: '#/macros/longitudinal'
-  - key: AccelerationControl
-    widget: toggle
-    title: Acceleration Control
-    description: >-
-      Adds a personality-linked increase to the model acceleration candidate: Relaxed 0.1, Standard
-      0.2, Aggressive 0.3 m/s^2 at full activation. No increase at raw model requests <= 0; ramps to
-      full at 0.1 m/s^2. Speed activation ramps from zero at 10 mph to full at 20 mph. No increase
-      when the model predicts a stop. The separate gas override is unchanged. Acceleration Boost
-      stays off while this is on. Cruise and lead
-      candidates and acceleration limits still constrain the planner. Can only be changed while
-      parked.
+  - key: FM_AccelBoostMode
+    widget: multiple_button
+    title: Accel Boost
+    description: 'Adds a little acceleration on top of the model''s, one kind at a time (FM Pilot). Gas: after you press
+      the gas while the model holds the car below what the lead and set speed allow, adds up to +0.2 m/s² for that
+      engagement (openpilot). Sunny Boost: adds acceleration whenever the model predicts no reason to slow, up to +0.4 /
+      0.25 / 0.1 m/s² for aggressive / standard / relaxed; fades in tight curves and when the model slows or stops
+      (sunnypilot). EVP Set Speed: above 20 mph, helps the car reach your set speed when only the model holds it back,
+      up to +0.7 / 0.5 / 0.3 m/s²; shrinks as the model slows or the road turns (EVPilot). AP Accel Control: +0.3 / 0.2 /
+      0.1 m/s² on any model request above 0.1 m/s², from 10 mph, full by 20 mph (AdventurePilot). OP Personality: +0.15 /
+      0.05 / 0 m/s², faded below 22 mph and when the model brakes (openpilot). The boosts lift only the model''s target:
+      the lead and the set speed still limit it. sunnypilot''s Acceleration Boost and AP''s Acceleration Control toggles
+      are these options now.'
+    options:
+    - value: 0
+      label: 'Off'
+    - value: 1
+      label: Gas
+    - value: 2
+      label: Sunny Boost
+    - value: 3
+      label: EVP Set Speed
+    - value: 4
+      label: AP Accel Control
+    - value: 5
+      label: OP Personality
     enablement:
-    - $ref: '#/macros/offroad'
     - $ref: '#/macros/longitudinal'
-  - key: AccelBoostSP
+  - key: FM_AccelBoostIndicator
     widget: toggle
-    title: Acceleration Boost
-    description: "Adds a small push on top of sunnypilot's own acceleration, stronger in Aggressive and gentler in Relaxed. Eases off in curves and when sunnypilot slows or stops. Never goes past your set speed, and lead-car following still comes first."
+    title: Show Accel Boost On Screen
+    description: Draws a green bar in the side panel of the comma 4 while Accel Boost is on, in place of the confidence
+      ball. It fills with what the boost adds while the boosted model target sets the speed, up to the most the selected
+      boost can add for your driving personality.
     enablement:
     - $ref: '#/macros/longitudinal'
-    - {type: param, key: AccelerationControl, equals: false}
+    visibility:
+    - type: param_compare
+      key: FM_AccelBoostMode
+      op: '>'
+      value: 0
   - key: SPStopDistance
     widget: option
     title: Minimum Stop Distance
