@@ -1,0 +1,1453 @@
+# FM Pilot: findings archive
+
+History and background moved out of `FM_PILOT_HANDOFF.md`. Read only when a task needs it. Part 1 is the findings archive
+started Nov 5, 2026 (project copy `claude/FM_PILOT_FINDINGS.md`). Part 2 is the full `FM_PILOT_HANDOFF.md` of
+`fm-dev-nav-settle` `ca08aac9` (Nov 24, 2026), the last handoff before `fm-dev-sync`: every branch, build and drive
+analysis up to then, kept word for word. Part 3 is the Nov 23 build note (`FM_PILOT_BUILD_NOTE_2026-11-23.md`) of the same branch.
+
+# Part 1: findings archive (from Nov 5, 2026)
+
+## Regen vs friction at stops (Nov 5 analysis of `0000002d--2f1a05a219`, Nov 3, 63 min)
+
+Code path: planner `aTarget` → `longcontrol` (ki 0.2, stopping state ramps to `stopAccel` -0.2) → `carcontroller` adds
+the drag feedforward (`ACCEL_FF_DRAG_*`: 0 at 0.8 m/s, +0.17 at 3–8 m/s, +0.08 at 30 m/s) → **one number**,
+`ACM_AccelerationRequest` (0x160, -3.5..+2.0 m/s², panda-checked). `ACM_VehicleHoldRequest` and `ACM_PrndRequest` are
+always 0. The VDM alone splits that into motor regen and friction: it asks the ESP for friction through
+`VDM_OutputSignals` (0x152) `VDM_LfcRequestType` (1 = brake torque, 2 = standstill hold) and
+`VDM_Lfc_BrakeTorqueRequest`; the ESP reports what it applies in `ESP_Status.ESP_BrkTrq` (0x208, ≈ total friction torque:
+-4788 Nm with -3.1 m/s² on the pedal). Motor torque (`VDM_Torque_Front/Rear` 0x211/0x212), brake pressures (0x20C), ESP
+regen limits (0x1B0/0x1C0) and drive mode (0x3A1) are in the DBC but **not on any bus the comma sees**. No regen-level
+(Standard/Low) signal exists in the DBC. Regen is inferred as total decel minus friction.
+
+- **Under openpilot, braking is regen only up to about -2 m/s².** Friction while moving (no pedal) in 0.3% of frames:
+  only when the request reached -2.0 to -3.3 (`--14`, `--15`, `--23`, `--28`, `--35`), adding 480–2300 Nm (≈0.35–1.65
+  m/s²) on top of ~1.8–2.1 m/s² regen. In normal slowing `LfcRequestType` is 1 with -150..-320 Nm asked but
+  `ESP_BrkTrq` stays 0 (looks like the VDM keeping the brakes armed; a guess).
+- **At the end of each stop the VDM hands to friction:** `ESP_BrkTrq` goes 0 → -450..-950 Nm in the last 0.25–0.5 s
+  (~0.6 mph), right as openpilot enters `stopping` (`shouldStop`), then holds -660..-770 Nm (type 2). In Frankie's own
+  one-pedal stops friction arrives after the wheels stop (+0.25–0.5 s), holding -850..-1300 Nm.
+- **The truck brakes ~0.23 m/s² harder than the CAN request at every speed.** FF + integrator cancel it above ~3 mph
+  (aEgo − aTarget -0.00..-0.03); below ~3.4 mph the FF is ramped out, so the truck over-brakes the plan by 0.10–0.13.
+- **openpilot stops end harder than his one-pedal stops** (IMU, grade removed, 4 openpilot stops `--19` +42.9,
+  `--24` +34.7, `--51` +15.3, `--58` +40.9 vs 7 one-pedal stops `--5`..`--10`): decel 0.3 s before standstill
+  -0.44..-0.55 vs -0.16..-0.40; release jerk 4.4–5.5 vs 2.0–3.7 m/s³ (one 6.8); rebound similar (~+0.2). The plan
+  itself still asks -0.3..-0.45 in the last second (TSFDOM e2e), plus the 0.1 over-brake.
+- **Levers (none built):** (1) a Rivian final-approach taper below ~3 mph so real decel reaches ~-0.2 at standstill
+  (costs ~1.5 m of extra roll from 3 mph unless started earlier; in e2e the model may push back); (2) carry the drag
+  FF down toward standstill (~+0.1 below 3 mph) while keeping the hold; (3) leave regen/friction split alone: there is
+  no CAN control over it. Try regen Low vs Standard only as a test of whether the 0.23 bias changes.
+- Scripts one-off: cantools on 0x152, 0x208, 0x140, 0x162 and sendcan 0x160; stops found by vEgo crossing 0.05 m/s.
+
+## Nov 5 drives: `00000038` (Headroom), `00000039` (Full), build `03b6805`
+
+- **All ran at 385.** `torqueState.version` 0 in every segment, `actuators.torque` max 1.00, `torqueOutputCan` max 385.
+  v0 lacked the Higher Torque hook; fixed in `14cac9b`. Settings on `00000039`: Hold + both options on, Lead and Boost
+  off, `FM_AccelBoostMode` 2.
+- **Garage spiral `--61`–`--63`:** TSFDOM asked nearly straight at lock (median R 77–121 m while driven 5.1 m), so
+  openpilot sent its max torque **left, out of the turn**, against Frankie's right steering. `turns.py`'s "tightest
+  asked 9–18 m" was only a brief peak. Blinker off all of `--63`; turn desire on only `--62` 0–6.4 s.
+- **The lockouts are FM/AP's own TOI-dropout watchdog, not an EPAS fault.** Near lock the EPAS stopped taking torque
+  (`ToiActive` 9–33% past 450°, 93–100% under 300°) with no `ToiFlt`, `ToiUnavailable`, `SteeringReduced`/`Fault` or
+  hands level 3. 7 of 8 lockouts: `ToiActive` off 1.05 s → `toi_dropout_warn` (30 + 70 frames) →
+  `steerTempUnavailableSilent` → lateral off exactly 3.0 s (300-frame hold). The first one (`--62` +2.6 s) was Frankie
+  overpowering (−6 Nm, hands level 3). Every near-lock torque request was out of lock, so whether the EPAS refuses
+  only away-from-lock overlay near the end stop is unknown. During the 3 s off the wheel unwound at 300–500 deg/s with
+  +1.5–2.3 Nm on the column (hands or EPAS active return: the sensor can't tell).
+- **Why Hold Adds Your Steering added nothing:** the turn started at `--61` +55.2 s; at +57.5 s `steeringPressed` with
+  +1.0–1.8 Nm left (against the right turn) while openpilot pushed right, wheel moved 12° left → Turn Hold released
+  for good. In `--62` 0–2.5 s Frankie steered into the turn to lock (−2 to −3.7 Nm) and the request stayed at the
+  model's ~0.003.
+- **Wide right curve `--47` +45 s to `--48` +7 s:** hands off, not at cap. At 12 mph driven/asked 0.90; the v0
+  integrator held a stale −0.03 to −0.13 m/s² (against the turn) because it's frozen below 5 m/s (11.2 mph) and unwinds
+  slowly just above. At 20–21 mph tracking ~0.97. "Model let go" at `--48` +7–8 s: model 0.023 → 0.014 1/m while
+  Frankie pressed gas (20.7 → 24 mph) and steered right (−1.3 to −2.5 Nm). Predictive Boost's curve fade is on the
+  model's lat accel, 1.5 → 2.5 m/s²: the 12 mph part of this curve was ~0.8 m/s² (full boost allowed), 21 mph ~2.1
+  (~40%). Boost isn't logged separately; `aTarget` reached +0.45 at 12 mph and +0.57 at 20 mph in the curve.
+- **Normal turns at the cap (`00000038` `--1`, `--13`, `--19`):** pushing into the turn at 385 the EPAS took it
+  97–100% of the time, no `ToiFlt`/derate, hands level 1. Cleanest: `--19` +16.8–18.9 s, 17 mph right curve, 2.1 s
+  straight at the cap with ~0.5 Nm hands, wheel still creeping in ~16°/s, 88% of the asked lat accel. `--1` +25 s
+  (11 mph right) got 72%; `--1` +11.2–12.0 s (12 mph left) the wheel unwound 244° → 185° at the cap, hands 0.36 Nm,
+  while asking tighter. So the end-stop refusal is garage-specific; normal turns should benefit from Headroom.
+- **Phantom stationary radar leads on curves:** `00000038--19` on-ramp, +16.8–19.0 s: plan braked −1.8 to −2.5 m/s²
+  (19 → 13 mph) until Frankie pressed gas; again +32.6–36.2 s (−2 to −3.5, overridden by gas). Also `00000039--47`
+  +56.6–59.7 s (−3.5, gas 78%), `00000038--13` +30.7 and +58.8 s (−3.5, gas). Radar tracks with vLead ≈ 0, 10–19 m,
+  yRel −1.7..+2.3 m, new track ID every ~0.2 s (barrier/guardrail), while the real lead was vision-only (y −3.5..−4).
+  Stock radard `match_vision_to_track` accepts them: vel_sane passes when |track v − vision v| < 10 m/s (22 mph), and
+  dist within max(25%, 5 m). Planner source `lead1`/`lead0`.
+- **Options discussed, not built:** don't count `ToiActive` off near lock (e.g. > 480°) toward the dropout warning
+  (fault watchdog: discuss first); require against-turn torque to last (e.g. 0.3 s) before releasing Turn Hold; let the
+  v0 integrator decay instead of freezing at low speed; Predictive Boost curve fade lower (e.g. 0.8 → 1.5 m/s²);
+  radard: don't match a stationary radar track (|v| < ~1 m/s) to a vision lead moving > ~4 m/s (falls back to the
+  vision lead, not to no lead; lead detection, so discuss first).
+- Analysis scripts were one-off (cantools on `EPAS_SystemStatus` 0x380 bus 0, `ACM_lkaHbaCmd` from sendcan).
+
+## Turn Assist drives
+
+- **Order to tune:** Frankie's slow turns start late, so Turn Lead first (hands hovering), then Turn Hold (optionally
+  with its options), then Boost (1.10 left / 1.20 right) only if turns still go wide. One at a time recommended.
+- Turn Lead works from `FM_TurnLeadMinSpeed` (2–7 mph, default 7, full about 2.2 mph above) to about 16 mph. Turns often
+  start late pulling away from a stop, so lowering it is expected; at 2 mph it meets Hold Path Source.
+- Hold Path Source works only under about 2 mph with the corner right there (10° within 1.5 m full weight, none past
+  5 m). Stopped time doesn't count toward Turn Hold's 8 s.
+- **First drive, `0000002d--2f1a05a219` (Nov 3, 63 min):** Lead + Hold + both options, min 2 mph, radius 8 m; Boost on
+  from 1:25 (off 53:27, on 61:26), off-tracking 0.25. Turn Lead turned in when TSFDOM asked nearly straight (60:50:
+  model -8e-3, request -114e-3). Fixed after: steering in before the truck turned released Hold (`6124165`); Hold Adds
+  Your Steering capped at the slider so openpilot pushed out of 5–6.6 m loops (`ed7bd8b`, now full lock).
+- **Nov 4 drives (build `947b16c`), not yet analyzed:** `0000002e`, `0000002f`, `00000030` (Lead + Hold + options +
+  Boost, min 2 mph, radius 8 m, off-tracking 0.25); `00000033` (Lead + Hold, 7 mph, 12 m); `00000034` (Lead + Hold,
+  7 mph, 8 m, ~8 Loop A corners); `00000035` (Boost + Hold, no Lead, ~1.5 laps).
+- Builds before `b9c5a55` had left/right swapped in Turn Assist.
+
+## Loop A: manual vs stock TSFDOM (Nov 4, `00000032--0aacde19f0`, min 0–19)
+
+Loop: Hawk Hollow / Winston / Gatewood / Gerber block (routes PDF). Turn Assist and off-tracking off, lane centering on.
+Manual `--0`–`--9`; openpilot `--9`–`--12`, `--15`–`--18`.
+
+- **Frankie rolling:** ~12–14 m radius at 14–15 mph, ~3.2–3.4 m/s², turns in ~11 m before corner middle, ~2.5 Nm.
+  Right from a stop ~9 m.
+- **TSFDOM's request is about right** (8 lefts, 8 rights match his curve in timing and size).
+- **The torque cap fails:** 8 of 16 turns hit 0.95 2–3 s before the corner and stalled at ~1.5–1.9 m/s² (~18 m at
+  10–13 mph, 23 m at 13–16 mph), 35–75% of request, until he took over. In the rest he was already steering. After his
+  help openpilot pushed against the turn (-0.45 to -0.8 of max) in 14 of 16.
+- Controller lag ~0.2–0.25 s (9–36 mph): fine.
+- **Levers:** slower blinker turns, torque cap (being tested), or Hold Adds Your Steering. Next: same laps at 8–10 mph,
+  hands off until wide.
+- Scripts were one-off: yaw-rate curvature from `liveLocationKalman`, corners matched by GPS, aligned on half heading.
+
+## Higher Torque evidence
+
+- In `00000032` (`--9`, `--12`, `--15`, `--17`) at the cap the EPAS kept `ToiActive` 96–100%, never `ToiFlt`,
+  `SteeringReduced` or `SteeringFault`; wheel crept 3–60 deg/s until Frankie added 1–2.5 Nm, then 150–420 deg/s.
+- Nov 5 (`00000038`) confirms it: see the Nov 5 section above.
+- Garage `0000002c--28`: hand-moved wheel, command ~0.5 of cap until near full lock (-456°). Not informative.
+- DBC has no "torque applied" signal; headroom is judged from the response only.
+- Why Headroom over Full: torque is a fraction of the cap, so Full makes every low-speed correction 25% stronger. AP's
+  481 test (Full-like) felt jerky at 20–29 mph and oversteered at 38–50 mph.
+
+## Other findings
+
+- **Model families:** OPM16D and Rebel Legion share vision and plan networks (splice is free). RHM/RDF and TSFDOM/RDFv2
+  are separate. gwmv9 and DTRv6 ship as two files and steer from the plan (no action head): teachers only.
+- **Two small models:** ~37 ms each of the 50 ms step; dual mode impossible.
+- **Compile on comma (QCOM, IMAGE=1):** miscompiles `add_12 = linear_2 + linear`; lane lines, meta and pose NaN,
+  locationd blocks engaging. Fix: contiguous `linear_2`. IMAGE=0 works but ~245 ms. Official downloads fine.
+- **Torque history:** AP Rivian low-speed cap 385 (stock 250), panda same. Every model hits it in tight turns. TSFDOM
+  eases ~11 m to 30 m mid-turn.
+- **Ramp curve (Nov 3):** TSFDOM cut a right curve over the edge line; controller tracked fine; lines/edge too uncertain
+  for centering or Lane Guard (line 70%+, edge std <1 m). Trust limits left alone.
+- **Garage (Nov 3):** at 2–5 mph TSFDOM asked straight with turn desire active; stiff low-speed correction (gain 65 at
+  4–5 mph) fought the power steering, rack refusal and one-frame `accFaulted`. Suggested higher MADS min engage speed.
+- **Driver monitoring:** distraction reads as "phone" from PopSocket fidgeting. Never loosen thresholds.
+- **Straight-road sway:** ~0.7° wheel, ~5 s period on the OPM16D splice; not felt on TSFDOM. One-Line added ~25% on
+  faint lines.
+- **Pull right, `0000002d` (Nov 3):** from ~min 30–37 to the end, 5–10 cm right of centre, Frankie pushed left >0.5 Nm
+  5–10 s per minute against a slightly right request. Not Turn Assist, Sunnylink changes or lane centering. Crowned
+  roads (roll +2 to +2.8°), wheel ~1° left. Likely TSFDOM lane position plus crown, unproven. latAccelOffset ~-0.35 m/s²
+  all drive; factor 2.59 → 2.73. Test: Camera Offset +0.05 m (driven Nov 4).
+- **Blendful** (sunnypilot): looked at Nov 3, left alone.
+
+## AP pieces worth borrowing individually (no sync planned)
+
+- Gas Override Boost upstream is the same `accel_boost.py`: drop ours to avoid double boost if taken.
+- Predictive Boost (`AccelBoostSP`): keep FM's selector as the only switch.
+- Acceleration Control (fixed lift by personality): worth trying.
+- Road-edge lane change changes: re-check Road Edge Turn Desire and the quiet block.
+- tinygrad bump: re-verify the IMAGE=1 workaround.
+- AP's R1T wheelbase from VIN.
+
+## Ideas backlog
+
+- Steering tuner from Loop A logs: replay `FmTurnAssist` on logged turns, fit settings (after the speed/torque question).
+- Controller tuning of Rivian torque params (lat accel factor 2.8, max 2.5, friction 0.07) and turn-in ramp.
+- Retrain TSFDOM's steering head with OPM16D or gwmv9 as teacher, acceleration pinned (or the reverse).
+- Distillation via openpilot.distill, chestnut's 1B teacher, RunPod RTX PRO 6000; needs ONNX export and device speed test.
+- Road-edge guard for curves, only if more confident-edge crossings show up.
+- Upstream PR candidates: Road Edge Turn Desire, Turn Boost/Hold, quiet block, compile fix (clean branches off AP dev).
+- Nav port: `claude/FM_PILOT_NAV_PLAN.md`.
+- StarPilot items set aside: Force Stop (a simple "hold until RES/gas" if wanted), twitch guard, Blendful.
+
+# Part 2: `FM_PILOT_HANDOFF.md` of `fm-dev-nav-settle` `ca08aac9` (Nov 24, 2026), word for word
+
+## FM Pilot: handoff for new chats (short)
+
+State as of Nov 24, 2026 (**Blendful minimum speed 0.3 m/s on `fm-dev-nav-settle`**, item 0w, not driven; three builds planned: **Build A Lead readout built** on `fm-dev-nav` (Top Readout option Lead, not driven); Build B lead sensitivity implemented on `fm-dev-nav-lead`, requested replay pending, and **Build C Settle After Turn Early Right Push built** on `fm-dev-nav-settle` (off, provisional values, `000000af` replay owed before driving), item 0v; Radar Lead Status log + Radar Badge built on `fm-dev-nav`, badge off, item 0u; Nov 20 drive `000000af` turn analysis and five off-by-default fixes built, item 0t; Lateral Smoothing (Big Models) on `fm-dev-nav`, off, item 0s; Jetlink Status log, item 0r; Calmer Straight Pull-Away for Cheddar's pull-away jerk, item 0q; Nav Assist on `fm-dev-nav`: map logging, Map Turn Desire, Nav Turn Speed, Download Nav Map and the Top Readout CPU option, all off or as before, none on the truck yet, item 0o; code review of everything above AdventurePilot: fixes on `fm-dev-max2`, item 0p; comm warnings traced to hardwared stalls, stall diagnostics built, item 0n; Nov 13: drive `00000073` analyzed, item 0l; Turn Assist logging + fixes A/B/C built, item 0m). This is the current state only. Background findings, past drive analyses and
+the ideas backlog are in `claude/FM_PILOT_FINDINGS.md`: read it only when a task needs that history. Features, settings
+and credits are in `FM_PILOT.md`; log tools in `tools/fm/README.md`.
+
+### Setup
+
+- **Truck:** 2022 Rivian R1S Launch Edition (Gen 1), comma 4, torque harness.
+- **Repo:** `pmalekian/FMPilot`. Active branch **`fm-dev-set`** (v25 model list and tinygrad 92b742f since Nov 8), cut from `fm-dev-torque` `bece23e`
+  (Higher Torque + radar settings) and adding the settings reorganization, Blendful and the boost bar; `fm-dev-torque`
+  stays at `bece23e` as the fallback. `fm-dev-max` (`d189ccc`) is the everyday branch, installer `pmalekian/fm-dev-max`. Own fork of AdventurePilot `dev` (last synced `980dd5c`, Oct 31).
+  **No more AP syncs**; borrow single pieces only if wanted.
+  **Newest: `fm-dev-nav`** (Nov 17) = `fm-dev-max2` `196f750` + Nav Assist (item 0o) + Calmer Straight Pull-Away (item 0q, code `ce8ddd4`), all off by default;
+  plus (Nov 20, item 0t) Hold Ignores Crawl Spikes, Stop Before Turning Starts Over, Turn Lead Yields, Queue Guard, Settle After Turn, all off.
+  **Nov 23 build branches (item 0v), not merged into `fm-dev-nav`:** `fm-dev-nav-lead` = `fm-dev-nav` `69e7395` + Build B
+  (`a5f04fb`); `fm-dev-nav-settle` = `fm-dev-nav-lead` `a5f04fb` + Build C (carries A, B and C).
+  **AP demo branch (Nov 23): `fm-lead-sensitivity-v2`** (PR #4, replaces `fm-lead-sensitivity`/PR #3, which has the
+  cut-in fix as a fifth commit) = AP `dev` `8e6082b` (copied unchanged as `ap-dev`) + Custom Lead
+  Sensitivity (master toggle; Camera-only and Radar-matched Lead Confidence, default 50%), Smooth Lead Handoffs and Ignore
+  Stationary Radar Ghosts (both off), plus `docs/concepts/lead-sensitivity.md`. Shows someone else exactly what merging these
+  into AP looks like: neutral param names (no `FM_`), AP commit style with `Assisted-by: Claude`, no other FM features, no
+  status log. Same lead logic as Build B (0 differences over 768k random decisions, before the cut-in fix, which is in
+  the Smooth Lead Handoffs commit and in `fm-dev-nav-settle` `f7a9cff`); PR #4 into `ap-dev`. Not for daily driving; FM branches are unaffected.
+  `fm-dev-max2` (Nov 16) = `fm-dev-jet` `b627e6a` + the code-review fixes (item 0p), code at `040bef2`. `fm-dev-jet`
+  stays at `b627e6a` as the fallback.
+- **Keeping this file current:** whenever this handoff is updated, also write the updated copy into the Project with
+  `project_write` (path `FM_PILOT_HANDOFF (3).md`, replacing the old one) in the same turn, so Frankie doesn't have to re-upload it.
+- **Code work:** attach the repo (push access), clone the branch. Commit as
+  `Frankie Malekian <107580415+pmalekian@users.noreply.github.com>`, messages start "FM Pilot", one change per commit.
+  Push with `--no-verify` (LFS hook 403s); in a cloud chat add the repo to the session with push access first.
+  **Tests off-device: a real build works in a cloud chat, no shim needed** (Nov 16; real `Params`, msgq and the panda
+  safety library, so the Jetlink, safety and UI tests run too):
+  `git submodule update --init --depth 1`; `UV_PYTHON=/usr/bin/python3.12 UV_PYTHON_PREFERENCE=system uv sync --frozen --all-extras`;
+  `source .venv/bin/activate`; `scons -j2 openpilot/common openpilot/cereal msgq_repo opendbc_repo openpilot/selfdrive/controls
+  openpilot/selfdrive/pandad openpilot/common/transformations rednose_repo openpilot/selfdrive/locationd openpilot/system/hardware`
+  (about 5 min); `uv pip install pytest pytest-timeout`; `PYTHONPATH` = the repo plus `opendbc_repo`, `msgq_repo`,
+  `rednose_repo`, `tinygrad_repo`, `teleoprtc_repo`, `panda`; run `python -m pytest --timeout=90 --continue-on-collection-errors`
+  on `openpilot/sunnypilot openpilot/selfdrive/controls openpilot/selfdrive/car/tests/test_fm_convert_carcontrolsp.py
+  openpilot/selfdrive/modeld/tests openpilot/selfdrive/ui/sunnypilot openpilot/system/hardware/tests openpilot/common/hardware/tests openpilot/system/manager
+  opendbc_repo/opendbc/car/rivian opendbc_repo/opendbc/sunnypilot/car/rivian opendbc_repo/opendbc/safety/tests/test_rivian.py`
+  (11 min), and `cd tools/fm && python -m pytest tests`. Failing there and not FM's: `test_default_model` onnx hashes (LFS
+  not pulled), `test_locationd::test_params_gps` (times out, and leaves a pytest child behind: kill it), `test_manager::
+  test_set_params_with_default_value` (AP's `ScreenSaverCustomText`), and a collection error in AP's
+  `test_curve_speed_controller.py` (imports `A_LAT_CEILING`, which its module doesn't have).
+  After YAML edits recompile `openpilot/sunnypilot/sunnylink/tools/compile_settings_ui.py` (and run
+  `validate_settings_ui.py`).
+- **How to approach his asks:** when he asks whether something can be built or solved, work out how: name the hurdles
+  and give actionable steps past each. Don't treat today's software as the limit (open-source pieces like Jetlink can be
+  forked and changed). Look up checkable facts (vehicle specs etc.) yourself instead of leaving them as open questions.
+- **His compute:** Jetlink host MacBook M2 Pro; Windows laptop with a mobile RTX 3050; desktop PC with an RTX 3080 Ti
+  (12 GB). The R1S's 120 V outlets supply up to 1500 W.
+- **Frankie's side:** Windows PowerShell. Comma at `192.168.1.246`, user `comma`. Always `scp -O`. Say which prompt each
+  command runs at (`PS C:\...>` or after `ssh comma@192.168.1.246`). He can also download single rlogs from Comma
+  Connect on his phone and attach them (rename each to its segment, e.g. `<route>--<n>--rlog.zst`). The PC can be
+  linked to the chat; the bridge can read `C:\Users\frank\fm-logs` (the full Nov 3 drive `0000002d`, 64 segments) and
+  `C:\fmlogs` once granted (`C:\fmlogs\2026-11-05` folders are empty), but the PC shell VM doesn't start
+  (virtualization off), so the chat can't pull from the comma itself.
+- **Logs:** one-minute segments, `<route>--<n>/rlog.zst`. Model name only logged in `--0` (tools infer it otherwise).
+  `tools/fm` joins segments; tests `cd tools/fm && python -m pytest tests`. In a cloud chat run from `tools/fm` (its
+  `fmlog` import puts the repo's `openpilot` package on the path). rlogs include `radarTracks` (raw radar points), so
+  radard can be replayed offline. EPAS signals: decode `EPAS_SystemStatus` (0x380, bus 0) with cantools and the DBC.
+- **Signs:** curvature and lateral accel positive **right**; angle, hand torque and torque commands (incl.
+  `carOutput.actuatorsOutput.torqueOutputCan`, same sign as `actuators.torque`) positive **left**. Hand torque reads
+  *against* openpilot from wheel reaction when loose.
+- **Real torque sent:** `carOutput.actuatorsOutput.torqueOutputCan` (CAN units, cap 385 / 481). Learned torque values
+  are in `lateralTorqueParameters` (not `liveTorqueParameters`).
+- **Torque controller:** with `EnforceTorqueControl` on and `TorqueControlTune` 0 (his settings), or Enforce off,
+  sunnypilot runs **v0** (`latcontrol_torque_v0.py`), not v1. `torqueState.version` in the log says which.
+  `torqueState.saturated` is always false below 10 m/s.
+
+### What he drives now
+
+- **Nov 13 drive `00000073`** (`fm-dev-jet` `6162743`): **Lane Centering** (`FM_LaneKeepMode` 1), Set Speed boost (mode 3),
+  Lateral Smoothing on 0.1, and the turn features all on together: Turn Lead (adaptive, gate off, min 2 mph), Turn Hold +
+  Path Source + Adds Your Steering + Early Correction + Blip debounce, Carry-Through, Smooth Start, Calmer 70%, Low-Speed FF
+  (L Gentle / R Medium), Release Guard 150, Max Torque 580 + fast ramp + full cap past 90°, Turn Pulse on Pull-Away.
+- **TSFDOM**, Experimental Mode, **Blendful** as his daily lane keeping (`FM_LaneKeepMode` 3, in the Nov 11 logs; said
+  Nov 11), Lane Guard off, off-tracking off, Camera Offset 0.05 m
+  (since Nov 4, not yet analyzed). Aggressive personality, following time offset -20% (Nov 3 backup).
+- Road Edge Turn Desire on (max 35 mph in the Nov 5 logs), quiet road-edge block on.
+- Accel Boost: **Predictive** (mode 2) on the Nov 5 drives (up to +0.4 m/s² on aggressive).
+- Turn Assist on Nov 5: Turn Hold + Hold Path Source + Hold Adds Your Steering on; Lead and Boost off; radius 8 m.
+- Nov 5 drives were on `fm-dev-torque` `03b6805` (before the fix), panda setting on: `00000038` Headroom, `00000039`
+  (morning commute) Full. **Both actually ran at 385** (see below).
+- Custom splice model: **removed** Nov 8 (with the on-device compile fix and model check tools), for the v25 move.
+
+### Active work
+
+#### 0w. Blendful down to 0.3 m/s (Nov 24, his ask): `fm-dev-nav-settle` `a979d97`, NOT a setting, not driven
+
+- **Ask:** from a sunnypilot Discord screenshot (Fairy Tale v1.1 thread): Discountchubbs (Blendful's author) runs
+  Blendful's `MIN_SPEED` at 0.3 personally; says it can oscillate on some cars that low and that a fix is in progress.
+  Frankie: "do that for me for blendful in the settle branch".
+- **Built:** `sunnypilot/modeld_v2/blendful.py` `MIN_SPEED` 5.0 -> 0.3 m/s (was ~11 mph; the "12 mph" cutoff people see).
+  A constant, no setting: with `FM_LaneKeepMode` = Blendful (his daily mode) it now always centers in slow and
+  stop-and-go traffic on this branch. Other branches still have 5.0. Upstream (sunnypilot master/dev/staging, Nov 23):
+  still 5.0, no oscillation fix public yet (PRs searched: only #2073, #2081).
+- **Math at low speed (from the code):** below ~15 mph the look-ahead is pinned at `MIN_LOOKAHEAD` 10 m, so Blendful's
+  request for a given lane error is the same at 1 mph as at 11 mph. Synthetic check (noisy lane center 10 cm frame noise +
+  slow wander, probs ~0.7): curvature std 1.78e-3 / p2p 7.95e-3 1/m at every speed 0.5-5 m/s (identical), 1.18e-3 at
+  8 m/s. Wheel-angle equivalent (R1S 3.08 m, ratio 15.2) ~5 deg std at all those speeds. So any oscillation would come from
+  the truck's low-speed response (torque controller KP_INTERP ~30 at low speed, Calmer Low-Speed Correction 70%), not from
+  Blendful asking for more. Stopping fades the correction out over ~0.5 s (`smooth`), trust rebuilds over 1.5 s.
+- **Interactions:** Settle After Turn hands over at Blendful trust 0.5; now Blendful can reach that below 11 mph, so slow
+  turn exits hand over sooner (that was finding 0t-5's gap: "Blendful is off below 5 m/s"). Blendful stays off during any
+  desire (blinker turns, lane changes). No-blinker slow turns: lane-line probs are <0.1 mid-turn, so trust stays ~0.
+- **Tests:** upstream `test_fades_below_min_speed` now drives below the new cutoff (was 4.0 m/s); new
+  `test_works_in_slow_traffic` (1/2/4 m/s) and `test_stopping_resets_and_pulling_away_rebuilds`. modeld_v2 + tools +
+  Blendful renderer 384 pass; ruff clean. No YAML change.
+- **Not verified:** no rlogs in the session, so **no replay on real slow traffic**. Owed before relying on it: open-loop
+  replay of Blendful at 5.0 vs 0.3 on a stop-and-go segment (blendful inputs from `modelV2`; `laneLineStds` is one value
+  per line, so per-point stds are approximated) and `fm-dev-nav-settle` closed-loop behavior on the truck.
+- **What to watch on the truck:** in slow traffic, the wheel weaving left-right at 1-2 s periods (oscillation), or the
+  blue center line pulling when lines are hidden by the car ahead. Log fields: `modelDataV2SP.blendfulCurvature`,
+  `blendfulTrust`, with `carState.vEgo` < 5 m/s. Revert: set `MIN_SPEED` back to 5.0 (one line).
+
+#### 0v. Nov 23 builds: A on fm-dev-nav, B on fm-dev-nav-lead, C on fm-dev-nav-settle (all off, none driven)
+
+Full spec: `FM_PILOT_BUILD_NOTE_2026-11-23.md` at the repo root (project copy: `claude/FM_PILOT_BUILD_NOTE_2026-11-23.md`). Base `fm-dev-nav` @ `8f00a93`.
+
+- **Order:** Build A (Lead readout) first, alone. Then Build B (lead sensitivity) and Build C (Settle After Turn right
+  push) in parallel, each on its own branch off `fm-dev-nav` (e.g. `fm-dev-nav-lead`, `fm-dev-nav-settle`), merged one
+  at a time; shared files (`custom.capnp`, `params_keys.h`, Sunnylink YAML/compiled JSON, `FM_PILOT.md`, handoff) are
+  resolved by hand and Sunnylink recompiled after the second merge.
+- **A built (Nov 23):** `a7ac523` radard: `fmRadarLead` gains `liveLeadProb` @11 (radard's filtered
+  `leadsV3[0].prob` every frame; the readout uses it, so the number is the value compared with the cutoff),
+  `lowSpeedLead` @12, `earlyRadarMatches` @13 (rising edge of radar-matched and under 50%, not the low-speed path).
+  **Build B uses `FmRadarLead` @14–@18.** `08ef10b` `FM_TopReadout` 4 "Lead" (Torque still default):
+  `fm_torque_readout.LeadReadoutState` (pure logic) + `hud_renderer._draw_fm_lead_readout`; number floored (0.497 shows
+  49% purple, never "50%" in purple); X blinks red 0.25 s on/dim for 2 s after the last drop (or a `ghostDrops` rise the
+  UI missed); drawn engaged or not (the badge only draws engaged). Tests: radar +4, readout +8; sunnypilot + controls + UI +
+  modeld suites 1463 pass with only the known failures (onnx hash, locationd gps, curve-speed collection), tools 69; draw code run with raylib draw calls stubbed (colors/order right). Ruff clean, Sunnylink compiled,
+  validator 10/10. **Not seen on the device** (no raylib render off-device); needs the on-device build (cereal changed).
+  Test: Visuals > HUD Elements > FM Pilot: Top Readout = Lead; with his 40% + guard, watch for purple/cyan numbers and
+  E counting on approaches to traffic, X on ramps/curves by barriers.
+- **A. Lead readout (spec):** new `FM_TopReadout` option "Lead": `40% R E1 G0`. Number = live model lead confidence
+  (`modelV2.leadsV3[0].prob`, not `fmRadarLead.leadProb`, which is 0 without a lead): gray not counted, cyan camera-only
+  under 50%, purple radar-matched under 50%, white 50%+. Letter R / C / X (ghost dropped, red flash ~2 s) / `–`.
+  E = radar matches while under 50% this drive (rising edge, radard counter); G = `ghostDrops`.
+- **B built on `fm-dev-nav-lead`**, based on the remote `fm-dev-nav` tip `69e7395`. The 25–50% **Radar-matched Lead
+  Confidence** and **Camera-only Lead Confidence** settings replace the shared slider. The boot migration copies the
+  prior setting to any unset slider, preserving existing choices and the rollback key. **Smooth Lead Handoffs** and
+  **Lead Shadow Log** both default off. Shadow runs 30/50 and 30/40, each with smoothing off and on, with separate state
+  for each slot and variant. New `FmRadarLead` fields are radar @14, camera @15, smoothing @16, decisions @17, shadow @18.
+  Any later changes to this struct must use unoccupied ordinals when branches are combined.
+- **B implementation:** Radar matching starts above the lower cutoff. Camera fallback requires its own cutoff. Both
+  lead slots use strict greater-than comparisons, and leadOne keeps the low-speed override. With smoothing enabled,
+  radard prefers the previously matched radar track while it still fits (sideways, speed and, since `f7a9cff` on
+  `fm-dev-nav-settle`, distance: 4-10 m of the camera's car; before that a car cutting in 15-20 m closer at 80 m+ was
+  ignored until about 60 m, then the gap jumped; `fm-dev-nav-lead` still has the old check), eases same-car releases over 0.75 s, and
+  predicts for up to 0.5 s on radar loss while the camera still supports an in-path lead. A five-point release margin
+  only applies to the same car. Planner code is untouched.
+- **B validation:** `tools/fm/lead.py` supports recorded shadow reports and native open-loop replay of all eight
+  configurations. Test coverage includes exact cutoffs, migration, leadOne and leadTwo, low-speed override, ghost
+  rejects, holds, cut-ins, immediate braking measurements, and shadow isolation. With smoothing off, the original
+  Build A radard and Build B emitted byte-identical radarState messages across 5,401 updates at 50/50 and again at
+  40/40. All existing fmRadarLead fields matched. Open-loop replay on route
+  `00000099--2cf568eb98`, segments 0–4, with the guard on: leadOne radar/camera switches fell from 346 to 31 at 50/50.
+  The largest leadOne gap step was 6.51 m with smoothing off and 6.84 m on. Three extra leadTwo frames appeared in
+  segment 0 at a 40% camera cutoff. These segments had no active longitudinal control. The required
+  `000000a8--df5d2d0570--16` rlog was unavailable, so Build B remains pending the ramp replay and the braking-timing check.
+- **C built on `fm-dev-nav-settle`** (Nov 23), branched off `fm-dev-nav-lead` `a5f04fb` (remote heads checked first:
+  `fm-dev-nav` `69e7395`, `fm-dev-nav-lead` `a5f04fb`), so it carries A, B and C. B's code (radard, `fm_radar.py`,
+  `fm_lead_handoff.py`, `FmRadarLead`) untouched. `fc1c2bd` **Settle After Turn: Early Right Push**
+  (`FM_TurnSettleEarlyPush`, Turn Tweaks, under Settle After Turn, needs it, **off**); `2e721f7` `tools/fm/settle.py`.
+  Not merged into `fm-dev-nav` or `fm-dev-nav-lead`.
+- **C design (items 1-10 of the note), `modeld_v2/fm_turn_settle.py` `_update_early`; the old path is `_update_classic`, unchanged:**
+  (1) starts once the wheel's curvature is under 30% of the turn's tightest and under 0.02 1/m for 0.3 s and the plan bends
+  at most 0.5 m toward the turn 10 m ahead (45 deg minimum kept; desire end still starts it; a desire still on from that
+  turn doesn't end the window, a new/flipped desire does). (2) 3-30 mph. (3) cap `low_speed_cap(v)` = 0.1 m/s² / v²,
+  clipped to 0.004..0.01 1/m (the old 0.004 above ~11 mph). (4) no 30% line: blind push right after both turn directions,
+  aimed at a point 0.4 m right like the centering aims at a lane center (gain 0.6, 1.5 s / 10 m look-ahead, so it eases
+  off as the truck heads there), right only; distance from the truck's own motion (controlsState curvature x speed)
+  against the road's direction (wheel heading pulled toward the plan's direction 20 m / 3 s ahead with a 1.5 s filter,
+  at most 2.9 deg per reading). (5) a line showing offset <= 0.25 m (centered or right) ends the push for the turn.
+  (6) center seen: classic centering math (left turns never left) with the new cap; Blendful trust 0.5 ends it.
+  (7) sure right edge (std <= 0.5): push error limited to edge - 1.4 m; `curb_guard` = `lane_guard.get_lane_guard_curvature`
+  (Rivian tune) on the plan bent by Settle's own curvature, right edge only, no Lane Guard gates; push-back builds at Lane
+  Guard's 0.8 m/s³. (8) yield: `away` = plan's left heading at the look-ahead beyond the truck-vs-road heading, minus a
+  quarter of the model curve; Blendful's 0.2 / 0.45 m with hysteresis (on 0.2, off 0.1); scales the rightward target
+  (held, not ended). (9) a press zeroes it and ends the window. (10) `modelDataV2SP` @15 `fmTurnSettlePush` (m, most
+  reached), @16 `fmTurnSettleLimit` (none/cap/center/curb/goingAround/hands/blendful/timeout/speed/other), @17
+  `fmTurnSettlePhase` (idle/push/centering/handedOff), @18 `fmTurnSettleGuard` (1/m). Switching the option while driving
+  ends the window and fades at the usual rate.
+- **C values, all PROVISIONAL (in the code, `FM_PILOT.md` and here; no replay):** floor **3 mph** (top of his 2-3 mph range:
+  Turn Hold's crawl-speed spikes on `000000af` T5 were at 1.9-4 mph, and under 3 mph a turn exit covers little ground in 6 s
+  anyway); low-speed cap **0.1 m/s²** (gentler than the 0.18 the old cap gives at 15 mph; meets the old 0.004 at ~11 mph;
+  0.01 1/m ceiling below ~7 mph; about 2x the old cap at 8 mph); push **0.4 m** (a 2.01 m truck centered in a 3.3 m lane has
+  0.65 m each side: 0.25 m left to the right line, and the sim showed the truck coasting up to ~0.13 m further while the
+  model straightens it after the push lets go, so ~0.5 m worst case).
+- **C checks (no `000000af` logs this session, so no replay):** `test_fm_turn_settle_early.py` (95) + the old settle tests
+  (21) pass. **Off = identical:** a frozen copy of the a5f04fb module (`tests/fm_turn_settle_baseline.py`) vs the new one on
+  the same random inputs, 40 x 3000 frames through `update` and 10 x 2000 through `settle_from_model`: bit-identical output
+  and state; off logs nothing new. **Synthetic turns** (closed-loop sim in the test: turn with the desire on, unwind, a model
+  that only lines the heading up with the road, 0.3 s steering lag): left and right turns with no line stop at the 0.4 m cap
+  (truck moved 0.46-0.53 m with a model straightening over ~40 m); against models straightening over 10-40 m at 9 and 22 mph
+  the truck moved 0.17-0.52 m, only ever pushed right; turn ending centered or 0.2/0.5 m right with a 35% line: never pushed
+  right (limit center); line seen 1 s late saying centered: push ends, <0.15 m moved; sure curb 1.6 m: push stops 1.4 m off;
+  curb 1.05 m: steers back left (also at 2.5 m/s, any lane keep mode); plan swinging 0.6 m left: holds, resumes after (0.1 m
+  swing ignored); hand press: 0 at once, window over; 3-25 mph: never over the cap (0.1 m/s² below ~11 mph); under 3 mph
+  waits; push > centering > handedOff > idle; starts while a late blinker is still on (classic waits). Sunnypilot +
+  controls + modeld + UI suites 1604 pass with only the known failures (onnx hash, locationd gps, curve-speed collection);
+  B's lead/radar tests 84 pass; modeld_v2 + Sunnylink 382; tools 74 (+3). Ruff clean; Sunnylink compiled, validator 10/10.
+- **What the sim found and changed in C before commit:** measuring "how far right" from the heading at the window start
+  drifted ~2.5 cm per meter when the truck was 1.4 deg off the road (ended the push after 0.08 m of real movement), and the
+  yield read the model's plan pointing back along the road (after the push angled the truck) as going around a car; both now
+  use the road direction above. The wheel curvature is read a frame late, so the push's own measure can read a few cm high
+  (stops early: the safe side).
+- **C owed before Frankie drives it:** open-loop replay of all 8 turns on `000000af--565e9cd6b0` (Nov 20, Cheddar;
+  segments --0..--4, --8 were attachments) with Settle After Turn on, Early Right Push off (baseline) vs on, scripts in
+  project doc `claude/turn_replay_scripts.md` (feed `settle_from_model(..., early, model_curvature)`): each turn's exit speed;
+  Turns 2 and 4 not pushed toward the curb; how often each limit fired (`fmTurnSettleLimit` / `tools/fm/settle.py`; if the
+  0.4 m cap does most of the stopping, the curb guard rarely sees anything in time and the cap should shrink); then set
+  the provisional values from it. **Not verified at all:** closed-loop truck response (the sim's model is made up: how hard
+  the real models pull the heading back after a push is unknown, and it sets how far the truck really moves), on-device look
+  of the new Sunnylink row, the on-device build (cereal changed). The sim also showed a good turn can be pushed until the
+  first 30% line appears (e.g. ~0.1 m in the first second): watch Turns 2/4 in the replay.
+- **Merging (later, by hand):** C's capnp fields are in `ModelDataV2SP` @15-@18 (B's are in `FmRadarLead`, no collision);
+  `params_keys.h` adds `FM_TurnSettleEarlyPush` next to `FM_TurnSettle`; Sunnylink YAML `steering.yaml` (B: `cruise.yaml`),
+  recompile JSON after merging; `FM_PILOT.md` and this item.
+
+#### 0u. Radar Lead Status log (`fmRadarLead`) and Radar Badge (Nov 20 evening), built, badge OFF, not driven
+
+- **Why:** he wanted examples of Ignore Stationary Radar Ghosts and Lead Detection Sensitivity (40%, his value) to share.
+  The log didn't record when the guard acted, so `000000a8--df5d2d0570--6` / `--16` (guard on, 40%, Cheddar, Predictive)
+  had to be judged from raw radar points. Neither was a clean example: --6 nothing to do; --16 +13.0..+14.2 s the guard
+  dropped standing-still points (barriers, 31-39 m, slightly left) beside a car at ~20 mph after the car's own radar point
+  vanished, but he was on the gas and braked/disengaged at +13.5 s. 40% only picked leads up ~0.15 s early there.
+- **Built:** radard publishes `fmRadarLead` (CustomReserved12 @138, 20 Hz, qlog every 5th): source, leadProb, earlyLead,
+  ghostDropped + the dropped point + ghostDrops count, guardEnabled, threshold. Replaying the real radard on --16 gives
+  the drops above (replay vs logged leadOne source agree ~92%: cold start, no radar delay alignment).
+  **Radar Badge** (`FM_RadarBadge`, Visuals > HUD Elements, off): badge where the lead car is on the comma 4 road view,
+  hidden while radar and camera agree; amber pulse 2 s on a ghost drop; gray camera-only; gray ring early lead; 0.3 s
+  settle / 1 s hold. His choices: no text labels, green state hidden. The comma 4 draws no lead chevron, so the badge uses
+  the renderer's computed lead position. Not drawn while disengaged.
+- **Not verified:** how it looks on the device (no raylib render off-device); a drive with the badge on.
+
+#### 0t. Nov 20 morning drive `000000af--565e9cd6b0` (first drive on `fm-dev-nav` `5f70e65`, Cheddar): 8 turns analyzed; five fixes built, OFF, not driven
+
+- **Logs:** segments --0..--4 and --8 (attachments, not on his PC). Drive t=0 is 08:52:08.8 CST (from `clocks`).
+  Cheddar, MADS lateral only all drive (no cruise or openpilot longitudinal: he drove the pedals, so Nav Turn Speed never
+  capped), Blendful, Turn Lead (adaptive, gate 5 m) + Turn Hold (Path Source, Adds, Early Correction, Starts at Turn-In,
+  Follow Exit, Steering Only) + Nudge + Smooth Start, Max Torque 580 + fast ramp + full cap, Calmer 70%, Low-Speed FF L1/R2,
+  Release Guard 150, Nav Assist + Map Turn Desire + Nav Turn Speed + Calmer Straight Pull-Away all ON (first drive with them).
+- **His turns -> log:** T1 --0 +29.6 R (good turn, then stayed left), T2 --0 +52.0 L (good), T3 --1 +2.5 R (ended on the lane
+  line), T4 --1 +33.2 R (good, Map Turn Desire started), T5 queue --2 +57..--3 +33 then turn --3 +35.3 L (wheel winding
+  while queued; turn cut into the oncoming side), T6 --4 +40.5 R (too wide, car waiting on Bartlett), T7 --8 +35.6 L from a
+  red light (cut toward the median), T8 --8 +50.5 R (too tight then too wide).
+- **Findings (observed):**
+  1. **Turn Hold's peak learns crawl-speed spikes.** T5 turn: Cheddar's raw request at 1.9-4 mph swung -94/-190/-78/-122/-49
+     e-3 in 0.5 s; the peak took 149, the floor then added 51-72 e-3 for 1.5 s at 4-14 mph (request -110..-118 vs the model's
+     -37..-49), the truck went to -115..-120 (r 8.3 m) and the left lane line passed under the truck (y -1.70 -> +0.49 m) until
+     Follow Exit faded it at +37.8. Off-center until Blendful re-acquired at --3 +40.8 (his "Good now" frame, 08:55:48).
+     T3: model 129 at 3.7 mph also became the peak (floor +38-44).
+  2. **Queue creeps steer into the turn, and the hold peak survives the stop.** T5: radar lead 2.4-5.4 m ahead, stopped. Each
+     1-5 mph creep with the blinker on (AP Lane Turn Desire) asked -15..-48 e-3, wheel to 79 deg. Hold Path Source set a peak of
+     120 e-3 at 1 mph (--3 +24.8); Hold Only Counts While Steering froze the peak and its decay over the 6 s stop, so the next
+     creep (--3 +31.8) got a floor of +87 (request -84 vs model -7). He fought it (-109 deg, -2.2 Nm), which released the hold.
+  3. **Turn Lead front-loads the turn, and its addition becomes the hold's peak.** At turn-in Lead added 60-87 e-3 (2-3x the
+     model) in T1, T2, T3, T8 and 48 in T7. The peak includes Lead's addition, so the floor keeps it after Lead hands back
+     (T1 +27, T7 +12-26, T8 +19). T7: pulling away from the light, request -70 vs model -27 from 1.5 to 5 m past the stop,
+     truck at r ~15 m toward the median nose; he pushed out at +37.6. T8: request 85-116 vs model 26-38, he pushed against
+     (+1.75 Nm) at +52.3-53.3 and **Lead kept adding (17-40) while he pushed**: Lead has no hand release (Turn Hold does).
+     Afterwards the model alone (57) was too gentle and he pushed in (-2.3 Nm). Lead was equally large in T2, which he rated
+     really good, so Lead isn't wrong on every turn.
+  4. **T6 was entry speed.** Turn-in at 20-22 mph (his pedal), so Turn Assist (fades 15->20 mph) added nothing; model alone
+     ramped 15 -> 64 e-3 over 2.5 s while slowing to 13 mph; truck lag ~0.4 s. Map Turn Desire started 4.9 s before turn-in at
+     32 mph (correct); junction 20 m away at turn-in. He cut in by hand at +43.3.
+  5. **Post-turn lane position:** Blendful is off below 5 m/s and during a desire, and lane-line confidence stays ~0 for 3-5 s
+     after a turn, so the truck stays where the turn left it: T3 0.4-0.6 m left (dashed line under the truck's left half)
+     until --1 +12.3, T5 0.6-0.9 m left until --3 +40.8. T1 is an unmarked residential street (line probs 0): Cheddar holds
+     ~0.35 m right of the road's middle; nothing in FM keeps right on edge-only roads (single-line mode needs a trusted line).
+- **Open-loop replay** (the real `FmTurnAssist` on the logged inputs; matches the logged requestOut except 1-frame release
+  timing; scripts: project doc `claude/turn_replay_scripts.md`). Extra over the model, integrated (e-3 1/m*s), as driven ->
+  variant: (A) Lead yields to a press against the turn while Lead is adding (0.25 s or 1.5 Nm): T7 58->56, T8 125->99, others
+  unchanged; (B) hold peak excludes Lead's addition: T2 141->62 (a good turn), T7 58->40, T8 125->110; (C) hold peak learns
+  only what was asked for 0.3 s: T5 turn 121->55, T3 140->128; (D) a stop before the truck has turned 10 deg resets the turn:
+  T5 queue 81->60. Open loop only: the truck's curve is the logged one.
+- **Also seen:** Map Turn Desire started on 2 of 2 eligible blinkers (T4, T6), both correct. `fmNavTurn.computeMs` on the
+  comma median 22 ms, p99 47, max 795 (PC was 1.4 ms); core 4 at 95% avg (as in item 0n). No straight pull-aways from a stop
+  in these segments, so Calmer Straight Pull-Away is unexercised.
+- **Follow-up replay (same session, his questions):** C as first written also trimmed good turns (T2 141->112, T4 101->87:
+  Lead's fast rise lags the 0.3 s minimum); **C only below 5 mph** keeps the T5 gain (121->55) and changes T1/T2/T4/T7/T8
+  by 0. A refined: before 10 deg turned a press only pauses Lead (back when you let go); from 10 deg a firm press (0.25 s or
+  1.5 Nm) ends it for the turn; T7/T8 same as A, T4 101->93 (a pre-turn press paused it). B variants all cut T2's floor too
+  (peak with half of Lead: T2 68->19, T7 16->2; Lead share fading 0.6/s: 68->15, 16->2; drop Lead's share only once he
+  resists: T7/T8 unchanged, the floor acted before his push). No request-only rule separates T2 from T7/T8; the tightest
+  request in T7/T8 is Lead's own at turn-in, so B is dropped in favour of the Turn Lead off loop.
+  **Turn exits:** during the turn every line prob is <0.1 and edge stds 1-6 m. After right turns the right road edge is
+  confident (std <0.5) 1-2 s after straightening, before the lines (T1 +36, T3 +9.8, T4 +39.8, T6 +46.8, T8 +55.8);
+  T3's left line reached p 0.31-0.35 at +9.8 vs Blendful taking over at +12.3. After the T5 left the left line read p 0.34 at
+  +39.8, Blendful at +40.8. Proposed (not built): "Settle After Turn": from straightening to ~6 s after, 8-30 mph, Blendful-style
+  centering with lower line thresholds (~0.3) and the near road edge as a stand-in for a missing right line; right turns aim
+  for the right lane, left turns only push away from the left line (center line/median); small capped correction, yields to
+  hands. Edge-only use on unmarked streets (T1) is a separate, riskier option (parked cars read as edges).
+- **Built (Nov 20, his ask), on `fm-dev-nav`, all OFF by default, not driven** (B dropped, see above):
+  - `19baeef` **Hold Ignores Crawl Spikes** (`FM_TurnHoldSteadyPeak`, Turn Hold Settings) = C under 5 mph only.
+  - `b77d570` **Stop Before Turning Starts Over** (`FM_TurnRestartAfterStop`, Turn Hold Settings) = D; logs `turnAssist.restarts`.
+    Note: with it on, Hold Only Counts While Steering's "keep the peak from before the stop" (item 0p) only holds past 10 deg.
+  - `4b78663` **Turn Lead Yields to Your Hands** (`FM_TurnLeadYield`, Turn Lead Settings) = A with the pause before 10 deg
+    (debounced 0.25 s / 1.5 Nm, resumes 0.5 s after release); logs `turnAssist.leadYield` (1 paused, 2 off).
+  - `5112fe6` `turns.py` assist line shows Lead paused/off and restarts.
+  - `5a112cd` **Queue Guard** (`FM_TurnQueueGuard`, Turn Tweaks; `fm_queue_guard.py` in DesireHelper, both modeld's subscribe to
+    `radarState`, not required alive): stopped with a lead within 8 m during a turn -> laneTurnDirection none (model, Turn Assist,
+    alert) until the lead is >10 m / gone, 10 mph, or 10 deg turned; never starts past 10 deg. Logs `modelDataV2SP.fmQueueGuard`.
+    A 5 mph release was tried first: it let go in the 5.5 mph creep at --3 +22.3 (where the wheel wound in), so 10 mph.
+  - `35908da` **Settle After Turn** (`FM_TurnSettle`, Turn Tweaks; `modeld_v2/fm_turn_settle.py` in the Blendful hook, so Jetlink
+    too): 6 s after a 45 deg+ blinker turn, 8-30 mph, lines at p>=0.3 / std<=0.9 measured 6 m ahead, 1.6 m from a single
+    line, sure edge only a limit (1.4 m), 0.25 m deadband, lefts push right only, gain 0.6, cap 0.004, Blendful rates, hands
+    over at Blendful trust 0.5. Logs `modelDataV2SP.fmTurnSettle`/`fmTurnSettleOffset`. Dropped in replay: curb 1.8 m as
+    a target (pushed the good T4 0.7 m toward a shoulder) and measuring at the look-ahead (turn-lane opening).
+- **Offline on `000000af` (real code, logged inputs, open loop):** with the new settings off the Turn Assist request matches
+  the log (p99 0.0019 1/m, max 0.08 = one-frame release timing, as before). Extra over the model (1/m*s): steady peak T5 turn
+  0.121 -> 0.055, T3 0.140 -> 0.136; restart T5 queue 0.081 -> 0.060; Lead yield T8 0.125 -> 0.099, T7 0.058 -> 0.056; all
+  three: queue 0.052, T5 turn 0.055; every other turn and every frame outside the turns identical (diff 0). Queue Guard through
+  the real DesireHelper: holds only in the T5 queue (--3 +2.6..5.0, +8.9..32.1), lets go 2.2 s before the turn. Settle: right
+  1-1.5 s before Blendful after T3 (<=0.0004 1/m) and T5 (<=0.0013), with Blendful's direction after T4/T6, nothing else.
+  **Not simulated:** the truck's response (closed loop) and the model's own steering with the desire withheld in the queue.
+- **Tests:** turn assist 192 (+19), queue guard 16 + DesireHelper 3, settle 21, tools 69 (+1); sunnypilot suite 1307 pass with
+  the known failures only (onnx hash, locationd gps, curve-speed collection); controls 93, Rivian car/safety pass; manager
+  only its known `test_set_params_with_default_value`; `test_fm_jetlink_icon` doesn't collect here (jetlink not on the
+  path; not FM's change). Ruff clean, Sunnylink compiled and validated 10/10. Not run: on-device build (cereal changed).
+- **Test drive (suggested):** first Hold Ignores Crawl Spikes + Stop Before Turning Starts Over + Queue Guard on, same
+  stop-sign queue and turns; then Turn Lead Yields; Settle After Turn last, on its own. Separately one loop with Turn Lead off.
+
+#### 0s. Lateral Smoothing (Big Models) (Nov 19): built on `fm-dev-nav` (`52a9f62`), OFF, not driven
+
+- Why: Frankie saw "small model steer" talk in the zoompilot Discord. zoompilot removed Small Model Steering on Nov 12
+  (`6cb59d3`: running the small model beside a big one could overrun the frame and lose the big model; changelog says
+  openpilot's low-speed lateral improved) and replaced it with BigModelSmoothing ("smooth big model", on by default there).
+  FM Pilot never had Small Model Steering; he asked for the smoothing toggle instead.
+- What: `FM_BigModelSmoothing` (off). A big model (Jetlink, or a chestnut) runs stock modeld's `LAT_SMOOTH_SECONDS` 0, so
+  its curvature had no low-pass at all (FM's Lateral Smoothing only touched modeld_v2's own small ModelStates). On, a big
+  model that smooths none itself gets 0.1 s on its curvature, NOT added to the lateral delay (plan read from the same
+  point: calmer, about 0.1 s later). `sunnypilot/modeld_v2/fm_big_model_smoothing.py`, called in both modelds after the
+  action and after `model.run()` (a Jetlink swap inside run() is reflected on that frame), param read every 60 frames.
+- Settings: Steering > FM Pilot: Turn Tweaks. The old row is now **Lateral Smoothing (Small Models)**, the new one
+  **Lateral Smoothing (Big Models)** right under it (his ask). Param key and sub-panel unchanged.
+- Checks: 13 new tests; modeld_v2, modeld, jetlink_adapter, sunnylink, models suites 310 pass (only the known LFS onnx
+  hash test fails); ruff clean; Sunnylink compiled, `--check` matches, validator 10/10. Not run: the full suite, the
+  on-device build, or a replay on a real big-model rlog (none on his PC; `000000a9`/`aa`/`ab` were attachments).
+- Next: an offline open-loop replay on a big-model segment (Fairy Tale or Lebowski): apply the 0.1 s low-pass to
+  `modelV2.action.desiredCurvature` on `modelV2.big` frames, compare 0.5-2 Hz curvature power on straights and turn-in lag,
+  before he drives it. Then one drive with it on, same road, big model, vs off.
+
+#### 0r. Jetlink Status log (Nov 19): built on `fm-dev-nav`, ON whenever the link is on, not driven
+
+Why: the rlog's settings are a copy from the start of the drive, so they named the wrong model when the Jetlink pick changed
+afterwards (logs `000000a9`/`aa`/`ab`: Fairy Tale drove, the settings said Lebowski; `modelV2.big` and the per-frame time,
+about 29 ms Fairy Tale against about 41 ms Lebowski, show it). The ramp log `a8--15/16` was the small model (Cheddar), not a big one.
+- New message `fmJetlinkStatus` (`sunnypilot/fm_jetlink/`), process `fm_jetlinkstatusd`, 1 Hz and on change, one log line per change.
+  Read only. Needs the on-device `scons` build after pulling (cereal changed, same as `fmNavTurn`).
+- `tools/fm/jetlink.py rlog... [--mac-log server.log --mac-tz Zone]`: driving-model timeline, link changes, big-frame timing, Mac log merged
+  by the rlog's `clocks` wall time (the GPS time in these logs is unreliable). `model_name` now names the big model.
+- Found while testing: `drivingModelData.big` is always 0 in these logs; `modelV2.big` is the real flag (fixed in `fmlog.big_frames`).
+- Not done: the Mac's per-frame GPU time can't be logged without a Jetlink change. The stuck slot (Fairy Tale never taken by the
+  comma's selector, slot a drive behind) is a separate fix Frankie deferred; diagnose with the swaglog and HuggingFace check from the chat.
+- Double-checked Nov 19 against Jetlink 0.9.0's writers (`joining._runtime`, `owner.status_record`, `owner.note_server`,
+  `models.name_for`): field names match. Fixes after the check: a modeld record over 3 s old is no modeld (Jetlink's own
+  rule); Jetlink's stand-in name (the hash's first 16 characters, for a model the comma's index copy doesn't list) is not
+  taken for a name, and the Mac's pick names the model when it is the same weights; the process runs on `jetlink_adapter.link_on()`;
+  `events.py` keeps only `modelV2.big`/`modelExecutionTime` (whole messages made it load 5x the memory: 0.66 vs 0.15 GB an hour).
+- Checks run: 19 tests for the daemon logic, 68 for `tools/fm`, ruff, and `statusd.main()` run for real (messaging, Params and
+  cloudlog stubbed) through a Lebowski to Fairy Tale swap: 9 messages in 5 s, the right log lines, Fairy Tale named while the
+  slot said Lebowski. Not run: the native `messaging`/`opendbc` repo tests, the build, or anything on the comma.
+- Next: pull, build, drive once with a mid-drive Jetlink pick change, send the rlog; confirm `fmJetlinkStatus` appears and the swap shows.
+
+#### 0q. Pull-away jerk to the left (Nov 17, logs `00000097--40` and `0000009a--8`, Cheddar, build `5516cc7`): Calmer Straight Pull-Away built on `fm-dev-nav`, OFF, not driven
+
+- **What he felt:** stopped in traffic, then moving off, the wheel jerks left before straightening. Noticed since Cheddar.
+- **Cause (observed, 4 of 4 pull-aways):** Cheddar's lateral-accel output sits slightly left while stopped (-0.026 m/s2 in `--40`, -0.014 in `--8`;
+  logged `modelDataV2SP.modelCurvature` x max(1,v)^2). modeld_v2 divides it by speed squared with the speed floored at 1.0 m/s, so
+  a near-zero output is read as a -0.010..-0.032 1/m curve; controlsd starts steering at 0.3 m/s (`latActive` needs vEgo > 0.3), the request steps
+  from ~0 at +0.3 m/s to that value in one 50 ms frame (lat smoothing 0.0 = Cheddar's own), the wheel goes 15-63 deg left, then the floor
+  shrinks the request past 1 m/s and the model's real ask (+0.009) straightens it. Hands under 1 Nm, no Turn Assist / lane centering / Release Guard
+  contribution; Low-Speed FF and the torque controller only follow the request. Not checked on TSFDOM (both logs are Cheddar).
+- **Built (`FM_StraightPullAwayFloor`, off; `f41f946`, reworked in `ce8ddd4` after a double-check):** `modeld_v2/fm_pull_away.py` + a per-frame
+  hook in `modeld.py`: Calmer Crawl-Speed Steering's 2.5 m/s floor only for a pull-away from a stop. Decided at the stop: calm if no blinker, no turn
+  desire (last frame's `DH.desire`), no press held 0.3 s and the wheel within 30 deg. During the pull-away a blinker, turn desire or press held
+  0.3 s switches to the usual floor for the rest of it, **blended over 0.5 s** (the curvatures of the two floors mixed; the floor handed to
+  modeld is the one that gives the mix, never below v). The wheel angle is **not** checked while moving. Slowing into crawl speed without a stop
+  keeps the usual floor. At 2.5 m/s both floors agree. With Calmer Crawl-Speed Steering on it changes nothing. modeld_v2's own ModelStates only.
+- **Double-check found and fixed (the first version, `f41f946`, was never on the truck):** (1) the 30 deg check ran while moving: with a bias 3x
+  Cheddar's the leftover request wound the wheel past 30 deg, the floor flipped back in one frame and the wheel went to 70 deg (the jerk again);
+  (2) every switch to the usual floor was a one-frame jump (blinker at 0.8 m/s: x9 request); (3) it also applied when slowing below 5.6 mph without
+  stopping (`--40` +14.5 s), softening rolling no-blinker crawl turns like the garage ramps; (4) docs had the remaining `--40` peaks as left: they
+  are the model's own swing to the right.
+- **Offline:** closed-loop sim, plant fitted per pull-away on the old logged response (delay 100-350 ms, tau 0.25-1.0 s; reproduces the logged
+  peaks 63/61/27/15 deg as 70/74/25/20): new peak wheel `--40` +19.7 16 deg, +44.1 12 deg, `--8` +27.8 4 deg, +48.8 3 deg; floor stays calm
+  throughout. Bias x1.5 / x2 / x3: 21 / 28 / 42 deg (`--40` +19.7), floor never flips. Open loop (logged inputs, peak request): `--40` -0.028 ->
+  +0.009 (right), -0.032 -> +0.008 (right); `--8` -0.013 -> -0.002, -0.010 -> -0.002. Over both full logs the calm floor applies only in those
+  four pull-aways (0.3-2.5 m/s, 2.3-3.8 s each). Not replayed: a turn from a stop with a blinker (none in these logs; tests cover it).
+  Replay `00000073` --2/--4/--7 (turns from a stop) when the logs are at hand: they must match off.
+- **Watch for:** a no-blinker turn pulled out from a straight stop is softened until you steer it for 0.3 s (then back to full over 0.5 s).
+  Tests: 18 pull-away + 1 Jetlink wrapper; modeld_v2, jetlink_adapter and controls lib suites 230 pass; ruff clean; Sunnylink compiled and validated 10/10.
+- **Test drive:** switch it on, Cheddar, stop-and-go pull-aways with no blinker; `controlsState.desiredCurvature` in the first second after
+  0.3 m/s should stay under ~0.005. Then turns from a stop with the blinker as before.
+
+#### 0p. Code review of everything above AdventurePilot (Nov 16): fixes on `fm-dev-max2` (code at `040bef2`): built, not driven
+
+- **Scope:** all 157 files / 144 commits since AP `980dd5c`, at `fm-dev-jet` `b627e6a`, with a real build in the cloud
+  (see Setup). Nothing in panda safety, the torque cap, driver monitoring or any tuning number was changed.
+- **Two real bugs, both Jetlink-side (found by reading, confirmed by tests):**
+  - `7062b26` **hardwared crashed without a usable `jetlink_repo`.** It calls `HOOKS.shutdown_pending()` on every pass and
+    the fork's fallback (`_Off`: jetlink missing, empty, too old or failing to import) didn't have it (nor
+    `request_shutdown` and the two catalog hooks): AttributeError in the loop, no deviceState, no drive. The fallback
+    now answers them, and a test reads every hook call out of the tree and holds the fallback to it.
+  - `026ce75` **modeld_v2 + Jetlink + Lateral Smoothing.** With the link on, `model` in the loop is jetlink's joining
+    model: a write stays on the wrapper, a read follows the model that drives. The loop's
+    `model.LAT_SMOOTH_SECONDS = f(params, model.BUNDLE_LAT_SMOOTH_SECONDS)` meant (a) the small model's low-pass kept the
+    bundle's value while the delay handed to the model used the setting's (no effect so far: TSFDOM and OPM16D are .1 and
+    his setting is 0.1; it would have mattered with Cheddar .0 or the setting at 0.2), and (b) once a big model drove,
+    the `BUNDLE_...` read was an AttributeError on the frame thread within 3 s of the swap: modeld down. jetlink_adapter's
+    own seam test had been failing on that write since Nov 11. Settings now go to modeld_v2's ModelStates
+    (`fm_apply_model_settings`), never to `model`.
+- **Efficiency, all on core 4's 100 Hz loops (item 0n's "no headroom" finding):**
+  - `858eb54` FmLateral ran a second SubMaster (modelDataV2SP) and updated it inside every control step; msgq's poll
+    sleeps when no message waits, so controlsd went to sleep mid-step 4 times out of 5. controlsd now subscribes itself.
+  - `1c75ca3` with no turn the hooks still ran a dozen numpy scalar calls, Lane Guard's whole update (to return 0), and
+    wrote 28 log fields. Now near zero; the logged record is identical.
+  - `7f61b9f`, `a0d71b3` card's `convert_carControlSP` turned the whole carControlSP into a dict each step, FM's log
+    fields included, then dropped them. Now reads only the car-side fields, directly.
+  - **Measured on a PC (not the comma):** the real controlsd class on synthetic messages, whole step, his Nov 13
+    settings: highway 514-550 -> 371-389 us, a 9 mph blinker turn 565-592 -> 436-446 us, same outputs. FM's hooks alone,
+    no turn: 151 -> 20 us a step. `convert_carControlSP`: 110.6 -> 35.7 us a call.
+- **Same behavior, checked:** old against new code on the same random inputs, 160 drives / 229,044 control steps, 0
+  differences (FmLateral output, the turnAssist record, Higher Torque, low-speed gain and feedforward, Release Guard).
+  The harnesses (real controlsd on a PC, the Turn Assist fuzz, the finding below) are in the project doc
+  `claude/code_review_scripts.md`.
+  Two differences on purpose: Lane Guard switched on *while driving* starts as after a lane change (lines unguarded 1 s);
+  the turn desire reaches Turn Assist at most one 10 ms step later.
+- **Also checked, nothing to fix:** Turn Assist fuzzed with 600 random drives incl. NaN / short / missing paths (no
+  exception, no non-finite output, never moves the request away from the turn or past its sources); every param key used
+  exists in `params_keys.h`; Sunnylink JSON matches its YAML and validates 10/10; ruff clean on FM's files (`84ed917`
+  fixed the two findings); panda safety tests 950 pass.
+- **Tests:** 2297 pass off-device at `a0d71b3` (2269 at `b627e6a`: 27 new tests plus the jetlink seam test that failed before; nothing that passed before fails), the same 3 non-FM failures and 1 AP collection error as
+  the baseline (Setup); `openpilot/selfdrive/car/tests` 293 pass (run separately, 5 min); tools 48.
+- **Found, not changed (his call):**
+  - **Turn Hold can pick up the wheel's angle as its peak while lateral is off: fixed, see "Built after" below.**
+  - FmLateral re-reads 25 params in one control step once a second (156 us on a PC). Left as is.
+  - Item 0n's hardwared stalls: still need the drive on the diagnostics build (they are in `fm-dev-max2`).
+- **Built after (his call, Nov 16), `040bef2`: Hold Only Counts While Steering** (`FM_TurnHoldSteeringOnly`, Turn Hold Settings, **on**
+  by default). When openpilot stops steering during a held turn (the truck stops: no steering under 0.3 m/s; a steering
+  fault; lateral paused), controlsd passes the truck's own curvature as the request and Turn Assist takes 0.5 s to fade,
+  so the hold's peak could rise to the wheel's angle. On the module: 0.03 asked before a stop, wheel at 0.12 at the stop
+  -> 0.084-0.090 asked after pulling away with the model at 0.03, hands off, Hold Adds on or off; with the option on the
+  peak stays 0.03 and the request is the model's. With it on the hold block doesn't run while lateral is off: peak, 8 s,
+  75 deg, releases and the floor all wait. Identical while openpilot steers (test: 5000 random steps, on = off). Not seen
+  in a log yet and **not replayed on his logs** (none in the session): replay `00000073` --2/--4/--5/--7 (turns from a
+  stop) on vs off when the logs are at hand. Possibly related, unchecked: the garage lockouts (item 3) switch lateral
+  off with the wheel near lock. Tests: turn assist 174 pass (166); Sunnylink compiled and validated 10/10.
+- **Test drive:** a normal drive on `fm-dev-max2`, everything as on `00000073`. Nothing should feel different, except
+  possibly turns after a stop where the wheel was wound in tighter than the model asked (watch those). Then send
+  one rlog segment: compare core 4 (card ~47 / controlsd ~28 / selfdrived ~24 % in `0000008e`) and controlsd's rate (70-89 Hz
+  there) with the new build, and pull the `hardwared_slow_loop` events for item 0n. A Jetlink big-model swap is now
+  worth trying parked (it would have taken modeld down before).
+
+#### 0o. Nav Assist (Nov 16-17): map logging, Map Turn Desire, Nav Turn Speed, Download Nav Map, Top Readout built on `fm-dev-nav`, all OFF (readout defaults to Torque as before), not on the device
+
+- **Branch `fm-dev-nav`** = `fm-dev-max2` `196f750` + this item. Plan, research and Phase 0 numbers: project doc
+  `claude/FM_PILOT_NAV_ASSIST_PLAN.md`; Phase 0 scratch scripts: `claude/nav_phase0_scripts.md`.
+- **Built:**
+  - **Nav Assist** (`FM_NavAssist`, Steering > FM Pilot: Turn Tweaks): process `fm_navassistd` (`sunnypilot/fm_nav/`), only
+    while driving with the setting on, small cores, normal priority. GPS (u-blox) + speed + yaw rate + the road map in
+    `/data/media/0/fmnav/*.pmtiles` -> `fmNavTurn` at 5 Hz: road the truck is on, next road to each side within 80 m
+    (streets and service roads apart), status ok / noMap / noFix / noHeading / offRoad / tooFast. No destination, no
+    model input, nothing to the car. Runs the same with Jetlink (own process; it doesn't touch modeld).
+  - **Map Turn Desire** (`FM_NavTurnDesire`, same page): 20-35 mph, blinker toward a mapped **street** on that side:
+    no lane change while it is in range, turn desire once the junction is within ~6 s (35-80 m), held until the blinker
+    is cancelled; needs lateral on and a clear blind spot; a blinker that already changed lanes never becomes a turn;
+    under 20 mph unchanged. In `DesireHelper` (both modeld's, so with a Jetlink big model too). Logged:
+    `modelDataV2SP.fmNavTurnArmed/Active`.
+  - **Nav Turn Speed** (`FM_NavTurnSpeed` + `FM_NavTurnSpeedMph` 10-20, default 14; Nov 17): with a turn desire (AP's
+    or Map Turn Desire) toward a mapped street, caps openpilot's target speed to reach the turn speed ~10 m before the
+    map junction (1 m/s² profile, lowered 1 s for the cruise accel's lag), held through the turn (ends at 60 deg turned,
+    20 m past without turning, or the desire ending). New `fmNavTurn` source in sunnypilot's speed-target min(); only
+    lowers, never adds speed, only with openpilot longitudinal. Sim on the real cruise accel: 30 mph / 80 m out -> 14.9
+    mph at turn-in, firmest -1.2 m/s²; 18 mph / 40 m -> 14.7. Real planner (mocked messages): caps when on, identical
+    when off / no turn / no map message; longitudinal maneuver tests pass. **Not driven; he mostly drives the pedals
+    through turns** (openpilot speed control off in every turn in the Nov 4/13/16 logs) because openpilot goes too fast
+    into turns or too slow from a stop; this only addresses the first.
+  - **`tools/fm/nav.py`**: per blinker, the pick vs where the truck went, and what Map Turn Desire did or would do
+    (the real class on the logged inputs). Logged `fmNavTurn` if present, else replay with `--map`.
+- **Offline, the real code on his logs** (~95 min: Loop A `00000032`, `00000073`, Nov 16 `00000089`/`0000008d`, Nov 3
+  `0000002d` incl. highway): street turns 46 right / 0 wrong / 1 none (a 51 deg bend onto an unnamed road); Map Turn
+  Desire would have started on 17 blinkers: 16 toward the street he took on that blinker (2.8-25 s before turn-in) and
+  1 on a blinker that lapsed before the turn (`00000073--2` +31.8, toward Gerber, which he took 12 s later on a new
+  blinker); 0 on the other 15 no-turn blinks. Before the lane-change latch it started once wrongly (`0000002d--50` +5.5: lane change at 42 mph,
+  blinker left on braking for a light, Euclid Avenue 80 m ahead): that case is now a test. As a real process on a PC
+  (segment replayed in real time): 5.0 Hz, 1.4 ms median per update, 166 ms once when a map tile loads.
+  **Not measured: CPU on the comma, GPS in a garage, dense side streets.**
+- **Phase 0 findings that shaped it** (plan sections 8-10): u-blox GPS 10 Hz, ~2 m reported, 0.2 m jitter; his turn-in
+  is ~10-12 m before the map corner and repeats within ~2-3 m across days; TSFDOM's own action asked 30-58% of the
+  turning driven on turns from a stop / onto service roads (`00000073`) vs 88% rolling; OPM16D on the same corners
+  (Nov 16) asked 93-121% rolling and on service roads, 59-70% from a full stop (one pass each). A generic map arc was no
+  better than TSFDOM's action on rolling turns, so **no map steering was built**. 4 of 7 problem turns on `00000073` are
+  onto unnamed OSM `service` roads: logged (`leftService`/`rightService`) but never used, because turning them on gave a
+  wrong aisle in the same lot twice and one false trigger.
+- **Download Nav Map** (`FM_NavMapDownload` + status `FM_NavMapStatus`, Nov 17; his call: 50-mile circle around the
+  truck, not a fixed box): `fm_navmapd` (parked only) cuts the roads layer of the zoom 15 tiles in the circle out of
+  the newest Protomaps daily build over HTTP range requests (`fm_nav/extract.py`, own PMTiles v3 writer) into
+  `/data/media/0/fmnav/fm-nav.pmtiles`; Nav Assist opens the newest `.pmtiles` there. Tested against his Chicagoland
+  extract served over local HTTP: 15 mi = 21 MB read / 5.7 MB stored, roads identical, `nav.py` picks identical on
+  Loop A + `00000073`. **Not run against build.protomaps.com (blocked from the cloud chat) or on the comma.** 50 mi size
+  unmeasured (estimate 150-300 MB downloaded). sunnypilot's own "Download maps" (OSM for mapd) is comma 3X UI only.
+- **Top Readout** (`FM_TopReadout`, Visuals > HUD Elements, Nov 17): Off / Torque (default, as before) / CPU (Avg)
+  `4: 99% / A: 58% / 68°C` / CPU (Busiest) `4: 99% / B: 80% / 68°C` (core 4; average or busiest other core; hottest
+  CPU sensor; amber at core 4 >= 95%). Draw code checked with raylib stubbed (fonts are LFS pointers in the cloud
+  chat); not seen on the device. He decided against a logging on/off toggle.
+- **Review Nov 17** (everything since `fm-dev-max2` `196f750`): three fixes, none driven before. (1) Nav Turn Speed handed the
+  planner a deceleration of its own as `a_target`, which goes into the MPC's starting state: now `a_ego` unchanged, like
+  Smart Cruise Control Map (`0193f97`). (2) Download Nav Map read a param `IsOnroad` that doesn't exist here: every
+  download would have failed on the device; now `IsOffroad`, plus a test that checks every params key the nav files use
+  is in `params_keys.h`; Range requests refused unless 206 before any body is read (`80c023a`). (3) Unused `oneway` flag
+  (wrongly parsed: Protomaps uses text yes/no/-1) and `State.first` removed (`d485475`). Checked and fine: the Rivian
+  blinker is steady (not flashing) in `carState`, so the blinker latch works; Nav Assist tick in downtown Chicago on a PC:
+  3.2 ms median after a 67 ms tile load (Bartlett 0.9 ms); suite and `nav.py` results unchanged.
+- **Map check (Nov 17, evening; his ask: a way to confirm the map is loaded):** `FM_NavMapInfo`, Sunnylink item "Map on the comma" under
+  Download Nav Map (`fm_nav/mapinfo.py`): opens the newest `.pmtiles` like Nav Assist, one line: file, size, Protomaps build, area
+  covered, road pieces found around `LastGPSPositionLLK`, starts "Map OK" or says why not (no map / can't read / no roads at the truck /
+  truck outside the area). `fm_navmapd` refreshes it while parked when the file or position changes; `fm_navassistd` when it opens the
+  map. **Shown as the item's description:** whether Sunnylink's web app draws an `info` item's value is not in the repo (his Nov 17
+  08:12 screenshot: "Nav Map" row blank, cause never learned), so `generate_settings_schema._inject_fm_live_text` puts the current
+  `FM_NavMapStatus` / `FM_NavMapInfo` text in the description at each `getParamsMetadata` (checked through the real RPC on a PC);
+  blank keeps the YAML text, reload the page to refresh. Over SSH, from `/data/openpilot`:
+  `PYTHONPATH=/data/openpilot /usr/local/venv/bin/python3 -m openpilot.sunnypilot.fm_nav.mapinfo` (exit 1 when not usable; full venv
+  path because jetlink's on-device scripts use it, bare `python3` over SSH unverified). Checked on a PC with real `Params` (note:
+  `put` without `block=True` lands a moment later) and locationd's `LastGPSPositionLLK` format. Tests 9 (`test_mapinfo.py`), nav +
+  sunnylink 135 pass. **Not seen on the device.**
+  Also: core 4 at ~100% is old (Nov 16 `0000008e`), not nav's; advised Map Turn Desire and Nav Turn Speed off for the first drives.
+- **To put on the truck** (commands in the Nov 16 chat; repeat if asked):
+  1. Map: Sunnylink > Steering > FM Pilot: Turn Tweaks > Download Nav Map, parked with internet (or copy a `.pmtiles`
+     to `/data/media/0/fmnav/` with `scp -O`).
+  2. Switch the comma to `fm-dev-nav` first (step 1 needs it); first boot rebuilds (cereal and params changed).
+  3. Nav Assist on, Map Turn Desire off. Drive normally a few days, alternating TSFDOM / OPM16D if he likes.
+  4. Send rlogs: `nav.py` (picks vs turns), `fmNavTurn.computeMs`, per-process CPU and core 4 vs item 0n's numbers.
+  5. Only then Map Turn Desire on, on roads where he signals above 20 mph for a turn.
+- **Next after a week of logs:** street mix-ups in dense areas; a gate for service roads (already on one, or slowing
+  under ~12 mph); desire timing by distance to turn-in; then decide on any steering help for turns from a stop.
+
+#### 0n. "Low Communication Rate" warnings = hardwared stalls (Nov 16); stall diagnostics on `fm-dev-jet` `eb7550f`: built, always on, not driven
+
+- **What he saw:** brief "TAKE CONTROL IMMEDIATELY / Low Communication Rate Between Processes" that clears in ~1 s. Comma
+  Connect's timeline sent us to the wrong minute (11:39); it was `0000008e--e36519f5d4--6` +20.16 s (11:35:19 CST),
+  build `fm-dev-jet` `b747a99`, OPM16D, Jetlink USB with nothing attached.
+- **Cause (observed):** hardwared stopped publishing `deviceState` (2 Hz) for 2.7 s (+9.3..12.0) and 1.5 s (+19.0..20.6);
+  selfdrived logged `commIssue cause=not_freq_ok not_freq_ok=[deviceState]` -> soft disable, back to enabled at +21.1.
+  manager's gaps at the same times are downstream (it polls `deviceState`, 1 s timeout). No I/O wait, no D-state.
+- **Not it:** params calls (all timed, <8 ms), offroad alerts incl. Jetlink's (3.4 ms), SPI, CPU (other cores 60-80%).
+  The old `hardwared_slow_loop` put ~all the stalled time outside every timed phase (2334 ms work, ~7 ms in phases).
+- **How often (qlog search on the device, work > 500 ms):** 16 stalls across 6 drives `00000070`..`0000008e`, segments
+  3..58; worst 4.15 s (`00000072--37`) and 4.17 s (`00000088--9`). At 5 s it becomes `commIssue` not_alive = a real
+  disengage. AP added the slow-loop report in Sep (`304fbcc`) for the same disengage, so it predates FM's turn work.
+- **Suspects (unverified):** `thermal_config.get_msg()` (18 sysfs zone reads incl. the comma 4's gnss/intake/exhaust/
+  bottom_soc) or another hardwared thread holding the GIL (`hw_state_thread` modem/network queries, chestnut, touch).
+- **Built (`eb7550f`):** `system/hardware/loop_timer.py` (LoopTimer moved out of hardwared). Report adds `untimed_ms`,
+  per-zone `reads` (phase `thermal`, via `ThermalConfig.get_msg(on_read)`), `watchdog_late_ms` (20 Hz watchdog thread:
+  ~stall length = whole process stuck / GIL; ~0 = loop thread blocked in a GIL-releasing call) and `stack`/`threads`
+  (loop thread's stack taken once work passes 0.3 s, plus other threads' lines). Tests 13 pass, ruff clean.
+- **Next:** one normal drive on `eb7550f`, then pull the `hardwared_slow_loop` events with `stack` from qlogs.
+- **Separate findings, same logs:** CPU core 4 at ~99-100% every segment: card ~47%, controlsd ~28%, selfdrived ~24%
+  (`test_onroad` budgets 26/16/16). controlsd publishes at only 70-89 Hz (card/selfdrived 99.4). Not near a comm limit
+  (40 Hz floor) but no headroom. Jetlink isn't it (`jetlink_adapter` 0.7% on core 5). Also SPI `got NACK` bursts
+  (14-94 lines, 1-4 s) in 4 of 9 segments, mostly during or after a driver-distracted alert; harmless (CAN gaps
+  <=22 ms, no CAN errors). Both open.
+
+#### 00. v25 model list + tinygrad 92b742f on `fm-dev-set` (Nov 8): built, not yet on the device
+
+- Why: new sunnypilot models (e.g. **Cheddar**, openpilot PR #39255) are only in sunnypilot's model list v25+, which
+  needs selector version 21, whole-file downloads and the plain GPU memory model format on tinygrad 92b742f.
+- Ported from sunnypilot master-dev, one commit each: #2050, #2053, #2062, #2051, #2071, #2052, #2072, #2093.
+  `selfdrive/modeld` (SConscript, helpers, stock modeld, dmonitoringmodeld loading) moved to sunnypilot's, because the
+  new tinygrad dropped `--device-input` and changed Buffer/UOp APIs. **DM model file unchanged** (FM's Aug model; sunnypilot
+  has openpilot's newer Sep "Super Leicht", not taken). FM's own: Blendful hook kept in modeld_v2; load_oob rejoins
+  chunked files (FM prebuilds still chunk >95 MB). Not taken: #2092 (CI), .github changes.
+- Also new from upstream: modeld_v2 and stock modeld seed the previous curvature from `controlsState` while lateral is
+  off (openpilot #39091), chestnut retry; `modeld_warmup` runs offroad. Because of #39091, `tools/fm` now reads the raw
+  `modelDataV2SP.modelCurvature` as "model asked" while lateral is off (`fmlog.model_requests`).
+- **Calmer Crawl-Speed Steering** (`FM_LowSpeedCurvatureFloor`, Steering > FM Pilot: Turn Tweaks, **off**): sunnypilot
+  #2091 as a setting. Speed floor 2.5 m/s instead of 1.0 when turning the action into curvature: below 5.6 mph the
+  request drops (64% at 4.5 mph, 16% at 2.2 mph). Calms crawl twitch; may soften turns from a stop. Try as its own drive
+  on the same corners, with and without.
+- Off-device tests: modeld_v2 121 pass, models 28 pass (onnx hash test fails only because LFS isn't pulled); no new
+  failures vs `60ddd2a` across sunnypilot/modeld/ui/controls tests.
+- **First boot:** build takes longer (DM and stock model recompile). The saved v23 selection (selector 20) no longer
+  parses, so modeld most likely runs the default model until TSFDOM (same ref) is selected again and re-downloads
+  (from the code, not yet seen on the device); leave it offroad for the warmup. **Check before driving:** DM works (face seen, no DM faults), model label/picker
+  shows the selected model, no modeld errors. Then try Cheddar as its own drive.
+
+#### 0m. Turn Assist logging + fixes A/B/C on `fm-dev-jet` (Nov 13): built, ON by default, not driven
+
+- **Why:** item 0l. One push, one change per commit (his call: all three on by default, logging first):
+  - `e9afce4` **Logging:** `carControlSP.turnAssist` every frame (sign, source blinker/carry, amount, request in/out,
+    what Boost / Lead / Hold Adds / Path Source / hold floor / Nudge / a fading hold each added toward the turn, Smooth
+    Start's cut, hold active / peak / floor, degrees turned (every turn) and the hold's own degrees and seconds,
+    `releaseReason` none/driverAgainst/maxTurned/maxTime/modelExit, earlyCorrection, againstTime) and
+    `carControlSP.fmLowSpeed` (Low-Speed FF lat accel, Calmer gain in force). card drops both (test).
+  - `b25a3a5` **`turns.py` assist line** (who started / held / released each turn, "kept past the model") and
+    **`fmlog.read` sorts by `logMonoTime`**. `aac8f54` hides early corrections under 0.05 s.
+  - `812b394` **A, Carry Only at Turn-In** (`FM_TurnCarryTurnInOnly`, under Finish Turn After Signal Cancels): no carry
+    once 45 deg turned or the truck's curve is under 70% of the turn's tightest; then the usual 0.5 s cancel fade.
+  - `6b62fbc` **B, Hold Follows the Model's Exit** (`FM_TurnHoldFollowExit`, Turn Hold Settings): past 45 deg, model under
+    50% of the hold peak and not pressing into the turn -> release (modelExit) and fade what was applied over 0.5 s; a
+    signal cancel mid-fade continues it.
+  - `0c7be1a` **C, Hold Starts at Turn-In** (`FM_TurnHoldStartsAtTurnIn`, Turn Hold Settings): 8 s count from 5 deg
+    turned; before 10 deg a press against passes through (as Early Correction, any Turn Assist speed) unless it lasts
+    1.5 s (pre-turn presses here lasted up to 0.97 s); blip debounce's at-once line 1.5 Nm instead of 0.5. A re-arm after
+    a stop was written and dropped: with the rest, nothing can release the hold before 10 deg.
+- **Replay on `00000073`** (real lane centering + Turn Assist on the logged inputs, open loop; the new log written into
+  rlog copies and read back by `turns.py`): kept past the model --8 +32 L 3.3 -> 1.7 s (rest is Turn Lead on the path;
+  hold released +34.8 vs +37.1, no carry), --8 +43 L 1.6 -> 0.8 s (+46.8 vs his push at +48.3), --2 +43 R 1.0 -> 0.8 s
+  (+45.9 vs +46.6), --8 +16 R 1.8 -> 0.9 s. The hold now survives into --4 +19 L and --5 +9.5 R and Hold Adds follows
+  his line instead of openpilot pushing against him; on --5 after he let go at +12.8 the request stays ~15-19 m for
+  ~1 s where he drove 20-22 m (his own wound curve, by design): **watch for this**.
+- Tests: turn assist 164 pass (130 before), tools 48 (44), card conversion 2; Sunnylink compiled and validated.
+  Off-device suite vs `6162743` with the same shim: 802 vs 763 pass, no new failures (312 shim/data failures both).
+- **Test drive:** same corners as `00000073`, everything else as that drive. Send rlogs; `turns.py` now prints the
+  assist line per turn. Watch: turns ending with the model (no extra turning after it opens up), the hold being there
+  for turns after a long blinker / a hand on the wheel, and whether wound-in curves (Hold Adds) stay too tight after
+  you let go.
+
+#### 0l. Nov 13 morning turns (`00000073--9033a9dddc` --0..--8): analysis (fixes built in 0m)
+
+- **What he felt:** some turns turned too much and wanted to keep turning; some didn't start or started late.
+- **Replay:** real lane centering + `FmTurnAssist` on the logged inputs reproduces `controlsState.desiredCurvature`
+  (p99 0.0018 1/m) once events are taken in `logMonoTime` order. **rlogs are not strictly in time order**
+  (`modelDataV2SP` at 13.440 s is stored after carState 13.469 s); `tools/fm` reads file order (worth sorting).
+  Script was a chat scratch file (`replay_turns.py`), not in the repo (`fmlog.read` now sorts); it skips `clip_curvature`, so request drops at
+  speed lag in the log by up to ~0.65 s (--2 +46.6: 12 -> 61 m).
+- **--2:** +13.6 L and +20.3 R were manual (lateral not yet engaged). +43 R from a stop **worked at the start** (Hold Path
+  Source + Lead + Adds Your Steering: 36 -> 13 m within ~1 s of pulling away), then **kept turning**: from +45.8 the model
+  asked 19-23 m while the hold kept 10-11 m (peak 8.5 m, 65 deg turned) until he pushed out at +46.6 (2-3.5 Nm). Earlier
+  on the approach (+36.8, 7 mph) a 1.56 Nm press had released that blinker's hold; the blinker re-cycle at +42.3 gave a
+  fresh one.
+- **Late starts (4 of 6):** TSFDOM's steering output lags its own plan: the planned path bends 20-50 m toward the turn at
+  20 m out while `action.desiredCurvature` says straight or slightly the **wrong way**, with turnLeft desire 1.00.
+  --4 +19 L from a stop (asked 340-740 m right ~0.6 s after pull-away); --7 +55 L from a stop (110-160 m right for 1.5 s,
+  over Turn Lead's 0.003 oppose block, so nothing started it until he steered at +56.8); --8 +31 L (800-2500 m right at the
+  corner, Turn Lead 12 -> 8 m started it); --8 +16 R (180-440 m until he steered at +16.0, Lead 13 -> 8 m after).
+  Mid-turn the model asked wider than driven (20-40 m vs 10-15 m) and he held it in at ~2 Nm.
+- **Turn Hold gone before the turn (3 of 6):** --3 +13.4 its 8 s clock (starts at the blinker) ran out on the approach,
+  before the stop at the light (turn at --4 +19); --8 +13.44 the right blinker's desire arrived while he still pressed
+  0.62 Nm left (over the blip debounce's 0.5 Nm "firm" line), released at once (replay confirms); --5 +8.64 one 10 ms
+  frame at 1.01 Nm against while openpilot sent -146 (wheel reaction, most likely).
+- **Over-turning (3 of 7 incl. --2 +43), from the request, not torque** (truck tracked the request): --8 +34.8 L, model let go
+  (25 -> 166 m by +37) but Turn Hold's floor (peak 8 m, 90%, -15%/s) held 15-25 m; blinker self-cancelled at +35.2 at
+  51 deg turned and **Carry-Through** kept the hold instead of the 0.5 s cancel fade; hold released at 75 deg (+37.1), he
+  steered out at +37.3. --8 +43 tight L at 5 mph near lock (523 deg): model barely asked (140-2600 m), Adds Your Steering
+  adopted his curve to 5 m; after he eased off at +46.5 (model 99 -> 29 m) hold + carry kept full lock 1.8 s until he
+  pushed against it at +48.3.
+- **Fixes (built, item 0m):** (A) Carry-Through only at turn-in: no carry once the truck has turned ~45 deg
+  (or the wheel is unwinding) when the blinker cancels. (B) Hold exit follows the model: past ~45 deg turned, when the
+  model asks under ~50% of the hold peak, fade the floor over ~0.5 s (also covers --2 +43). (C) Don't spend Turn Hold before the turn: count the
+  8 s only once turning (or reset after a stop), raise the firm against-press line to ~1.0-1.5 Nm, or ignore against
+  presses until ~10 deg turned. (D) Late model action: Turn Lead past the oppose block helps little on --7 +55 (the plan
+  itself only bent 6-10 m at 20 m during pull-away); model issue.
+
+#### 0j. Garage turns (Nov 12 logs `00000070--77/78`): carry-through, hand-blip debounce, boost bar fix; built, ON, not driven
+
+- **Question (his):** was Turn Lead's Start Distance gate why turns didn't start? **No.** Replayed `fm_turn_assist.py` with and
+  without the gate (matches the logged request except where noted): the most it held back was 0.016 1/m for ~1 s on the
+  --77 +35 s approach, 8-10 m before the corner; it opened at 5 m as designed. There Turn Lead's stopping check (braking
+  ~-1.8 m/s²) kept it out until he had already turned in.
+- **What did happen:** 6 of 9 sharp turns (the ramp) had no blinker, so no turn desire and no Turn Assist; the model asked
+  at most ~7 m vs lock ~5 m. On --77 +25.8 s and --78 +56.7 s the blinker went off as the truck turned in, the turn desire
+  ended and the request fell back to the model's 0.001-0.005 (the cancel fade only covers what Turn Hold added, 0.5 s).
+  On --77 +33.78 s one 10 ms carState frame read pressed at +0.14 Nm (12.7 mph) and released Turn Hold for the turn, so
+  Hold Adds Your Steering never took his curve (Hold Through Early Correction only covers under 5 mph / 20 deg).
+- **Built on `fm-dev-jet`, all on by default (his call):**
+  - `50625cf` **Ignore Brief Hand Blips** (`FM_TurnHoldReleaseDebounce`, Turn Hold Settings): against-turn press releases
+    Turn Hold only after 0.25 s or from 0.5 Nm. Replay --77 +35 s: hold follows him to ~0.15 1/m.
+  - `5a5ab9e` **Finish Turn After Signal Cancels** (`FM_TurnCarryThrough`, Turn Tweaks): turn desire ends while the truck
+    turns that way (>= 0.01 1/m) -> Turn Assist keeps the turn until < 0.008 1/m, max 6 s; ends on against-turn steering
+    (0.25 s / 0.5 Nm), lat off, lane change, 20 mph; then the usual hold cancel fade. Model desire / alert unchanged.
+    Replay: --77 Lead carries 0.10-0.12 through turn-in; --78 Hold keeps 0.09-0.19 until he unwinds (+1.95 Nm).
+  - `879f106` **Boost bar in Set Speed:** Set Speed lifts e2e exactly to the cruise ramp; the planner min() tie reports
+    `cruise`, and the bar only counted `e2e`, so it read empty ~97% of boosting frames (steady sim). Set Speed mode now
+    counts `cruise` too; lead still empties it.
+- Tests: turn assist 130 pass (110 before, +20), boost bar 11 pass (+4); same 7 known NNLC failures in the controls suite; Sunnylink
+  compiled and validated.
+- **Test:** same garage with the blinker on through the ramp turns; watch that the turn keeps going after the blinker
+  clicks off and stops when you straighten. Set Speed drive with the bar on. Ramp turns without a blinker still get
+  nothing (a no-blinker curve hold would be new work).
+
+#### 0i. Following feels harsh in traffic (Nov 12 logs `00000070--11/12/17`); Set Speed grace fade built, not driven
+
+- **What he felt:** slowing for traffic is harsher than before, "like lifting off too fast with regen", with Predictive and
+  Set Speed both. Morning was colder.
+- **Findings:** the boosts don't drive these slowdowns (the lead MPC is the planner's min; --17's swings happened in Gas
+  mode with boost 0). openpilot's requests are smooth (fast wiggle 0.01–0.02 m/s²). The 55–59 mph swings in --17 track a
+  lead wandering 52–59 mph (~1.5 s lag, corr 0.73) at a 1.35 s gap (Aggressive, -20%).
+- **Truck over-braking vs the sent request** (incl. drag FF), same request levels: Nov 3 6 pm (`0000002d`, 42 min)
+  -0.26..-0.27 when braking, -0.19..-0.20 cruising; Nov 12 8:22 am -0.34..-0.39 braking (one stop, ~8 s, thin),
+  -0.21..-0.23 cruising. So ~0.1 more when braking on the cold morning. Regen setting: Standard on every drive (he said).
+  The long PID (ki 0.2, no kp) closes a steady gap in ~5–10 s and resets each engage: too slow for transitions.
+- **Built (`fm-dev-jet`):** Set Speed grace fade. On --11 an engage at 35 mph with the model at -0.5..-0.75 held the
+  target ~0 for 3 s, then stepped -0.03 → -0.76 in one frame. Now when the window runs out with the model still braking,
+  the boost is trimmed to the part above min(lead MPC, cruise) and fades at RAMP_DOWN 1.5 m/s³ (~0.6 s here). A stop,
+  braking below the floor, low speed, a turn or a disengage still hand back at once. Default in Set Speed mode.
+- **Candidate (discuss first):** a braking-only drag correction, ~0.1–0.15 m/s², off by default, if more cold mornings
+  show the same. Changes the request, not panda limits.
+- **Test:** Set Speed, engage while slowing behind a lead; `fmAccelBoost` should fall over ~0.5 s, not in one frame.
+
+#### 0h. Release Guard on `fm-dev-jet` (Nov 12): built, OFF by default, not driven
+
+- **Problem (his):** in a slow turn, holding the wheel tighter than openpilot wants makes the torque controller push back;
+  letting go, that torque is still being sent and swings the wheel past center. It is the **P term**: v0's integrator is
+  frozen while pressing or under 5 m/s, and KP is ~30 at 7 mph, so a 0.01 1/m gap already saturates it. The car's hand rule
+  (`apply_driver_steer_torque_limits`: -200 counts per Nm above 1 Nm) only trims what is sent, never the request.
+- **Logs:** `00000067--4e0a74a75c--0` +32.8-34.9 s (Rebel Legion, left, 8-11 mph, ~2 Nm into it, 30% tighter than
+  asked, Turn Hold off): up to 485 against him, let go at +34.9 s with 433 out of the turn, 396 at center, wheel to -39 deg
+  (about 75 deg past the model's target), push past center 0.78-0.80 s, he caught it at +35.1 s. `00000068--29f57c5eb1--1`
+  +0-1.7 s (TSFDOM, right, 12-15 mph): same, 306 at center, 0.64 s, wheel +12 deg; **Turn Hold + Hold Adds Your Steering
+  were on** and turn desire active until +1.05 s, but the request stayed below his curve: the hold had most likely
+  released at its 75 deg limit (guess; hold state isn't logged). So Hold Adds doesn't cover turn exits.
+  `00000061--10` (Cheddar, hands off, -580 -> +580 flip) is a different problem: no hands, the guard never acts; only
+  Calmer Correction or a faster ramp-down (panda, deferred) touch it.
+- **Built (`e2aa8b3`):** `fm_release_guard.py`, hooked after `pid.update` in v0 and v1. While he presses into the curve
+  the truck is already turning (> 0.003 1/m, hand torque toward it), under 15 mph and gone by 20, `pid.p`'s push against
+  him is limited to **Most Torque Against You** (`FM_ReleaseGuardMax` 150 default or 75 counts, converted like the
+  feedforward via latAccelFactor / fm_scale) and the clipped output recomputed. After release it fades over 0.5 s and ends
+  at once when P flips (wheel past openpilot's target) or his hand reverses. Feedforward, friction, integrator and all
+  limits after the controller unchanged. Off by default (`FM_ReleaseGuard`), Steering > Torque Control, live (read every
+  1 s, on/off blends 0.5 s), stands down with Lateral Jerk / NNLC. A percentage of P was rejected: P runs 10+ here, so
+  even 25% left ~300 counts.
+- **Logging (`fd3f1f0`):** `carControlSP.releaseGuard` (active, amount, cut, limit). **`turns.py` (`4497333`):** release
+  line per turn with a press into it of 0.3 s or more (press time, against-you max/avg, at release, at center, deg past
+  center, push past center, guard share/cut).
+- **Replay** (real module on logged P / I / FF, then the car's hand rule and ramp, seeded from the log; matches logged sent
+  within median 5-14 counts):
+
+  | | Rebel Legion: held avg / at release / at center / past center | TSFDOM 68--1: same |
+  |---|---|---|
+  | as driven | 197 / 445 / 400 / 0.80 s | 380 / 391 / 306 / 0.64 s |
+  | guard 150 | 58 / 125 / 80 / 0.16 s | 172 / 114 / 29 / 0.06 s |
+  | guard 75 | 14 / 55 / 10 / 0.02 s | 153 / 39 / -39 / 0 |
+  | Calmer 70% alone | 201 / 398 / 353 / 0.71 s | 373 / 328 / 243 / 0.50 s |
+  | Calmer 70% + guard 150 | 59 / 125 / 80 / 0.16 s | 172 / 113 / 28 / 0.06 s |
+
+  68--1's press began in `--0` with ~365 already built, so the guard could only bring it down at the ramp (held avg falls
+  less). Open loop: shows torque, not where the wheel would have stopped. With the guard on, Calmer changes nothing here
+  (the limit is absolute).
+- Tests: `test_fm_release_guard.py` 20 pass (incl. both controllers, every selectable controller has the hook, logging);
+  tools 44 pass; Sunnylink validator 10/10. Off-device suite: no new failures vs `06dbd26` (same 190 shim failures).
+- **Test:** after 0g has been driven, its own drive on the same corners: on at 150, hold the wheel into a few slow turns
+  and let go as usual. `turns.py` release line vs `00000067--0`. Try 75 if it still swings past center; if turn-in feels
+  like openpilot stopped helping while you steer, that's expected (it only limits push *against* you).
+
+#### 0g. Request-side turn fixes on `fm-dev-jet` (Nov 12): built, ON by default, not driven
+
+Frankie's choice after the faster-ramp discussion (below): fix the request first, no safety-limit changes. All five
+built, all on by default (his call), to be tested together. One commit each:
+- `b7b2d77` **Smooth Turn Start** (`FM_TurnPhaseIn`): Turn Assist's extra request (Boost / Lead / Hold / Nudge) rises
+  through a 0.12 s low-pass (~90% in 0.3 s), drops at once; model request never filtered.
+- `6bbdcf5` **Turn Lead Adaptive Look-Ahead** (`FM_TurnLeadAdaptive`): 0.5 s (gentle) to 0.9 s (tight) instead of 1.3 s,
+  min 3 m; tightness from `plan_max_curvature` (tightest bend toward the turn in the next 17 m).
+- `f61de04` **Turn Lead Start Distance gate** (`FM_TurnLeadGate`, `FM_TurnLeadGateDist` 3–10 m, default 5): no lead until
+  the plan's 10°-toward-the-turn point is within that distance (fade over 2 m).
+- `7573f96` **Calmer Low-Speed Correction** (`FM_LowSpeedGainEnabled`, `FM_LowSpeedGainPercent` 40–100, default 70):
+  v0 and v1 `KP_INTERP` scaled below 7 m/s, normal by 9 m/s (`fm_low_speed_gain.py`), Rivian only.
+- `0059e09` **`turns.py` timing line**: model / openpilot / truck onsets at 30% of the turn's peak curve, verdict model
+  late (< 0.3 s) / wheel late (> 0.8 s) / on time. Nov 11: `00000068--1` +24.7 s L model +1.1 s, openpilot -0.5 s
+  (model late, Turn Lead did the work); `00000061--10` +12.2 s R model -0.4 s (on time).
+- **Replay** of `00000068--1` through Turn Assist (old settings reproduce the logged request, median diff 0): with the new
+  settings Turn Lead's early 0.006–0.021 at +23.9–24.2 s drops to 0.001–0.005 (corner 5–7 m out) and the +24.4 s step
+  (0.052 at once) arrives over ~0.2 s; the peak is unchanged. Calmer Correction can't be replayed (closed loop); open
+  loop it scales P by 0.7 (the +25.4 s reversal would be ~30% smaller, a guess).
+- Tests: 564 pass off-device (was 516), no new failures; Sunnylink compiled and validated.
+- **Low-Speed Steering Feedforward** (Nov 12, `FM_LowSpeedFFEnabled` **off** by default, `FM_LowSpeedFFStepLeft` and
+  `...StepRight`, each Off / Gentle 40 (default) / Medium 60 / Firm 80 / Full 100): torque for the asked wheel angle (vehicle model), full below 4.5 m/s, gone by 7 m/s,
+  both v0 and v1 (`fm_low_speed_ff.py`). Fitted on 18 Nov 11 segments (`00000061` --10/14/15, `00000068` --1/2/5,
+  `00000069` --3/4/7/9/10/11/12, `0000006a` --10/11/12/14/15; 3300 openpilot-steered hands-off frames following the
+  request): below 10 mph existing feedforward ~0 (-4..+5 counts), correction gave 50-70 at 15-45 deg, truck 15-19% wide;
+  10-20 mph existing feedforward 75-85% of torque, truck 2-8% wide. Table counts at Full [0,10,30,65,120,180 deg] ->
+  [0,20,70,95,105,110] (`e783540`, refit in review: 00000061's Full-mode x1.5 had inflated the tight-turn gap to 79,
+  really 54): Full never exceeds the measured gap in any bin. Tight crawl turns had no clean frames (always
+  ramp-limited or hands on): estimated from 10-16 mph. Left/right checked by speed: no reliable side difference (small-angle split
+  reverses with speed; tight turns 5 left vs 8 right, within the spread); table symmetric, per-side strength added as
+  a tuning knob only (both Gentle). Stands down with Lateral Jerk or NNLC (`7a35e09`). Over 266 s of
+  openpilot steering under 16 mph, Gentle adds median 18 / max 44 counts and changes <= 2 counts per step (99th pct)
+  vs the P term's 140, so it adds no twitch. Test: turn it on at Gentle with 0g, step up one level per drive if turns still run wide.
+- **Watch for:** turn-in feeling softer or later (Calmer Correction 70% builds less torque early; try 80–90% if so);
+  Turn Lead starting too late at a tight corner (raise Start Distance to 6–7 m, or Adaptive off); wheel still grabbing
+  then swinging (lower Strength to 60%). Note his drives have Turn Lead **and** Turn Hold on.
+- Test: Turn Lead on (min 2 mph), known corners incl. the `0000003a--83` curb ones; run `turns.py` (timing and torque
+  lines) and compare with `00000068--1`. Then a drive with Turn Lead off to sort model-late vs wheel-late corners.
+
+#### 0f. Torque: the ramp, not the cap, holds slow turns back (Nov 11 logs); `turns.py` torque line (`7b61af6`)
+
+- **Logs:** `00000061--142cb659d9--10/14/15` (Cheddar, build `2eaf5852`, Max Torque 580, Faster Ramp on, Full Torque Past
+  90° on, Turn Lead/Hold/Boost off) and `00000067--4e0a74a75c--0` (Rebel Legion, `72bb922`, Max Torque 580, Faster Ramp
+  on, Full Torque Past 90° **off**, Turn Pulse on). Both had Lane Turn Desire on.
+- **With 580 the cap is rarely the limit.** `00000061`: torque sat at 580 only in the `--10` +12.9 s right turn (1.3 s, 14
+  mph, hands off) and about 0.5 s in `--15` +45-46.5 s. `00000067`: never; peak 511, limit 551 past 90° (95% of 580).
+  Torque climbs at 5 per message (about 490 per second, ~1.2 s to 580) and the request often eased off first.
+  Unwinding is slow the same way: when the request flips, sent torque decays at 5 per message (`STEER_DELTA_DOWN`)
+  (`--10` +14.2 to 15.3 s: asked +580 while sent was still -450 to -35). The Nov 4 "at the cap" finding was at 385.
+- **`turns.py` fix:** the old "torque at limit" column was the controller request at 95% of the base 385 curve, which
+  read 61-83% of slow turns. Each turn now has a second line from the logged limit (`carStateSP.fmSteerCap`) and sent
+  torque (`torqueOutputCan`): peak sent vs limit, and shares at limit / climbing / held / unwinding. Older logs fall back
+  to the speed curve and say so. Details in `tools/fm/README.md`.
+- **Software delay:** `LagdToggle` off, `LagdToggleDelay` 0.10 + Rivian `steerActuatorDelay` 0.15 = 0.25 s; the learned
+  delay in these logs is 0.242 s (calibrated, std at most 0.006). Not a cause of late or wide turns.
+- **Cheddar** under-turns and goes wide, in his drives. Both Cheddar and TSFDOM are generation 12, 20 Hz, small models in
+  the sunnypilot list; the only listed difference is lat smoothing (.0 vs .1), which can't make a model ask for less.
+  Treated as a model issue. Its comma PR (#39255) is still open as a development model.
+- **Lat/long smoothing (explained in chat, nothing built):** sunnypilot's list sets them per model (OPM16D .1/.3, Rebel
+  Legion .1/.3, Rebellious Hope .1/.3, TSFDOM .1/.3, Cheddar .0/.3; chestnut v28 is all .0); comma's own `modeld.py` had
+  0.0/0.3 at OPM16D and TSFDOM, 0.1/0.1 at Rebel Legion. The value filters the model's request and is also added to the
+  delay the model plans for (reads further ahead). Long only affects speed, never steering.
+- **Faster ramp discussed Nov 11, deferred (no safety changes):** the car code's `TorqueRtLimiter` (120 over the lowest of
+  the last 30 messages) already holds "5 per message" to a 24-up / 6-flat staircase, avg 4.1 (`00000068--1` +24.0 s),
+  0 to 580 in ~1.4 s. The panda's 250 ms check (125, reference every 26 messages at 100 Hz) means a faster climb needs
+  `max_rate_up` + `max_rt_delta` + car `TORQUE_RT_MAX_DELTA` raised together (e.g. 6/190/180 → 0→580 0.96 s; 8/250/240 →
+  0.72 s, zero refusals in jitter sims); unwinding only needs `max_rate_down` + `STEER_DELTA_DOWN` (−450→0: 0.89 s at 5,
+  0.56 s at 8). At 5 per message both logs had 0 ToiFlt / reduced / fault bits, ToiActive 100%, 0 panda refusals. Held
+  off because the request swings full-scale mid-turn (v0 P term at low speed + Turn Lead / Hold steps) and the slow ramp
+  is what smooths it; also `00000061--10` +11.4–11.8 s sat at ~-390 vs -580 asked from the hands-on rule (1.8–2 Nm
+  against: him or wheel reaction). Revisit after 0g is driven.
+- **Proposed, not built:** drive TSFDOM with Full Torque Past 90° on and Turn Lead on (min 2 mph); Turn Hold + Hold Adds
+  Your Steering as its own drive. Release guard: built, item 0h.
+  Also lat smoothing 0.0 only during turn desires (0.1 otherwise, TSFDOM). A faster ramp up or down is a panda safety
+  limit: **discuss with him first, no code until he agrees.**
+
+#### 0e. Turn desire fixes on `fm-dev-jet` (Nov 11): built, not driven
+
+From `0000005e--e26703ace2--2` (Nov 9 build, Cheddar, Road Edge Turn Desire on): a left turn after a 12 s stop.
+- **The turn desire did not drop.** turnLeft was held from the previous segment through the stop until 20 s. What felt
+  like letting go: (1) the model's desire pulse had aged out of its 5 s history (`desireState` read "none" while
+  waiting), so pulling away it asked ~305 m then ~47 m radius while the truck drove ~69 m then ~24 m (he steered);
+  (2) **openpilot never steers at a standstill** (`controlsd`: `latActive` needs `vEgo > 0.3` unless
+  `steerAtStandstill`); MADS stays enabled, `latActive` came back at 12.89 s; (3) an `e2eChime` alert covered the
+  "Turning Left" banner 11.2 to 14.2 s.
+- **Rivian blind spot is reported** with the long harness upgrade (`carstate_ext.py`, `enableBsm`), and AP's Lane Turn
+  Desire drops the turn while it's lit. Not the cause in this log (no BSM). `tools/fm` doesn't read BSM yet.
+- He keeps Road Edge Turn Desire **off** now (false edges, especially on lefts).
+- `4ef32d0` Road Edge Turn Desire: turns under 20 mph start without openpilot steering, like AP's, so they start (and
+  restart on a blinker cycle) while stopped. Road-edge turns from 20 mph still need it.
+- `792475a` **Turn Pulse on Pull-Away** (`FM_TurnPulseOnPullAway`, Models > Model Behavior, off): once stopped during a
+  held turn, `DesireHelper.model_desire` drops to none for one model frame at 0.3 m/s, so the model gets a fresh pulse.
+  Both modeld's feed `DH.model_desire`; `DH.desire`, `laneTurnDirection`, alert, Turn Assist, Blendful unchanged.
+  Replayed on the log above: fires once, at 12.89 s. Works with AP's Lane Turn Desire (Road Edge off).
+- `ced5574` Turn Hold option **Hold Through Early Correction** (`FM_TurnHoldEarlyCorrection`, off): under 5 mph and
+  under 20 degrees turned, hand torque against the turn doesn't release Turn Hold (request passes through, fade paused,
+  same peak after). Later/faster still releases. Only matters with Turn Hold on (it was off in this log).
+- Test: Turn Pulse on, Road Edge off, corners with a long wait; compare turn-in with earlier logs (`turns.py`).
+
+#### 0d. Lateral Smoothing setting on `fm-dev-jet` (Nov 11): built, off, not driven
+
+- Why: Cheddar's lateral felt bad. Cheddar's list entry has `lat` .0 (unsmoothed), TSFDOM's has .1 (not re-verified in the
+  list this session). The tinygrad gap (5d186bd vs 92b742f) is probably not the cause: compiled model files are baked.
+- The `lat` value does two things in `modeld_v2/modeld.py`: it low-passes the model curvature (post-FOF models only,
+  `smooth_value`) and it is added to the lateral delay given to the model (`lat_action_t`, `lateral_control_params`).
+  Higher = calmer but later, and also reads the plan further ahead (earlier). So .2 is not simply "turns sooner".
+  controlsd adds the constant 0.0 from `selfdrive/modeld`, not the bundle's value (upstream behavior, left alone).
+- Setting: `FM_LateralSmoothingEnabled` (off) + `FM_LateralSmoothingSeconds` slider 0 / 0.1 / 0.2 (default 0.1),
+  Steering > FM Pilot: Turn Tweaks > Lateral Smoothing Settings. Replaces the bundle's value while on; read every ~3 s.
+- Test: Cheddar, same road, off vs 0.1 vs 0.2. In the rlog compare actual vs desired curvature lag and steer jitter
+  (`tools/fm`). Not applied to a Jetlink big model's own action path (stock modeld, unsmoothed).
+
+#### 0c. Set Speed Assist on `fm-dev-jet` (Nov 11): built, not driven
+
+- From EVPilot (gerrylum's fork, `evpilotgo/openpilot` `dev`, through `c594381` Nov 10: the boost now shrinks in
+  proportion to a model slow-down or a turn instead of cutting off, which fixed its every-4-s pulsing). Ported as
+  **Accel Boost mode 3, "Set Speed"** (`FM_AccelBoostMode`, Sunnylink Cruise > Driving Personality Settings); exclusive
+  with Gas / Predictive, default still Gas. Logic and numbers unchanged except the end of the grace window (item 0i);
+  see FM_PILOT.md for the behavior and credits.
+- Only on `fm-dev-jet` (`2002100`), not `fm-dev-set`. Cherry-pick if wanted.
+- Test: its own drive in Experimental Mode on roads where the model creeps up to the set speed (20+ mph), boost bar on.
+  In logs, `longitudinalPlanSP.fmAccelBoost` (what it added) with `fmAccelBoostMode` 3. Watch for: surging toward the
+  set speed into curves, and the 3 s grace after a lead leaves.
+
+- Also on `fm-dev-jet` from EVPilot (Nov 11): the off-tracking / Lane Guard near-zero-curvature crash fix (`868d1b7`) and
+  Rivian `steerLimitTimer` 0.8 (`17d4a0d`; only counts above 22 mph, so it doesn't change slow turns). Not taken, decided
+  Nov 11: EVPilot's MAP_NORESERVE model load (`6a1ff0b9`; only for ~2 GB models loaded on the comma, which Jetlink avoids),
+  its generic resend of panda-blocked frames, and its navigation (openpilot's nav, Mapbox; superseded by the Nav Assist plan, item 0o).
+
+#### 0k. Alpamayo 2 Edge through a Jetlink fork (idea, Nov 12): nothing built
+
+- **Goal (his):** drive NVIDIA's Alpamayo 2 Edge (open weights Nov 10, Hugging Face `nvidia/Alpamayo2-Edge`; ~2.65 B
+  params BF16, about 5.3 GB: 1.96 B LM + 0.41 B SigLIP2 vision + 0.08 B projector, 0.2 B diffusion action expert; outputs
+  trajectories plus optional reasoning text; NVIDIA quotes ~10 Hz on DRIVE AGX Thor) as the Jetlink big model.
+- **Host:** the desktop's RTX 3080 Ti (12 GB, ~912 GB/s, BF16 + FlashAttention 2 OK), in the truck on the R1S 120 V
+  outlet (1500 W; a 3080 Ti system ~500-600 W, can be power-limited with `nvidia-smi -pl`). Jetlink's hosts are
+  Mac / Jetson / Linux PC / phone, so run it under Linux. The 3050 laptop is too small; the M2 Pro fits the weights but
+  is ~4x short on bandwidth.
+- **Plan:** (1) offline on the desktop: run the model on forward-camera frames from his rlogs, reasoning off, one
+  trajectory candidate, fewer diffusion steps; measure Hz. (2) Fork `zoompilot/jetlink`: add a host backend that feeds
+  Alpamayo and converts its trajectory into the plan/action Jetlink returns, holding or interpolating 10 Hz up to the
+  20 Hz model step. (3) Nav text input: start from turn desire / blinker ("turn left"), later the nav port.
+  (4) Speed it up (TensorRT / torch.compile, FP8-INT8 if needed). (5) Usual model checks (tests, NaN, compare with
+  TSFDOM on the same rlogs), then parked link test, then drive.
+- **Cameras:** the model is trained on surround views (incl. cross and rear cameras) the comma doesn't have. Frankie:
+  deal with this later.
+
+#### 0b. Jetlink on `fm-dev-jet` (Nov 8): built, off, not yet on the device
+
+- Branch `fm-dev-jet` = `fm-dev-set` + Jetlink (zoompilot/jetlink v0.9.0, API 4). Sources: AP PR #12 (params, events,
+  selfdrived, hardwared, process, UI) and zoompilot develop (adapter, modeld hooks for the v25 modeld_v2). Setting
+  Models > Jetlink (Off / USB / iOS, offroad), `JetlinkLink` 0 by default. Events `jetlinkReady/LinkLost/Chime` @28-30.
+- Big model = comma's large models from Jetlink's index, picked in the Jetlink app (FM doesn't use the model-list hooks).
+  It runs stock modeld's action path + Blendful (`fm_jetlink_action.py`); Calmer Crawl-Speed Steering doesn't apply to it.
+- Frankie's host: MacBook **M2 Pro** (corrected Nov 12; earlier written as M1 Pro) (Apple silicon is Jetlink's tested platform; ~20 s prepare, up to 10 s load). Needs a USB 3 data cable, the comma
+  powered from the harness (Jetlink cuts USB-C draw at boot when on), the Mac on its own power and awake. S25 Ultra
+  Android app is experimental.
+- Model icon (Nov 9), home screen and road view, from zoompilot: Jetlink sets `ui_state.chestnut_state` through jetlink's
+  `Status.icon()` (onroad state from its runtime record, `Status.running`): pulsing (download/prepare/join), green
+  (ready parked / driving), dimmed green (`WAITING`: disengage fully to switch), orange (problem). Road view green and
+  dimmed green stay on (Frankie's choice; the chestnut's fade). A Jetlink host no longer counts as an unknown USB device.
+  Alerts kept as AP's wording (Frankie: don't match zoompilot's wording or its louder "lost").
+- Off-device: adapter conformance, both modeld seams, joining-model contract, fallback: pass. Not run on a device.
+- Order: drive v25 on `fm-dev-set` first; then `fm-dev-jet` with Jetlink off (same as fm-dev-set); then on, parked first.
+
+#### 0a. ChatGPT commits Nov 6 (not yet driven or analyzed)
+
+- `b925e3a` Turn Hold fades over 0.5 s when the blinker is cancelled mid-hold; `398cd6b` **Turn Nudge**
+  (`FM_TurnNudgeEnabled`, off, needs Turn Hold): 2–8 mph, 0.8 Nm into the turn for 0.15 s adds up to 0.01 1/m for 0.6 s
+  if the path bends that way; `dd313ff` torque readout stays visible (moved down) during the Turning Left/Right notice.
+  Reviewed Nov 8: tests pass (78), Sunnylink JSON matches its YAML; docs added to FM_PILOT.md; garbled docstring fixed.
+
+#### 0. `fm-dev-set`: built, not yet driven (Nov 5 evening)
+
+- Frankie plans to drive it with Lane Centering selected, testing Higher Torque at the same time. If anything feels
+  off, he goes back to `fm-dev-torque` `bece23e` alone.
+- **Lane keeping mode** (`FM_LaneKeepMode`: 0 Off / 1 Lane Centering / 2 Lane Guard / 3 Blendful) replaces the
+  `LaneCenteringEnabled` / `LaneGuardEnabled` toggles as the switch. No default: `params_migration` seeds it once at boot
+  from the old toggles (centering wins). Everything reads it through `fm_lane_keep_mode.get_lane_keep_mode`.
+- **Blendful** (sunnypilot #2073, unchanged math) in modeld_v2, picked by the mode; returns exactly 0.0 when not
+  selected. Logged in `modelDataV2SP` (`blendfulCurvature`, `blendfulTrust`, `modelCurvature`, `blendfulGoingAround`,
+  `blendfulLeftProb/RightProb`, `blendfulLaneWidth`). Plan before he drives it: replay on Nov 3 pull-right and curvy
+  segments and show the nudge it would add.
+- **Boost:** `longitudinalPlanSP.fmAccelBoost` (what the boost added) and `fmAccelBoostMode` are now logged. Side-panel
+  bar from sunnypilot #2090, `FM_AccelBoostIndicator`, off. Quiet road-edge block is always on.
+- **Sunnylink:** Steering > Lane Centering dropdown (+ off-tracking at the bottom); Lane Change holds the road-edge
+  block; "FM Pilot: Turn Tweaks" with Turn Boost / Hold / Lead settings pages; Road Edge Turn Desire moved to Models >
+  Model Behavior (that page is `remote_configurable: false`; check he can change it from Sunnylink); Cruise > Driving
+  Personality Settings and Smart Cruise > Curve Speed Settings pages. Sub-page links may render after a section's items.
+- **First log check:** Sunnylink shows Lane Centering before driving; `modelDataV2SP.blendfulCurvature` 0 all drive;
+  lane centering active as before; plus the Higher Torque check below.
+- Also discussed, parked: #2034 (smoother final stop), openpilot #39059 (torqued long-accel filter), #39225 (e2e
+  curve speed). Predictive Boost math in sunnypilot master (#2089) matches ours.
+
+#### 1. Higher Torque: working; Max Torque slider, faster ramp and full cap past 90° built, not yet driven
+
+- **Nov 5 evening drive `0000003a` (`0941590e`, Headroom, panda on) confirms it works:** `torqueOutputCan` reached 457
+  (`--81`–`--83`), no faults. Only short stretches above 385 (max 1.8 s, `--82` +16 s right turn from a stop).
+- **What still limits slow turns:** (1) the ramp: 3 per frame, ~1.5 s to full, while the request sat at 1.25;
+  (2) AP's 95% cap past 90° (`HIGH_ANGLE_CAP_FRAC`), hence 457 not 481. The 90° TOI blip workaround is not the cause
+  (torque came straight back after the one blip seen; wheel stalled ~160–196° while 340–457 was being sent).
+- **Built Nov 5 night (all off by default, off-road only, next drive, all need Panda Allows Higher Torque):**
+  - `c514b3e` **Max Torque** (`FM_MaxTorque`, 405–580 step 25, default 480): level sent to the panda in safety param
+    bits 2–5 (n → 380 + 25 n); the panda enforces exactly it. No level = 481. Temporary: once a number is settled,
+    back to fixed standard / high modes.
+  - `143ece8` **Faster Torque Ramp** (`FM_TorqueFastRamp`): car code 5/frame below 25 mph; panda allows 5 below 12.5 m/s
+    when safety param bit 6 is set. 250 ms limit (125) unchanged.
+  - `3d7f292` **Full Torque Past 90°** (`FM_TorqueFullCapHighAngle`): car code only.
+- **Torque readout** (`b514a01`, always on): top-center `sent / limit now / Max Torque ✓` on the comma 4. In logs:
+  `carStateSP.fmEpasToiActive`, `fmSteerCap`, `fmMaxTorque` next to `torqueOutputCan`. Not yet seen on the device.
+- **Test plan:** 480 + ramp + full cap, Turn Lead off, normal Loop A turns up to 25 mph. If the wheel still stalls at
+  the cap, go off-road, step Max Torque 505 → 530 → 555 → 580, one at a time. Before driving each new step: parked
+  check, wheel toward lock, lateral on. Send rlogs per step.
+- **Turn Lead** cut the curb on `0000003a--83` +4 s and +22 s rights: it asked ~12 m about 1–2 s before the model got
+  there (look-ahead 1.3 s plus slow ramp). Keep it off; possible fix: shorter look-ahead (~0.7–0.8 s).
+- **Turn Hold** likely released in `--82` +18 s on +1.5 Nm wheel reaction (guess; hold state isn't logged). Blinker
+  self-cancel mid-turn (`--83` +46 s) ended the turn desire and openpilot pushed out of the turn for ~3 s.
+- Don't reset the torque learner unless he settles on Full.
+
+#### 2. Radar lead settings: built, both off, not yet driven (`50d1997`, `613c760`)
+
+- **Ignore Stationary Radar Ghosts** (`FM_RadarStationaryGuard`, Cruise, off): radard won't pair a radar point under
+  1 m/s with a camera lead over 5 m/s (11 mph) unless the camera sees it braking harder than -1.5 m/s²; that car is
+  followed from the camera instead. Fixes guardrail/barrier phantom brakes on ramps and curves (`00000038--19` on-ramp
+  +16.8 s: -1.8 to -2.5 m/s², 19 → 13 mph; +32.6 s; `--13`; `00000039--47` +56.6 s, where his gas press was against a
+  -3.5 phantom). Low-speed radar path (under 4 m/s) untouched.
+- **Lead Detection Sensitivity** (`FM_LeadDetectionThreshold`, Cruise, 25–50%, default 50 = openpilot): camera
+  confidence needed to count a lead and pair it with radar. From FrogPilot (MIT). Use with the guard.
+- **Replay** (real radard on the 9 Nov 5 segments; stock replay matches logged leads 96–100%): phantom frames 148 → 5
+  with the guard (the 5 are camera leads at 9–12 mph, by design; one is the `--48` red-light car at 107 m, correctly
+  kept); nothing else changed. 40%/35%: leads 0.2–0.9 s earlier, 1–2 short extra camera leads in `--1`; at 35% without
+  the guard phantoms rose to 163. No fast approach to stopped traffic in these logs.
+- **Test plan:** after the Higher Torque drive. Guard on, same on-ramp. Then threshold 40%, then 35%, in normal driving
+  with slowdowns for traffic at 35–45 mph; watch for braking with no car ahead. Untested: a real hard stop behind a car.
+- Checked and not taken: FrogPilot's radar-only "far lead" (moving targets only, no help for stopped traffic) and
+  "Human-Like Following" (brakes later and closer; model-gated). StarPilot Dom has none of these for non-Honda cars.
+
+#### 3. Garage spiral (`00000039--61` to `--63`): mostly explained
+
+- TSFDOM asked nearly straight at lock (median R 77–121 m vs 5.1 m driven), so openpilot sent max torque **left, out of
+  the turn**, against his right steering. Blinker off in `--63`; turn desire only in `--62` 0–6.4 s.
+- Lockouts are FM/AP's own **TOI-dropout watchdog**: past ~450° the EPAS mostly stopped taking torque (`ToiActive` 9–33%,
+  no ToiFlt/derate/hands-override); after 1.05 s the watchdog set `steerTempUnavailableSilent` and lateral was off
+  exactly 3.0 s (7 of 8; the first was him overpowering at -6 Nm).
+- Turn Hold released for good at `--61` +57.5 s (pressed torque +1–1.8 Nm against the right turn, wheel moved 12° left),
+  so Hold Adds Your Steering never acted. The "7–14 m" was `turns.py`'s brief tightest-asked peak, not a hold.
+- **Still open:** what held the wheel at lock with `ToiActive` off and hands light (he says it doesn't stay there by
+  itself). Unknown whether the EPAS refuses all overlay near the end stop or only away-from-lock (every near-lock request
+  was out of lock).
+- Options, not built: don't count `ToiActive` off near lock (> ~480°) toward the watchdog (discuss first); require
+  against-turn torque to last ~0.3 s before releasing Turn Hold.
+
+#### 4. Wide right curve (`00000039--47` +45 s to `--48` +7 s)
+
+- He wants more steering, **not less speed** (curve speed control rejected).
+- 12 mph: hands off, not at cap, drove 90% of the request; v0's integrator held a stale -0.03 to -0.13 m/s² against the
+  turn (frozen below 5 m/s). 20–21 mph: ~97%. "Model let go" at `--48` +7–8 s (0.023 → 0.014 1/m) coincided with his gas
+  press and right steering.
+- Options, not built: let v0's integrator decay at low speed instead of freezing; a curve hold without a blinker;
+  Predictive Boost curve fade lower (now 1.5 → 2.5 m/s²; this curve was ~0.8 at 12 mph, full boost).
+
+#### 5. Smoother stops / regen: analyzed, nothing built (details in findings)
+
+- openpilot sends **one** accel number (0x160); the VDM alone picks regen vs friction. No CAN control of the split, and
+  no regen-level signal. Motor torque and brake pressure aren't on the comma's buses; friction is `ESP_BrkTrq` (0x208).
+- Nov 3 drive: openpilot braking is all regen to about -2 m/s²; friction comes in only past that, and in the last
+  ~0.5 s of a stop (as `stopping` starts), then holds ~-700 Nm.
+- openpilot stops end harder than his one-pedal stops: -0.44..-0.55 vs -0.16..-0.40 m/s² 0.3 s before standstill,
+  release jerk 4.4–5.5 vs 2.0–3.7 m/s³. Cause: the plan still asks -0.3..-0.45 in the last second, and below ~3 mph the
+  truck over-brakes the plan by ~0.1 (the drag FF is ramped out there).
+- Waiting on Frankie: does the end of openpilot stops feel abrupt to him; his regen setting (Standard/Low); 3–5 stops
+  from 30–45 mph on current build. Candidate (discuss first): Rivian final-approach taper below ~3 mph, plus carrying
+  part of the drag FF down to standstill.
+
+### Next steps
+
+0000000000. Item 0w: send one rlog segment of slow / stop-and-go traffic (any branch, Blendful on) for the 5.0 vs 0.3
+   open-loop replay; then on `fm-dev-nav-settle` (on-device build: cereal changed by Build A/B/C) watch for weaving under
+   11 mph and send that rlog.
+000000000. Item 0v A: update the comma (`fm-dev-nav`, on-device build: cereal changed), Top Readout = Lead, normal
+   drive with 40% + guard; photo of the readout (purple/cyan number, X) and rlogs (`fmRadarLead.earlyRadarMatches`).
+   Then Builds B and C (separate agents, own branches).
+00000000a. Item 0v C (`fm-dev-nav-settle`): first the owed `000000af` replay (all 8 turns, Early Right Push off vs on;
+   exit speeds, Turns 2/4 not pushed toward the curb, limit counts); set the provisional 3 mph / 0.1 m/s² / 0.4 m from it.
+   Only then a drive: Settle After Turn + Early Right Push on, other turn options as on `000000af`, the same turns; send
+   rlogs (`tools/fm/settle.py`, `turns.py`). On-device build needed (cereal changed).
+00000000. Item 0u: update the comma (`fm-dev-nav`, on-device build: cereal changed), turn on Radar Badge, drive a ramp or
+   curve with guardrails and a car ahead, engaged and off the pedals; send rlogs (`fmRadarLead.ghostDropped`) and a photo.
+0000000. Item 0t: update the comma (`fm-dev-nav`, on-device build: cereal changed), then a drive with Hold Ignores Crawl Spikes,
+   Stop Before Turning Starts Over and Queue Guard on through the same stop-sign queue; send rlogs (`turns.py`, `fmQueueGuard`).
+   Then Turn Lead Yields; Settle After Turn on its own; one loop with Turn Lead off.
+000000. Item 0s: send one big-model rlog segment (straight road) for the offline smoothing replay; then one drive with
+   Lateral Smoothing (Big Models) on vs off.
+00000. Item 0p: put `fm-dev-max2` on the comma, one normal drive, send one rlog segment (core 4 load, controlsd rate) and
+   the `hardwared_slow_loop` events; replay Hold Only Counts While Steering on vs off on `00000073`'s turns from a stop.
+0000. Item 0n: drive `fm-dev-jet` `eb7550f` normally; pull `hardwared_slow_loop` events with `stack` from the
+   qlogs; fix what they name. Later: core 4 load (card / controlsd / selfdrived).
+000. Item 0m: drive the same corners as `00000073` with A/B/C on (default) and the new logging; send rlogs; `turns.py`
+   assist lines.
+00. Drive the request-side turn fixes on `fm-dev-jet` (item 0g), all on, together, now with item 0j (carry-through,
+   hand-blip debounce) also on; send rlogs; `turns.py` timing and torque lines.
+00a0. Set Speed grace fade (item 0i): one drive in Set Speed mode with traffic; plus more cold-morning segments with
+   braking behind a lead to confirm the extra over-braking.
+00a. Then Release Guard (item 0h) on at 150 as its own drive on the same corners; `turns.py` release line.
+0. Update the comma to `fm-dev-set` (v25), do the first-boot checks in item 00, re-select TSFDOM, then try Cheddar.
+0a. Drive TSFDOM with Full Torque Past 90° on and Turn Lead on (item 0f), then Turn Hold + Hold Adds Your Steering, each as its own drive.
+1. Torque test day on `fm-dev-set` (item 1 test plan). Then decide the Max Torque number and drop the slider.
+2. Radar settings test (above).
+3. Smoother stops: his answers to item 5, then decide whether to build the taper (off by default).
+4. Older: analyze Nov 4 routes `0000002e`, `0000002f`, `00000030`, `00000033`, `00000034`, `00000035` (Turn Assist with
+   fixes) and the Camera Offset pull test (`C:\fmlogs\2026-11-04`). Turn Boost / Hold speed limit to 20 → 25 mph.
+5. Nav Assist (item 0o): map file onto the comma, `fm-dev-nav`, Nav Assist on / Map Turn Desire off for a few days,
+   then `tools/fm/nav.py` on the rlogs. The old `claude/FM_PILOT_NAV_PLAN.md` is retired.
+
+### Key facts in one line each (details in claude/FM_PILOT_FINDINGS.md)
+
+- At Loop A speeds the torque cap, not the model's request, is what fails.
+- His settings run sunnypilot's v0 torque controller; any controller hook must go in both v0 and v1.
+- Two small models don't fit the comma 4's 50 ms step; dual mode removed.
+- Models: sunnypilot list v25 (selector 21), tinygrad 92b742f; selfdrive/modeld follows sunnypilot master-dev.
+- The VDM decides regen vs friction; openpilot only sends a target accel (truck delivers ~0.23 m/s² more decel than sent).
+- Lane Centering, Lane Guard and Blendful are one setting, `FM_LaneKeepMode`; read it via `get_lane_keep_mode`.
+- Never loosen driver monitoring.
+- With Jetlink on, modeld's `model` is jetlink's joining model: write per-model settings to the ModelStates
+  (`fm_apply_model_settings`), never to `model`; a new hook call needs an answer in `jetlink_adapter._Off` (tests hold both).
+- Code on the 100 Hz loops (controlsd, card): no SubMaster updates inside the step, no numpy scalar calls or log writes
+  when there is nothing to do (`fm_math.step_toward`, `test_fm_step_cost.py`).
+- Nav Assist only reads the map and logs; Map Turn Desire is the only thing that acts on it, and only on streets.
+- For other assistants (ChatGPT, Gemini), paste `claude/FM_PILOT_BRIEF_FOR_OTHER_AIS.md`. Check their claims before use.
+
+# Part 3: `FM_PILOT_BUILD_NOTE_2026-11-23.md` of `fm-dev-nav-settle` (Nov 23 build spec), word for word
+
+## FM Pilot build note: three planned builds (Nov 23, 2026)
+
+Decided with Frankie on Nov 23 in the "Settle After Turn speed" chat. **Status (Nov 23): all three built, none driven:**
+A on `fm-dev-nav`, B on `fm-dev-nav-lead` (`a5f04fb`), C on `fm-dev-nav-settle` (off `a5f04fb`, so it carries A, B and C);
+B and C not merged into `fm-dev-nav`. Original base: `fm-dev-nav` @
+`8f00a93` (repo `pmalekian/fmpilot`, now `pmalekian/FMPilot`; old URL redirects). Same item is in
+`FM_PILOT_HANDOFF.md` as 0v.
+
+### Order and how to split the work
+
+1. **Build A: Lead readout** first, by itself, in one chat.
+2. Then in parallel, one agent each:
+   - **Build B: Lead sensitivity (two sliders, smooth handoffs, shadow mode)**
+   - **Build C: Settle After Turn early right push**
+3. **Branches:** each parallel agent works on its own branch off `fm-dev-nav` (after Build A is pushed), e.g.
+   `fm-dev-nav-lead` and `fm-dev-nav-settle`. Both will touch shared files: `openpilot/cereal/custom.capnp`,
+   `openpilot/common/params_keys.h`, the Sunnylink YAML + compiled `settings_ui.json`, `FM_PILOT.md`, the handoff.
+   Merge into `fm-dev-nav` one at a time; after the second merge, resolve those files by hand, re-number any capnp
+   fields that collide, recompile Sunnylink settings and rerun tests.
+
+Project rules that apply to all three: new settings off by default; one logical change per commit, messages start
+`FM Pilot`; author `Frankie Malekian <107580415+pmalekian@users.noreply.github.com>`; credit borrowed code in the commit,
+the source file and `FM_PILOT.md`; tests + lint; recompile Sunnylink after YAML changes; update `FM_PILOT.md` and the
+handoff; never weaken driver monitoring; panda limits / torque cap changes need Frankie first; anything that changes
+driving behavior is replayed offline against the last build before he drives it.
+
+---
+
+### Build A: Lead readout (new Top Readout option)
+
+**Status: built on `fm-dev-nav`** (`a7ac523` radard fields, `08ef10b` readout; not driven). It took `FmRadarLead` fields
+@11 `liveLeadProb`, @12 `lowSpeedLead`, @13 `earlyRadarMatches`: **Builds B and C start new `FmRadarLead` fields at @14**
+and branch off `fm-dev-nav` at or after the commit that added this line.
+
+**What:** a fourth option for `FM_TopReadout` (Visuals; today 0 Off, 1 Torque, 2 CPU Avg, 3 CPU Busiest; code in
+`openpilot/selfdrive/ui/sunnypilot/onroad/fm_torque_readout.py`). Label "Lead". Default unchanged (Torque).
+
+**Format (minimal, no labels, single spaces):** `<conf>% <src> E<n> G<n>`
+
+```
+18% – E0 G0     gray: below your threshold, no lead
+38% C E0 G0     cyan: camera-only lead, early (threshold..50%)
+40% R E1 G0     purple: radar-matched lead, early (under 50%)
+62% C E1 G0     white: camera-only, 50%+
+87% R E1 G0     white: radar-matched, 50%+
+74% X E1 G1     X flashes red ~2 s: ghost dropped
+```
+
+- **Left number:** the model's live lead confidence, read from `modelV2.leadsV3[0].prob` (or radard's filtered value
+  if exposed), NOT `fmRadarLead.leadProb` (that is 0 whenever there is no lead, so it would never show the climb).
+- **Colors of the number (Frankie's final choice):**
+  - gray: no lead counted (below threshold), and any other case not listed below
+  - cyan (light, distinct from purple): camera-only lead with confidence under 50%
+  - purple (light lavender, readable in daylight): radar-matched lead with confidence under 50%
+  - white: any lead at 50%+ (radar or camera)
+  - Low-speed radar path (radar point straight ahead, camera unsure) shows R with a gray number.
+- **Source letter:** R radar-matched, C camera-only, X ghost dropped (amber pulse replaced by red flash ~2 s), `–` no
+  lead. Not G for ghost (clashes with the G count).
+- **E count:** number of times this drive a lead got a radar match while confidence was under 50% (once per event, not
+  per frame; count the rising edge of "radar-matched and under 50%", excluding the low-speed radar path). Frankie only
+  cares about early radar matches, not matches at stock settings.
+- **G count:** `fmRadarLead.ghostDrops` (already counted per drive in radard).
+- Both counts reset each drive.
+- **Data needed:** source, earlyLead, ghostDropped, ghostDrops, threshold are in `fmRadarLead` already. E needs a new
+  per-drive counter in `FmRadarLeadStatus` (`fm_radar.py`) or in the UI with the same rising-edge logic as ghostDrops
+  (the UI can miss frames, so radard counting is safer). Live confidence: read modelV2 in the UI.
+- **Why the old badge was likely never seen** (not proven broken): needs `FM_RadarBadge` on; ghost only with the guard
+  on, camera lead >11 mph and not braking hard, matched to a standing-still radar point (ramps/curves by barriers);
+  early ring only with Lead Detection Sensitivity below 50%; not drawn while disengaged. A recent rlog's `ghostDrops` /
+  `earlyLead` would tell. Frankie runs 40% with the guard on (handoff 0u). Keep the badge as is unless he says
+  otherwise.
+- **Checks:** unit tests for the readout text/colors and E counting; can't render raylib off-device, so on-device look
+  is unverified.
+
+---
+
+### Build B: Lead sensitivity — two sliders, smooth handoffs, shadow mode
+
+**Status: built on `fm-dev-nav-lead`** at `a5f04fb` (= `fm-dev-nav` `69e7395` plus one B commit; not driven). Settings
+Radar-matched / Camera-only Lead Confidence (migration carries the old value into both), Smooth Lead Handoffs and Lead
+Shadow Log (both off); `FmRadarLead` @14 radar cutoff, @15 camera cutoff, @16 smoothing, @17 decisions, @18 shadow;
+`tools/fm/lead.py`. 50/50 smoothing off byte-identical to A over 5,401 radard updates. **Still owed:** the ramp replay on
+`000000a8--df5d2d0570--16` and the braking-timing check (the rlog wasn't available). Details: handoff 0v. (This status
+line was added with Build C; the B commit didn't update this note.)
+
+Based on ChatGPT's proposal (Frankie uploaded it Nov 23) plus our changes. Today: one slider
+`FM_LeadDetectionThreshold` (25-50%, default 50) gates both radar-matched and camera-only leads in `get_lead()`
+(`openpilot/selfdrive/controls/radard.py` ~L158-192; both lead slots ~L263-285; settings/polling in
+`openpilot/sunnypilot/selfdrive/controls/lib/fm_radar.py`). Key fact Frankie confirmed he now understands: below the
+threshold nothing counts; above it a lead counts as radar-matched if a radar point fits, else camera-only, and the
+planner (MPC, min with e2e in Experimental) can brake for either.
+
+#### B1. Two sliders (admission)
+- **Radar-matched lead confidence** and **Camera-only lead confidence**, each 25-50%, default 50%.
+- Try radar matching from the LOWER of the two cutoffs. If a valid radar match exists (and the guard doesn't reject
+  it), use it. Otherwise fall back to camera-only only if the camera cutoff is cleared. (ChatGPT's row 4 choice: with
+  camera below radar, a lead eligible through the camera cutoff still uses radar numbers if a match exists. Agreed.)
+- Same rule for `leadOne` and `leadTwo`; low-speed radar override on `leadOne` unchanged; keep the asymmetric prob
+  filter and strict `>` checks so 50/50 is identical to today.
+- **Upgrade (our change):** do NOT reset to 50/50. Carry his current value into both sliders (radar = camera = old
+  value, i.e. today's behavior), keep the legacy param for rollback. Ask Frankie if he'd rather start at radar = old,
+  camera = 50.
+- Polling ~1 s as today (changes apply while parked without a restart).
+
+#### B2. Smooth handoffs (combined ChatGPT + Claude design), all in radard; planner untouched
+- **One continuous estimate per lead**, predicted forward each frame (gap, closing speed, accel, lateral) and corrected
+  by whichever sensor reports (radar or camera). No one-frame jumps when the source changes.
+- **Same-car check** before blending: the new measurement must fit the predicted state (gap, lateral position, closing
+  speed). If not, it's a different car.
+- **Cut-in / new car:** fresh estimate at once; the old car's state and hold timer never transfer.
+- **Bad news at once, good news eased (every transition):** if the new reading says closer or slower, follow it
+  immediately; if farther or faster, ease toward it over a few frames (~0.5-1 s).
+- **Hold on radar loss:** keep predicting from the last confirmed state, up to ~0.5 s, only while the camera still sees
+  the car (even below its cutoff). End at timeout, when the car leaves the path, or on a ghost-guard rejection. If the
+  camera clears its cutoff, blend toward camera numbers instead of dropping.
+- **Hysteresis on both cutoffs:** a lead joins at the slider value and stays until ~5 points lower (like Lane Guard's
+  0.7 / 0.6 lines).
+- **Sticky radar matching:** prefer the same radar track while it still passes the checks (avoids swapping between a
+  car and a sign behind it).
+- No global acceleration filter (would delay real cut-ins). If replay still shows a brake-release pulse on same-car
+  switches, look at that specifically.
+- Recommend running with Ignore Stationary Radar Ghosts on. Open gap: wrong radar matches to MOVING objects (car in the
+  next lane) aren't caught by the guard.
+- Its own toggle(s), off by default (e.g. "Smooth Lead Handoffs").
+
+#### B3. Shadow mode (Frankie: "add shadow mode into the mix")
+- radard runs the real settings and ALSO computes, without acting, what alternate settings would have chosen:
+  at least 30/50 and 30/40, with and without the B2 smoothing. Log per frame for both lead slots: selected source,
+  confidence, radar track ID, distance, relative speed, hold/blend state, guard/low-speed override, which cutoff
+  admitted it. Off by default (setting "Lead Shadow Log"), alternates fixed or picked in settings.
+- Lets him drive at real settings (e.g. 50/50 or his 40) and compare from the log: earlier real leads, added fake
+  leads, flicker, jumps, and where the planner would have differed. Limit: can't show how the truck would have felt
+  afterwards (the real truck didn't brake that way).
+- Add a `tools/fm` report for it.
+
+#### B4. Logging and validation
+- Extend `fmRadarLead` (keep existing fields/readers working) with both effective cutoffs and per-slot decision data.
+- Compare against `longitudinalPlan` source and target accel (lead MPC vs e2e vs cruise) to tell whether a lead
+  actually set the slowdown.
+- **Regression:** 50/50 identical to today: exact cutoff values, no tracks, rejected matches, radar loss/reacquire, both
+  slots, low-speed override, missing/invalid params.
+- **Replay** on the same recorded inputs (model + guard fixed; pass thresholds explicitly, `FmRadarSettings(params=None)`
+  is baseline): 50/50, 50/40, 30/50, 30/40, smoothing off/on. Report earlier real leads, false leads, dropouts, biggest
+  jumps in lead distance/speed and in target accel, and response time to a real braking car (smoothing must not slow
+  it). Look at cut-ins, stopped queues, curves with roadside returns. Logs: `000000a8--df5d2d0570--6/--16` (guard on,
+  40%) plus whatever he sends.
+- Then shadow-log drives, then real drives.
+
+---
+
+### Build C: Settle After Turn — early right push
+
+**Status: built on `fm-dev-nav-settle`** (`fc1c2bd` feature, `2e721f7` `tools/fm/settle.py`; off `fm-dev-nav-lead`
+`a5f04fb`; not driven). Decided the open point: a **new option** under Settle After Turn, "Settle After Turn: Early Right
+Push" (`FM_TurnSettleEarlyPush`, off); with it off Settle is bit-identical to before (tested against a frozen copy on
+random inputs). Items 1-10 all built. **Provisional values (no replay):** floor 3 mph, low-speed cap 0.1 m/s² (0.01 1/m
+ceiling, never under the old 0.004), push 0.4 m. Logged `modelDataV2SP` @15-@18 (`fmTurnSettlePush`, `fmTurnSettleLimit`,
+`fmTurnSettlePhase`, `fmTurnSettleGuard`). Synthetic closed-loop turn tests cover the scenarios below; the replay under
+"Offline checks" is **still owed** before he drives it. Details and reasons for each value: handoff 0v.
+
+Current feature: `openpilot/sunnypilot/modeld_v2/fm_turn_settle.py` (`FM_TurnSettle`, off), wired through the Blendful
+hook in `modeld.py`, setting under Steering > FM Pilot: Turn Tweaks. Today: 8-30 mph (`MIN_SPEED`, hard-coded; 8 had no
+documented reason, Claude picked it in the Nov 20 proposal), starts when the turn desire ends after a 45+ deg turn,
+aims at the lane center from 30% lines, curb only a limit (1.4 m), 0.25 m deadband, after a left only pushes right,
+cap 0.004 1/m, Blendful's build/release rates, ends at Blendful trust 0.5 / desire / lane change / 30 mph / 6 s / not
+steering / hands. Does nothing if no line is seen.
+
+**Frankie's goal:** act as soon as the turn is ending, well below 8 mph. If the lane can't be seen, heading toward the
+right side is safer than drifting into oncoming traffic (US right-hand traffic: oncoming is always left).
+
+**Build (all decided):**
+1. **Earlier start:** trigger on the truck's turning rate dropping / heading lining up with the new road, not only the
+   desire ending. Keep the 45 deg minimum turn.
+2. **Speed floor ~2-3 mph** (from 8). Max stays 30 mph.
+3. **Low-speed strength:** cap by lateral accel at low speed instead of the fixed 0.004 1/m (which moves the truck only
+   ~0.2 m in 10 m); keep the current cap at higher speed. Values from replay.
+4. **Capped right push when no lane center is visible:** after both left and right turns, push right, at most ~0.5 m in
+   total, tracked from the truck's own motion. This is the blind backstop.
+5. **Stop at center:** if a 30%+ line shows the truck already centered or right of center, the push ends (protects good
+   turns like 000000af Turns 2 and 4).
+6. **Switch to centering:** once a center is visible, use the existing centering (never left after a left turn), hand off
+   to Blendful at trust 0.5 as now.
+7. **Curb guard inside Settle** (works whatever `FM_LaneKeepMode` is): a sure curb (std <= 0.5 m) stops the push at 1.4
+   m; if the planned path brings the body within Lane Guard's margin, steer back left. Borrow the math from
+   `openpilot/selfdrive/controls/lib/lane_guard.py` (gerrylum rx-wb `17ea338`, MIT; Rivian half width 1.007 m, edge
+   margin 0.15 m) with credit. Lane Guard's own gates (70% lines, Rivian tune guards lines only in curves or >35 mph)
+   are too strict here; use Settle's looser curb rule.
+8. **Parked-car yield:** stop or hold the push when the model's own plan is clearly steering away from the right (going
+   around a car). Based on Blendful's going-around / yield logic (`sunnypilot/modeld_v2/blendful.py`, sunnypilot
+   #2073, MIT) with credit.
+9. **Hands always win:** any steering cancels at once.
+10. **Logging:** push distance used, which limit stopped it, phase (push / centering / handed off), in `modelDataV2SP`.
+
+**Open (Nov 23, resolved with Build C):** new option under Settle After Turn (off by default) vs replacing the current
+behavior: **new option**. Exact speed floor, low-speed cap and push distance: provisional 3 mph / 0.1 m/s² / 0.4 m until
+the replay below.
+
+**Offline checks before he drives it:** replay on `000000af--565e9cd6b0` (Nov 20, Cheddar), all 8 turns, vs the current
+Settle as baseline. Report each turn's exit speed; confirm Turns 2 and 4 aren't pushed toward the curb; count how often
+each limit fired (if the 0.5 m cap does most of the stopping, the guard rarely sees anything in time and the cap should
+shrink). Out of scope: a too-tight turn-in (Turns 5 and 7) is Turn Lead / Turn Hold's job; a map-based side check via
+Nav Assist is a later idea.
