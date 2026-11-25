@@ -12,6 +12,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+import yaml
 
 from openpilot.cereal import custom
 from openpilot.common.constants import CV
@@ -998,3 +999,42 @@ def test_controlsd_ext_logs_turn_assist_in_fm_controls():
   host = SimpleNamespace(LaC=SimpleNamespace())  # no FmLateral (a test host): nothing logged
   assert ControlsExt.fm_controls_ext(host, {'carState': cs}).fmControls.turnAssist.sign == 0
 
+
+class TestSettings:
+  STEERING_YAML = Path(fm_turn_assist.__file__).parents[3] / "sunnylink" / "settings_ui_src" / "pages" / "steering.yaml"
+
+  def _sections(self):
+    return {s["id"]: s for s in yaml.safe_load(self.STEERING_YAML.read_text())["sections"]}
+
+  def test_defaults_off(self):
+    from openpilot.common.params import Params
+    params = Params()
+    for key in SETTING_KEYS:
+      assert params.get_default_value(key) is False, key
+    assert params.get_default_value(PARAM_MIN_RADIUS) == pytest.approx(MIN_RADIUS_DEFAULT)
+    for key in FOLDED_KEYS:  # still declared, so switching back to fm-dev-nav-settle keeps them; no default written
+      assert params.get_default_value(key) is None, key
+
+  def test_fresh_install_is_off(self):
+    a = FmTurnAssist(FakeParams())
+    assert not a.enabled and not a.hold_path and not a.hold_driver and not a.hold_follow_exit
+    assert not a.restart_after_stop and not a.phase_in
+
+  def test_smooth_turn_start_goes_first_in_fm_smoothing(self):
+    keys = [item["key"] for item in self._sections()["fm_smoothing"]["items"]]
+    assert keys == [PARAM_PHASE_IN, "FM_LowSpeedCorrectionStrength", "FM_LowSpeedCurvatureFloor", "FM_StraightPullAwayFloor"]
+
+  def test_turn_hold_settings_sub_page(self):
+    turns = self._sections()["fm_turns"]
+    assert [item["key"] for item in turns["items"]] == [PARAM_HOLD]
+    (sub,) = turns["sub_panels"]
+    assert sub["label"] == "Turn Hold Settings" and sub["trigger_key"] == PARAM_HOLD
+    assert [item["key"] for item in sub["items"]] == [PARAM_HOLD_PATH, PARAM_HOLD_DRIVER, PARAM_HOLD_FOLLOW_EXIT,
+                                                      PARAM_RESTART_AFTER_STOP]
+    assert all(item["widget"] == "toggle" for item in sub["items"])
+
+  def test_folded_keys_not_in_the_settings(self):
+    text = self.STEERING_YAML.read_text()
+    for key in FOLDED_KEYS:
+      assert key not in text
+    assert "Nov 20" not in text
