@@ -286,3 +286,44 @@ class TestModeldWiring:
     src = (REPO / "openpilot/selfdrive/controls/controlsd.py").read_text()
     assert "'fmModel'" in src
 
+
+PRE_POST_KEYS = ("FM_TurnQueueGuard", "FM_TurnPulseOnPullAway", "FM_TurnSettle", "FM_TurnSettleEarlyPush")
+
+
+class TestPrePostTurnPage:
+  """Steering > Turns > Pre/Post Turn Behavior: a plain sub-page (always openable: its trigger is its own first item,
+  with no trigger condition, as sunnypilot's Speed Limit Settings), the four toggles in order, all off on a fresh
+  install."""
+
+  def _turns(self):
+    import yaml
+    page = yaml.safe_load((REPO / "openpilot/sunnypilot/sunnylink/settings_ui_src/pages/steering.yaml").read_text())
+    return {s["id"]: s for s in page["sections"]}["fm_turns"]
+
+  def test_sub_page(self):
+    turns = self._turns()
+    (sub,) = [s for s in turns["sub_panels"] if s["id"] == "pre_post_turn"]
+    assert sub["label"] == "Pre/Post Turn Behavior" and sub["trigger_key"] == "FM_TurnQueueGuard"
+    assert "trigger_condition" not in sub
+    items = {i["key"]: i for i in sub["items"]}
+    assert tuple(items) == PRE_POST_KEYS
+    assert [items[k]["title"] for k in PRE_POST_KEYS] == ["Queue Guard", "Turn Pulse on Pull-Away", "Settle After Turn",
+                                                          "Settle After Turn: Early Right Push"]
+    assert all(i["widget"] == "toggle" for i in items.values())
+    assert items["FM_TurnSettleEarlyPush"]["enablement"] == [{"type": "param", "key": "FM_TurnSettle", "equals": True}]
+    assert all("enablement" not in items[k] for k in PRE_POST_KEYS[:3])
+    assert "10 mph" in items["FM_TurnQueueGuard"]["description"]  # QUEUE_SPEED (ca08aac9's text said 5 mph)
+    assert not any(k in i["key"] for i in turns["items"] for k in PRE_POST_KEYS)
+
+  def test_compiled_json_has_it(self):
+    import json
+    data = json.loads((REPO / "openpilot/sunnypilot/sunnylink/settings_ui.json").read_text())
+    found = [sp for panel in data["panels"] for sec in panel.get("sections", []) for sp in sec.get("sub_panels", [])
+             if sp["id"] == "pre_post_turn"]
+    assert len(found) == 1 and [i["key"] for i in found[0]["items"]] == list(PRE_POST_KEYS)
+
+  def test_defaults_off(self):
+    from openpilot.common.params import Params
+    params = Params()
+    for key in PRE_POST_KEYS:
+      assert params.get_default_value(key) is False, key

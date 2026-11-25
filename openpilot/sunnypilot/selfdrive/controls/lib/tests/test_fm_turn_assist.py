@@ -1122,7 +1122,7 @@ class TestSettings:
 
   def test_turn_lead_settings_sub_page(self):
     turns = self._sections()["fm_turns"]
-    assert [s["id"] for s in turns["sub_panels"]] == ["turn_hold_settings", "turn_lead_settings"]
+    assert [s["id"] for s in turns["sub_panels"]] == ["turn_hold_settings", "turn_lead_settings", "pre_post_turn"]
     sub = turns["sub_panels"][1]
     assert sub["label"] == "Turn Lead Settings" and sub["trigger_key"] == PARAM_LEAD
     assert sub["trigger_condition"] == {"type": "param", "key": PARAM_LEAD, "equals": True}
