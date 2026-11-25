@@ -622,6 +622,20 @@ sections:
       back to the model. Never asks for a tighter turn than Turn Path Tightest Radius. Works with Turn Hold (which then
       holds what Turn Lead asked for), but using one at a time makes each turn easier to judge. From StarPilot's Model
       Turn Assist.
+  - key: FM_TurnCarryThrough
+    widget: toggle
+    title: Finish Turn After Signal Cancels
+    description: If the blinker goes off (or cancels itself) early in a turn while the truck is still turning, Turn Lead
+      and Turn Hold keep helping until the truck straightens out, for up to 6 seconds, instead of dropping back to the
+      model at once. Ends right away if you steer against the turn, openpilot stops steering or you reach 20 mph. If the
+      blinker goes off after the truck has turned 45 degrees, or once it is already straightening out, the turn is ending,
+      so Turn Assist lets go over half a second as usual. The model, the Turning alert and lane changes still follow the
+      blinker.
+    enablement:
+    - type: any
+      conditions:
+      - {type: param, key: FM_TurnHoldEnabled, equals: true}
+      - {type: param, key: FM_TurnLeadEnabled, equals: true}
   sub_panels:
   - id: turn_hold_settings
     label: Turn Hold Settings

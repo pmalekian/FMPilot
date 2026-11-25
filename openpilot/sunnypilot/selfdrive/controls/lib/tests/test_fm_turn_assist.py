@@ -1113,7 +1113,7 @@ class TestSettings:
 
   def test_turn_hold_settings_sub_page(self):
     turns = self._sections()["fm_turns"]
-    assert [item["key"] for item in turns["items"]] == [PARAM_HOLD, PARAM_LEAD]
+    assert [item["key"] for item in turns["items"]] == [PARAM_HOLD, PARAM_LEAD, PARAM_CARRY]
     sub = turns["sub_panels"][0]
     assert sub["label"] == "Turn Hold Settings" and sub["trigger_key"] == PARAM_HOLD
     assert [item["key"] for item in sub["items"]] == [PARAM_HOLD_PATH, PARAM_HOLD_DRIVER, PARAM_HOLD_FOLLOW_EXIT,
@@ -1149,6 +1149,20 @@ class TestSettings:
     params = Params()
     for key in SETTING_KEYS + LEAD_TOGGLES + (PARAM_LEAD_MIN_SPEED, PARAM_LEAD_GATE_DIST, PARAM_MIN_RADIUS):
       assert params.check_key(key), key
+
+  def test_finish_turn_after_signal_cancels_on_the_turns_section(self):
+    """A toggle on the Turns section itself (not a sub-page), enabled by Turn Hold or Turn Lead; Carry Only at Turn-In is
+    folded into its description, with no entry of its own."""
+    turns = self._sections()["fm_turns"]
+    (item,) = [i for i in turns["items"] if i["key"] == PARAM_CARRY]
+    assert item["widget"] == "toggle" and item["title"] == "Finish Turn After Signal Cancels"
+    (any_of,) = item["enablement"]
+    assert any_of["type"] == "any" and {c["key"] for c in any_of["conditions"]} == {PARAM_HOLD, PARAM_LEAD}
+    assert all(c["equals"] is True for c in any_of["conditions"])
+    assert "Boost" not in item["description"] and "On by default" not in item["description"]
+    assert "45 degrees" in item["description"]
+    assert all(PARAM_CARRY not in [i["key"] for i in sub["items"]] for sub in turns["sub_panels"])
+    assert self.STEERING_YAML.read_text().count(f"key: {PARAM_CARRY}\n") == 1
 
   def test_folded_keys_not_in_the_settings(self):
     text = self.STEERING_YAML.read_text()
