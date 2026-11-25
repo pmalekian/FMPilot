@@ -17,18 +17,19 @@ Plan PR numbers (BUILD_PLAN.md) differ from GitHub PR numbers. Status as of Nov 
 | 10 | Turn Hold, Smooth Turn Start, Turn Assist logging | #16 | `19574d7` |
 | 11 | Turn Lead | #17 | `b1b1800` |
 | 12 | Finish Turn After Signal Cancels | #18 | `48c343f` |
+| 13 | Pre/Post Turn Behavior (Queue Guard, Turn Pulse, Settle After Turn + Early Right Push) | #19 | `d3406ff` |
 
 ## Owners and next PR
 - **ChatGPT:** plan PRs 8, 9, 16, 17, 18. Next assigned: **PR 16** Top Readout after its dependencies merge.
-- **Claude:** plan PRs 10-15. Next: **PR 13** Pre/Post Turn Behavior.
+  **For PR 17 (Jetlink):** on ca08aac9, Settle After Turn and Blendful also ran on the Jetlink large model through
+  `fm_jetlink_action.py`. On fm-dev-sync, AP's Jetlink adapter skips that hook, so Settle acts only with local models.
+  Restoring it is Jetlink scope; flag it to Frankie if PR 17 doesn't cover it.
+- **Claude:** plan PRs 10-15. Next: **M2 full suites**, then **PR 14** Accel Boost picker.
   M1 full suites passed on `d02379c` (only the 2 known failures plus sandbox-only ones: no network/display/GPU; the
   jetlink `test_seam` large-model test fails in the sandbox because tinygrad probes `/sys`, also before PR 9).
-  Notes for PR 13: Queue Guard (ca08aac9 `fm_queue_guard.py`, wired in `desire_helper.py`) hides the turn desire from
-  Turn Assist; add a test that a Queue Guard hold can't start a carry (ca08aac9 relies on the 0.01 1/m start curve and
-  the carry ending when lateral is off). Carry state (`carry_sign`, `carry_done`) lives outside `_reset_turn`; Turn
-  Pulse and Settle After Turn (`modeld_v2/fm_turn_settle.py`) should treat the end of a carry as the end of the turn.
-  `FOLDED_KEYS` lists 7 keys (incl. `FM_TurnCarryTurnInOnly`). Equivalence scripts for PRs 10-12 are in
-  `tools/fm/tests/pr1{0,1,2}_*_equivalence.py`.
+  PR 13: Queue Guard holds now count as a wait in Turn Assist (controlsd subscribes to `fmModel`), so a hold can't
+  start a carry (ca08aac9 could). Settle After Turn reads the carry from `fmControls` (modeld_v2 subscribes) and opens
+  its window when the carry ends. Pre/Post Turn Behavior is a plain sub-page; all four toggles were already off.
   Fresh-install defaults now off where ca08aac9 had them on (stored values carry over): Hold Follows the Model's Exit,
   Smooth Turn Start (PR 10); Adaptive Look-Ahead, Wait for the Corner (PR 11); Finish Turn After Signal Cancels (PR 12).
   Turn Path Tightest Radius is on the Turn Lead page, so it shows only while Turn Lead is on.
