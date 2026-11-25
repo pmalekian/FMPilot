@@ -225,3 +225,40 @@ class TestLaneKeepMode(OpenpilotTestCase):
   def test_old_keys_untouched(self):
     p = self.migrate(LaneGuardEnabled=True, Blendful=True)
     assert p.get("LaneGuardEnabled") is True and p.get("Blendful") is True
+
+
+class TestModelLateralSmoothing(OpenpilotTestCase):
+  def migrate(self, **values):
+    params = Params()
+    for key in ("FM_SmallModelSmoothingMode", "FM_BigModelSmoothingMode", "FM_LateralSmoothingEnabled",
+                "FM_LateralSmoothingSeconds", "FM_BigModelSmoothing", FLAG):
+      params.remove(key)
+    for key, value in values.items():
+      params.put(key, value, block=True)
+    assert run(params, [m for m in fm_migration.MIGRATIONS if m[0] == "model_lateral_smoothing"]) == ["model_lateral_smoothing"]
+    return params
+
+  def test_small_seconds_mapping(self):
+    for seconds, expected in [(0.0, 1), (0.1, 2), (0.2, 2)]:
+      params = self.migrate(FM_LateralSmoothingEnabled=True, FM_LateralSmoothingSeconds=seconds)
+      assert params.get("FM_SmallModelSmoothingMode") == expected
+      assert abs(params.get("FM_LateralSmoothingSeconds") - seconds) < 1e-7
+      assert params.get("FM_LateralSmoothingEnabled") is True
+      assert params.get("FM_BigModelSmoothingMode") is None
+    assert self.migrate(FM_LateralSmoothingEnabled=True).get("FM_SmallModelSmoothingMode") == 2
+
+  def test_off_and_legacy_big_on(self):
+    params = self.migrate(FM_LateralSmoothingEnabled=False, FM_LateralSmoothingSeconds=0.2, FM_BigModelSmoothing=True)
+    assert params.get("FM_SmallModelSmoothingMode") == 0
+    assert params.get("FM_BigModelSmoothingMode") == 2
+    assert params.get("FM_BigModelSmoothing") is True
+    assert self.migrate(FM_BigModelSmoothing=False).get("FM_BigModelSmoothingMode") == 0
+
+  def test_preserves_new_values_and_leaves_fresh_unset(self):
+    params = self.migrate()
+    assert params.get("FM_SmallModelSmoothingMode") is None
+    assert params.get("FM_BigModelSmoothingMode") is None
+    params = self.migrate(FM_SmallModelSmoothingMode=0, FM_BigModelSmoothingMode=1,
+                          FM_LateralSmoothingEnabled=True, FM_BigModelSmoothing=True)
+    assert params.get("FM_SmallModelSmoothingMode") == 0
+    assert params.get("FM_BigModelSmoothingMode") == 1

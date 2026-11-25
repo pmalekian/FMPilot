@@ -14,7 +14,9 @@ Plan PR numbers (BUILD_PLAN.md) differ from GitHub PR numbers. Status as of Nov 
 | 7 | Lane Keeping, Lane Guard, Blendful | #11 | `99a2b44` |
 
 ## Owners and next PR
-- **ChatGPT:** plan PRs 8, 9, 16, 17, 18. Next: **PR 8** Model Lateral Smoothing.
+- **ChatGPT:** plan PRs 8, 9, 16, 17, 18. **PR 8** Model Lateral Smoothing is `needs-checks` on
+  `fm-sync/pr08-model-lateral-smoothing`. Ruff and Sunnylink settings recompilation passed. The full build,
+  affected unit tests, and Sunnylink validator still need a supported build environment. PR 9 follows PR 8's merge.
 - **Claude:** plan PRs 10-15. Next: **PR 10** Turn Hold, Smooth Turn Start, Turn Assist logging.
 
 ## Conventions
