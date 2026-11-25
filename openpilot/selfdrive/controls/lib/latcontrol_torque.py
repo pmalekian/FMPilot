@@ -11,6 +11,7 @@ from openpilot.common.pid import PIDController
 
 from openpilot.sunnypilot.selfdrive.controls.lib.latcontrol_torque_ext import LatControlTorqueExt
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_torque_mode import FmTorqueMode
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_release_guard import FmReleaseGuard
 
 # At higher speeds (25+mph) we can assume:
 # Lateral acceleration achieved by a specific car correlates to
@@ -53,6 +54,8 @@ class LatControlTorque(LatControl):
     # FM Pilot Max Torque, Headroom (Rivian, Max Torque above 385): the most the controller may request rises past 1.0
     # at low speed; 1.0 otherwise.
     self.fm_torque = FmTorqueMode(CP, CP_SP)
+    # FM Pilot Release Guard (Rivian, Stock by default): limits P's push against you while you steer into a turn
+    self.fm_release_guard = FmReleaseGuard(CP)
 
   def update_torque_parameters(self, latAccelFactor, latAccelOffset, friction):
     self.torque_params.latAccelFactor = latAccelFactor
@@ -106,12 +109,15 @@ class LatControlTorque(LatControl):
     if not active:
       output_torque = 0.0
       pid_log.active = False
+      self.fm_release_guard.idle()
     else:
       # do error correction in lateral acceleration space, convert at end to handle non-linear torque responses correctly
       pid_log.error = float(error)
 
       freeze_integrator = steer_limited_by_safety or CS.steeringPressed or CS.vEgo < 5
       output_lataccel = self.pid.update(pid_log.error, speed=CS.vEgo, feedforward=ff, freeze_integrator=freeze_integrator)
+      output_lataccel = self.fm_release_guard.update(self.pid, True, CS.vEgo, CS.steeringPressed, CS.steeringTorque,
+                                                      measured_curvature, self.torque_params.latAccelFactor)
       output_torque = self.torque_from_lateral_accel(output_lataccel, self.torque_params)
 
       # Lateral acceleration torque controller extension updates

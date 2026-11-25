@@ -36,7 +36,7 @@ class ControlsExt(ModelStateBase):
     cloudlog.info("controlsd_ext got CarParamsSP")
 
     self.sm_services_ext = ['radarState', 'selfdriveStateSP']
-    self.pm_services_ext = ['carControlSP']
+    self.pm_services_ext = ['carControlSP', 'fmControls']
 
   def initialize_lateral_control(self, lac, CI, dt):
     enforce_torque_control = self.params.get_bool("EnforceTorqueControl")
@@ -129,6 +129,24 @@ class ControlsExt(ModelStateBase):
 
     pm.send('carControlSP', cc_sp_send)
 
+  def fm_controls_ext(self, sm: messaging.SubMaster):
+    """FM Pilot's own controls message (fmControls, cereal/custom.capnp): Release Guard, and later Turn Assist and the
+    low-speed parts. Fields are only written when they aren't at their default (0 / False): the message is fresh, so the
+    logged values are the same and a step with nothing to report costs almost nothing."""
+    msg = messaging.new_message('fmControls')
+    msg.valid = sm['carState'].canValid
+    fm = msg.fmControls
+
+    guard = getattr(getattr(self, 'LaC', None), 'fm_release_guard', None)
+    if guard is not None and (guard.active or guard.amount or guard.cut or guard.limit):
+      release_guard = fm.releaseGuard
+      release_guard.active = bool(guard.active)
+      release_guard.amount = float(guard.amount * guard.enabled)
+      release_guard.cut = float(guard.cut)
+      release_guard.limit = float(guard.limit)
+    return msg
+
   def run_ext(self, sm: messaging.SubMaster, pm: messaging.PubMaster) -> None:
     CC_SP = self.state_control_ext(sm)
     self.publish_ext(CC_SP, sm, pm)
+    pm.send('fmControls', self.fm_controls_ext(sm))
