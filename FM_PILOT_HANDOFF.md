@@ -24,6 +24,11 @@ Features, settings and credits: `FM_PILOT.md`. Log tools: `tools/fm/README.md`.
 - **Commits:** author `Frankie Malekian <107580415+pmalekian@users.noreply.github.com>`, message starts "FM Pilot", one
   logical change each, borrowed code credited in the message, the source file and `FM_PILOT.md`. Push with
   `--no-verify` and `-c push.negotiate=true`.
+- **Migration:** a feature PR that reshapes a setting declares the old keys it reads (never written) and its new
+  keys (stock/off defaults) in `params_keys.h`, adds an `@migration("name")` function to `fm_migration.py` using
+  `put_if_unset`, its mapping row in `FM_PILOT.md`, and tests on real `Params` (old values -> new; fresh install ->
+  nothing written). Unchanged-meaning settings keep their keys and get stock/off defaults (his stored values stay:
+  manager only writes defaults for unset keys).
 - **opendbc:** copied in-repo as AP does (`opendbc_repo/`, a normal folder, no submodule). On a sunnypilot sync, re-sync
   the copy to sunnypilot's new opendbc pin and re-apply AP's and FM's changes: diff AP's copy against the pin it was
   vendored from, cherry-pick that onto the new pin (done for Step 0: `48611ae9` -> `3db0b06`).
@@ -60,8 +65,9 @@ ruff check .
 |---|---|
 | Step 0 base | done, `4efb05a`, pushed |
 | PR 1 docs and tools | merged, PR #5 (`fba53fc`) |
-| PR 2 log schema | this PR: FM's own messages `fmControls` @145, `fmModel` @144, `fmPlan` @143, `fmCarState` @142, `fmRadarLead` @141, `fmJetlinkStatus` @140 (free slots from the top: sunnypilot master took slot 10 for `gpsLocationSP`), event `fmLaneChangeRoadEdgeQuiet` @38; `tools/fm` picks the old or new schema per file |
-| PRs 3-18 | not started |
+| PR 2 log schema | merged, PR #6 (`f887f49`): FM's own messages `fmControls` @145, `fmModel` @144, `fmPlan` @143, `fmCarState` @142, `fmRadarLead` @141, `fmJetlinkStatus` @140 (free slots from the top: sunnypilot master took slot 10 for `gpsLocationSP`), event `fmLaneChangeRoadEdgeQuiet` @38; `tools/fm` picks the old or new schema per file |
+| PR 3 settings framework | this PR: quiet road-edge block (folded), Blendful hidden from the Models page, FM sections on the Sunnylink Steering page, one-time migration runner (`sunnypilot/system/fm_migration.py`, flag `FM_SyncMigration`) |
+| PRs 4-18 | not started |
 
 ## Reference (unchanged from before)
 
