@@ -345,6 +345,22 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"FM_LateralSmoothingSeconds", {PERSISTENT | BACKUP, FLOAT}},
     {"FM_BigModelSmoothing", {PERSISTENT | BACKUP, BOOL}},
 
+    // Turn Hold Settings and Smooth Turn Start: same keys and meaning as on fm-dev-nav-settle, so existing values carry
+    {"FM_TurnHoldEnabled", {PERSISTENT | BACKUP, BOOL, "0"}},
+    {"FM_TurnHoldPathSource", {PERSISTENT | BACKUP, BOOL, "0"}},
+    {"FM_TurnHoldDriverAdds", {PERSISTENT | BACKUP, BOOL, "0"}},
+    {"FM_TurnHoldFollowExit", {PERSISTENT | BACKUP, BOOL, "0"}},
+    {"FM_TurnRestartAfterStop", {PERSISTENT | BACKUP, BOOL, "0"}},
+    {"FM_TurnPathMinRadius", {PERSISTENT | BACKUP, FLOAT, "12.0"}},  // Turn Path Tightest Radius, 8-20 m (Hold Path Source, Turn Lead)
+    {"FM_TurnPhaseIn", {PERSISTENT | BACKUP, BOOL, "0"}},  // Smooth Turn Start
+    // old (fm-dev-nav-settle) Turn Hold options, folded (always on with Turn Hold): never read, never written
+    {"FM_TurnNudgeEnabled", {PERSISTENT | BACKUP, BOOL}},
+    {"FM_TurnHoldEarlyCorrection", {PERSISTENT | BACKUP, BOOL}},
+    {"FM_TurnHoldReleaseDebounce", {PERSISTENT | BACKUP, BOOL}},
+    {"FM_TurnHoldStartsAtTurnIn", {PERSISTENT | BACKUP, BOOL}},
+    {"FM_TurnHoldSteeringOnly", {PERSISTENT | BACKUP, BOOL}},
+    {"FM_TurnHoldSteadyPeak", {PERSISTENT | BACKUP, BOOL}},
+
     // Rivian
     {"RivianResumeEnabled", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"RivianEnhancedMads", {PERSISTENT | BACKUP, BOOL, "0"}},

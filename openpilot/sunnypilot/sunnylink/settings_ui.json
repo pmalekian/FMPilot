@@ -986,6 +986,19 @@
           "description": "FM Pilot - calmer steering at low speed and when turns start",
           "items": [
             {
+              "key": "FM_TurnPhaseIn",
+              "widget": "toggle",
+              "title": "Smooth Turn Start",
+              "description": "Whatever Turn Hold adds on top of the model eases in over about a third of a second instead of arriving all at once, so the steering doesn't grab and then swing back. It still lets go at once, so handing back to the model isn't delayed. The model's own steering is never slowed.",
+              "enablement": [
+                {
+                  "type": "param",
+                  "key": "FM_TurnHoldEnabled",
+                  "equals": true
+                }
+              ]
+            },
+            {
               "key": "FM_LowSpeedCorrectionStrength",
               "widget": "option",
               "title": "Low-Speed Correction Strength",
@@ -1067,7 +1080,80 @@
           "id": "fm_turns",
           "title": "Turns",
           "description": "FM Pilot - help through slow blinker turns, before and after them",
-          "items": []
+          "items": [
+            {
+              "key": "FM_TurnHoldEnabled",
+              "widget": "toggle",
+              "title": "Turn Hold",
+              "description": "During a blinker turn under 20 mph, keeps the model from letting go of the turn halfway. Holds the steering request near the turn's strongest point, easing off gradually, until the truck has turned about 75 degrees, the blinker is cancelled, or you steer against the turn. Built in: its 8 seconds only count once the truck is turning; a brief or light press against the turn (under a quarter second and 1.5 Nm, or under 1.5 seconds before the truck has turned 10 degrees, or straightening at the start of a turn under 5 mph) passes through without ending it; it ignores the wheel while openpilot isn't steering; below 5 mph it only holds a request the model kept up for 0.3 seconds; and a deliberate nudge into the turn at 2 to 8 mph adds a little extra steering when the path just ahead already bends that way."
+            }
+          ],
+          "sub_panels": [
+            {
+              "id": "turn_hold_settings",
+              "label": "Turn Hold Settings",
+              "trigger_key": "FM_TurnHoldEnabled",
+              "trigger_condition": {
+                "type": "param",
+                "key": "FM_TurnHoldEnabled",
+                "equals": true
+              },
+              "items": [
+                {
+                  "key": "FM_TurnHoldPathSource",
+                  "widget": "toggle",
+                  "title": "Hold Path Source",
+                  "description": "When starting a turn from a stop or a crawl (under about 2 mph), also take the turn from the planned path, so the truck turns even if the model's steering request still says straight. Never tighter than Turn Path Tightest Radius (12 m unless changed). From StarPilot's Model Turn Assist.",
+                  "enablement": [
+                    {
+                      "type": "param",
+                      "key": "FM_TurnHoldEnabled",
+                      "equals": true
+                    }
+                  ]
+                },
+                {
+                  "key": "FM_TurnHoldDriverAdds",
+                  "widget": "toggle",
+                  "title": "Hold Adds Your Steering",
+                  "description": "When you steer into the turn, Turn Hold keeps the curve you gave it, up to full lock, instead of letting go and instead of pushing back toward a wider turn, so the help stays once you let go of the wheel. Steering into the turn never releases it, even before the truck starts turning; steering against the turn still releases it. From StarPilot's Model Turn Assist.",
+                  "enablement": [
+                    {
+                      "type": "param",
+                      "key": "FM_TurnHoldEnabled",
+                      "equals": true
+                    }
+                  ]
+                },
+                {
+                  "key": "FM_TurnHoldFollowExit",
+                  "widget": "toggle",
+                  "title": "Hold Follows the Model's Exit",
+                  "description": "Once the truck has turned 45 degrees, when the model starts letting go of the turn (asking for less than half of the hold's tightest), Turn Hold fades out over half a second so the truck straightens out with the model, instead of holding the turn until 75 degrees. While you press the wheel into the turn it waits until you ease off.",
+                  "enablement": [
+                    {
+                      "type": "param",
+                      "key": "FM_TurnHoldEnabled",
+                      "equals": true
+                    }
+                  ]
+                },
+                {
+                  "key": "FM_TurnRestartAfterStop",
+                  "widget": "toggle",
+                  "title": "Stop Before Turning Starts Over",
+                  "description": "If the truck stops before it has turned 10 degrees (waiting in a line, creeping up to the stop line), the turn starts over when you pull away. Nothing from the creep carries into the real turn - not Turn Hold's remembered curve, not a hold you released. A turn you pause partway through (past 10 degrees) keeps everything.",
+                  "enablement": [
+                    {
+                      "type": "param",
+                      "key": "FM_TurnHoldEnabled",
+                      "equals": true
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
         }
       ]
     },
