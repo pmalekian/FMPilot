@@ -1008,7 +1008,48 @@
           "id": "fm_model_smoothing",
           "title": "Model Lateral Smoothing",
           "description": "FM Pilot - how much the model's steering request is smoothed, for small and big models",
-          "items": []
+          "items": [
+            {
+              "key": "FM_SmallModelLatSmoothing",
+              "widget": "multiple_button",
+              "title": "Small Models",
+              "description": "Replaces the small model's built-in lateral smoothing value (often 0.00 or 0.10 s). For small models, this value both smooths the steering request and is added to the model's lateral delay, so a higher value steers slightly earlier as well as calmer. Applies to all driving while a small model drives. Model Default = each model uses its own value.",
+              "options": [
+                {
+                  "value": 0,
+                  "label": "Model Default"
+                },
+                {
+                  "value": 1,
+                  "label": "0.00 s"
+                },
+                {
+                  "value": 2,
+                  "label": "0.10 s"
+                }
+              ]
+            },
+            {
+              "key": "FM_BigModelLatSmoothing",
+              "widget": "multiple_button",
+              "title": "Big Models",
+              "description": "Lateral smoothing for a big model (comma's large model over Jetlink or chestnut). Unlike small models, this value only smooths the steering request and is not added to the model's lateral delay, so 0.10 s calms straight-road wiggle and answers about 0.1 s later. Applies to all driving while a big model drives. Model Default = the big model's own smoothing (raw 0.00 s). From zoompilot.",
+              "options": [
+                {
+                  "value": 0,
+                  "label": "Model Default"
+                },
+                {
+                  "value": 1,
+                  "label": "0.00 s"
+                },
+                {
+                  "value": 2,
+                  "label": "0.10 s"
+                }
+              ]
+            }
+          ]
         },
         {
           "id": "fm_turns",
