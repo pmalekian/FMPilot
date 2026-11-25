@@ -75,3 +75,45 @@ class TestHook(OpenpilotTestCase):
     finally:
       fm_migration.MIGRATIONS[:] = orig
     assert seen == [1] and "test_hook" in done(params)
+
+
+class TestMaxTorque(OpenpilotTestCase):
+  """Max Torque: Panda Allows Higher Torque off -> 385; on -> Max Torque on the 15 grid (580 -> 580)."""
+
+  def migrate(self, **old):
+    params = Params()
+    for k in ("FM_CustomMaxTorque", "FM_PandaHighTorque", "FM_MaxTorque", FLAG):  # each call a fresh device
+      params.remove(k)
+    for k, v in old.items():
+      params.put(k, v, block=True)
+    run(params, [m for m in fm_migration.MIGRATIONS if m[0] == "max_torque"])
+    return params
+
+  def test_his_setup_carries_over(self):
+    params = self.migrate(FM_PandaHighTorque=True, FM_MaxTorque=580, FM_TorqueFastRamp=True, FM_TorqueFullCapHighAngle=True,
+                          FM_TorqueMode=1)
+    assert params.get("FM_CustomMaxTorque") == 580
+
+  def test_panda_off_is_385(self):
+    assert self.migrate(FM_PandaHighTorque=False, FM_MaxTorque=580).get("FM_CustomMaxTorque") == 385
+
+  def test_old_steps_round_to_the_15_grid(self):
+    for old, new in ((405, 400), (430, 430), (455, 460), (480, 475), (505, 505), (530, 535), (555, 550), (580, 580)):
+      assert self.migrate(FM_PandaHighTorque=True, FM_MaxTorque=old).get("FM_CustomMaxTorque") == new, old
+
+  def test_panda_on_without_a_max_uses_the_old_default(self):
+    assert self.migrate(FM_PandaHighTorque=True).get("FM_CustomMaxTorque") == 475
+
+  def test_fresh_install_writes_nothing(self):
+    params = self.migrate()
+    assert params.get("FM_CustomMaxTorque") is None  # manager then writes the 385 default
+    assert "max_torque" in done(params)
+
+  def test_old_keys_untouched_and_a_chosen_value_kept(self):
+    params = Params()
+    params.put("FM_CustomMaxTorque", 430, block=True)
+    for k, v in {"FM_PandaHighTorque": True, "FM_MaxTorque": 580}.items():
+      params.put(k, v, block=True)
+    assert run(params, [m for m in fm_migration.MIGRATIONS if m[0] == "max_torque"]) == ["max_torque"]  # it ran
+    assert params.get("FM_CustomMaxTorque") == 430
+    assert params.get("FM_PandaHighTorque") is True and params.get("FM_MaxTorque") == 580

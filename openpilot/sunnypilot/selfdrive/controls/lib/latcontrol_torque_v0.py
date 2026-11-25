@@ -10,6 +10,7 @@ from openpilot.selfdrive.controls.lib.latcontrol import LatControl
 from openpilot.common.pid import PIDController
 
 from openpilot.sunnypilot.selfdrive.controls.lib.latcontrol_torque_ext import LatControlTorqueExt
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_torque_mode import FmTorqueMode
 
 # At higher speeds (25+mph) we can assume:
 # Lateral acceleration achieved by a specific car correlates to
@@ -49,6 +50,11 @@ class LatControlTorque(LatControl):
     self.measurement_rate_filter = FirstOrderFilter(0.0, 1 / (2 * np.pi * LP_FILTER_CUTOFF_HZ), self.dt)
 
     self.extension = LatControlTorqueExt(self, CP, CP_SP, CI)
+    # FM Pilot Max Torque, Headroom (Rivian, Max Torque above 385): the most the controller may request rises past 1.0
+    # at low speed; 1.0 otherwise.
+    # v0 is what runs with EnforceTorqueControl off, or on with TorqueControlTune 0, so it needs the same hook as
+    # latcontrol_torque.py.
+    self.fm_torque = FmTorqueMode(CP, CP_SP)
 
   def update_torque_parameters(self, latAccelFactor, latAccelOffset, friction):
     self.torque_params.latAccelFactor = latAccelFactor
@@ -64,6 +70,15 @@ class LatControlTorque(LatControl):
     # Override torque params from extension
     if self.extension.update_override_torque_params(self.torque_params):
       self.update_limits()
+
+    # FM Pilot Max Torque, Headroom: max request past 1.0 at low speed; 1.0 is AP's behavior
+    fm_max = self.fm_torque.update(CS.vEgoRaw)  # the speed the car code picks its cap with
+    if fm_max != self.steer_max:
+      self.steer_max = fm_max
+      self.update_limits()
+      # with Lateral Jerk or NNLC the PID works in torque units and the extension owns its limits (controlsd sets them
+      # each frame); put them back, or the accel-based limit above would stand for this frame
+      self.extension.update_limits()
 
     pid_log = log.ControlsState.LateralTorqueState.new_message()
     pid_log.version = VERSION

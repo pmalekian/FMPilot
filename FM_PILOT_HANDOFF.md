@@ -66,8 +66,9 @@ ruff check .
 | Step 0 base | done, `4efb05a`, pushed |
 | PR 1 docs and tools | merged, PR #5 (`fba53fc`) |
 | PR 2 log schema | merged, PR #6 (`f887f49`): FM's own messages `fmControls` @145, `fmModel` @144, `fmPlan` @143, `fmCarState` @142, `fmRadarLead` @141, `fmJetlinkStatus` @140 (free slots from the top: sunnypilot master took slot 10 for `gpsLocationSP`), event `fmLaneChangeRoadEdgeQuiet` @38; `tools/fm` picks the old or new schema per file |
-| PR 3 settings framework | this PR: quiet road-edge block (folded), Blendful hidden from the Models page, FM sections on the Sunnylink Steering page, one-time migration runner (`sunnypilot/system/fm_migration.py`, flag `FM_SyncMigration`) |
-| PRs 4-18 | not started |
+| PR 3 settings framework | merged, PR #7 (`aa95387`): quiet road-edge block (folded), Blendful hidden from the Models page, FM sections on the Sunnylink Steering page, one-time migration runner (`sunnypilot/system/fm_migration.py`, flag `FM_SyncMigration`) |
+| PR 4 torque | this PR, **waiting for the fresh-Opus review before merge**: Max Torque `FM_CustomMaxTorque` 385-580 step 15 (panda follows it; above 385 faster ramp, full cap past 90°, Headroom), steerLimitTimer 0.8, off-tracking near-zero fix; migration `max_torque` |
+| PRs 5-18 | not started |
 
 ## Reference (unchanged from before)
 

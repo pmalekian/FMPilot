@@ -114,6 +114,7 @@ def initialize_params(params) -> list[dict[str, Any]]:
   # rivian
   keys.extend([
     "RivianEnhancedMads",
+    "FM_CustomMaxTorque",
   ])
 
   # subaru
