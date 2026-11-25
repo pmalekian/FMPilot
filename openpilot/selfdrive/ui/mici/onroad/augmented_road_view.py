@@ -24,6 +24,7 @@ from enum import IntEnum
 if gui_app.sunnypilot_ui():
   from openpilot.selfdrive.ui.sunnypilot.mici.onroad.hud_renderer import HudRendererSP as HudRenderer
   from openpilot.selfdrive.ui.sunnypilot.ui_state import OnroadTimerStatus
+  from openpilot.selfdrive.ui.sunnypilot.mici.onroad.accel_boost_indicator import AccelBoostIndicator
 
 OpState = log.SelfdriveState.OpenpilotState
 CALIBRATED = log.ExtrinsicsCalibration.Status.calibrated
@@ -181,6 +182,7 @@ class AugmentedRoadView(CameraView):
     self._alert_renderer = AlertRenderer()
     self._driver_state_renderer = DriverStateRenderer()
     self._confidence_ball = ConfidenceBall()
+    self._accel_boost_indicator = AccelBoostIndicator() if gui_app.sunnypilot_ui() else None  # FM Pilot: the Boost bar
     self._offroad_label = UnifiedLabel("start the car to\nuse sunnypilot", 54, FontWeight.DISPLAY,
                                        text_color=rl.Color(255, 255, 255, int(255 * 0.9)),
                                        alignment=TextAlignment.CENTER,
@@ -275,7 +277,11 @@ class AugmentedRoadView(CameraView):
     if show_navigation:
       self._navigation.render(rl.Rectangle(self._content_rect.x + self._content_rect.width, self.rect.y, PANEL_WIDTH, self.rect.height))
     else:
-      self._confidence_ball.render(self.rect)
+      # FM Pilot: the Accel Boost bar takes the confidence ball's place while it is shown (FM_AccelBoostIndicator)
+      if self._accel_boost_indicator is not None:
+        self._accel_boost_indicator.render(self.rect)
+      if self._accel_boost_indicator is None or not self._accel_boost_indicator.holding_panel:
+        self._confidence_ball.render(self.rect)
 
     self._bookmark_icon.render(self.rect)
 

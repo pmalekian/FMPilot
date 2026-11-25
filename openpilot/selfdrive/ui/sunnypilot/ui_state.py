@@ -12,6 +12,7 @@ from opendbc.sunnypilot.car.interfaces import has_bsm
 from openpilot.common.params import Params
 from openpilot.selfdrive.ui.sunnypilot.layouts.settings.display import OnroadBrightness
 from openpilot.sunnypilot.models.helpers import ACTIVE_BUNDLE_KEYS, get_active_source
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_accel_boost_mode import PARAM_MODE as ACCEL_BOOST_MODE, parse_mode as parse_boost_mode
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_lane_keep_mode import MODE_BLENDFUL, MODE_CENTERING, get_lane_keep_mode
 from openpilot.sunnypilot.sunnylink.sunnylink_state import SunnylinkState
 from openpilot.system.ui.lib.application import gui_app
@@ -185,6 +186,8 @@ class UIStateSP:
     lane_keep_mode = get_lane_keep_mode(self.params)  # FM Pilot: Off / Lane Centering / Lane Guard / Blendful
     self.lane_centering_enabled = lane_keep_mode == MODE_CENTERING
     self.blendful_enabled = lane_keep_mode == MODE_BLENDFUL
+    self.fm_accel_boost_indicator = self.params.get_bool("FM_AccelBoostIndicator")  # FM Pilot: the Boost bar
+    self.fm_accel_boost_mode = parse_boost_mode(self.params.get(ACCEL_BOOST_MODE, return_default=True))
     self.onroad_brightness = int(float(self.params.get("OnroadScreenOffBrightness", return_default=True)))
     self.onroad_brightness_timer_param = self.params.get("OnroadScreenOffTimer", return_default=True)
     self.rainbow_path = self.params.get_bool("RainbowMode")
