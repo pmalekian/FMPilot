@@ -71,8 +71,9 @@ ruff check .
 | PR 5 Release Guard | merged, PR #9 (`1653723`): `FM_ReleaseGuardLimit` Stock / 75 / 150, v0 + v1, migration `release_guard`; controlsd publishes `fmControls` |
 | PR 6 feedforward + correction strength | merged, PR #10 (`60c057b`): `FM_LowSpeedFFLeft/Right` (Off default), `FM_LowSpeedCorrectionStrength` (100 default), v0 + v1, migrations `low_speed_feedforward`, `low_speed_correction` |
 | PR 7 Lane Keeping | merged, PR #11 (`99a2b44`): `FM_LaneKeepMode` Off / Lane Centering / Lane Guard / Blendful (Off default), Lane Guard (gerrylum rx-wb `17ea338`) via `fm_lateral.py`, Blendful at 0.3 m/s with the blue line only; migration `lane_keep_mode` |
-| PR 8 Model Lateral Smoothing | this PR: `FM_SmallModelLatSmoothing` and `FM_BigModelLatSmoothing` drop-downs (Model Default / 0.00 s / 0.10 s, Model Default default), both modelds (`fm_lateral_smoothing.py`, zoompilot `6cb59d3` for big models), Jetlink `JoiningModelState` safe; migrations `small_model_lat_smoothing`, `big_model_lat_smoothing` |
-| PRs 9-18 | not started |
+| PR 8 Model Lateral Smoothing | merged, PR #14 (`b4061be`): `FM_SmallModelLatSmoothing` and `FM_BigModelLatSmoothing` drop-downs (Model Default / 0.00 s / 0.10 s, Model Default default), both modelds (`fm_lateral_smoothing.py`, zoompilot `6cb59d3` for big models), Jetlink `JoiningModelState` safe; migrations `small_model_lat_smoothing`, `big_model_lat_smoothing` |
+| PR 9 Calmer Crawl-Speed + Straight Pull-Away | this PR: `FM_LowSpeedCurvatureFloor` (sunnypilot #2091 2.5 m/s floor on AP's 1.0 default) and `FM_StraightPullAwayFloor` (`fm_pull_away.py`, 0.5 s blend, standstill decision), both off by default, Jetlink `JoiningModelState` safe; `test_action_curvature_floor.py` guards `ACTION_SPEED_FLOOR == 1.0` |
+| PRs 10-18 | not started |
 
 ## Reference (unchanged from before)
 
