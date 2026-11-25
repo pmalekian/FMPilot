@@ -3,12 +3,14 @@ Copyright (c) 2021-, Haibin Wen, sunnypilot, and a number of other contributors.
 
 This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
+
+FM Pilot: sunnypilot's Blendful tests from #2073 (unchanged), plus FM Pilot's checks at the bottom.
 """
 import numpy as np
 
 from openpilot.common.realtime import DT_MDL
 from openpilot.common.test import OpenpilotTestCase
-from openpilot.sunnypilot.modeld_v2.blendful import Blendful
+from openpilot.sunnypilot.modeld_v2.blendful import MIN_SPEED, Blendful
 from openpilot.sunnypilot.modeld_v2.constants import ModelConstants
 
 X = np.array(ModelConstants.X_IDXS)
@@ -106,7 +108,45 @@ class TestBlendful(OpenpilotTestCase):
   def test_fades_below_min_speed(self):
     drive(self.bf, 5.0, v=10.0, center=0.5)
     start = self.bf.curvature
-    out = np.array([self.bf.update(frame(center=0.5), 4.0, True, 0.0) for _ in range(100)])
+    out = np.array([self.bf.update(frame(center=0.5), 0.5 * MIN_SPEED, True, 0.0) for _ in range(100)])  # FM: was 4.0 (MIN_SPEED 5.0)
     assert self.bf.trust == 0.0
     assert abs(out[0]) < abs(start)
     assert abs(out[-1]) < 1e-6
+
+  # FM Pilot
+
+  def test_off_is_exactly_zero_on_every_frame(self):
+    # Not selected = the model's steering request is untouched, bit for bit
+    rng = np.random.default_rng(0)
+    for _ in range(400):
+      out = self.bf.update(frame(center=rng.uniform(-1, 1), plan=rng.uniform(-1, 1), k=rng.uniform(-0.01, 0.01)),
+                           rng.uniform(0, 35), True, rng.uniform(-0.01, 0.01), enabled=False)
+      assert out == 0.0
+      assert self.bf.curvature == 0.0 and self.bf.trust == 0.0
+
+  def test_nothing_during_a_turn_or_lane_change(self):
+    # modeld passes active=False while a desire (turn or lane change) is on
+    drive(self.bf, 5.0, center=0.5)
+    out = [self.bf.update(frame(center=0.5), 20.0, False, 0.0) for _ in range(200)]
+    assert self.bf.trust == 0.0
+    assert abs(out[-1]) < 1e-9
+
+  def test_works_in_slow_traffic(self):
+    # FM Pilot: MIN_SPEED 0.3 m/s (was 5.0), so Blendful centers in stop-and-go traffic too
+    assert MIN_SPEED == 0.3
+    for v in (1.0, 2.0, 4.0):  # about 2, 4.5 and 9 mph
+      bf = Blendful()
+      push = drive(bf, 5.0, v=v, center=0.5)
+      assert bf.trust > 0.9
+      assert push[-1] > 0.0 and bf.curvature > 0.0  # toward the lane center, as at 20 m/s
+
+  def test_stopping_resets_and_pulling_away_rebuilds(self):
+    drive(self.bf, 5.0, v=2.0, center=0.5)
+    start = self.bf.curvature
+    out = np.array([self.bf.update(frame(center=0.5), 0.0, True, 0.0) for _ in range(40)])  # stopped 2 s
+    assert self.bf.trust == 0.0
+    assert np.all(np.diff(np.abs(out)) <= 1e-12) and abs(out[-1]) < 0.05 * abs(start)  # fades out smoothly (0.5 s)
+    self.bf.update(frame(center=0.5), 1.0, True, 0.0)
+    assert self.bf.trust < 0.1  # trust ramps back up (1.5 s), no jump on pull-away
+    drive(self.bf, 5.0, v=1.0, center=0.5)
+    assert self.bf.trust > 0.9
