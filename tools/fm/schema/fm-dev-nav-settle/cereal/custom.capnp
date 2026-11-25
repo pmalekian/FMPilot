@@ -1,0 +1,781 @@
+using Cxx = import "/include/c++.capnp";
+$Cxx.namespace("cereal");
+
+@0xb526ba661d550a59;
+
+# custom.capnp: a home for empty structs reserved for custom forks
+# These structs are guaranteed to remain reserved and empty in mainline
+# cereal, so use these if you want custom events in your fork.
+
+# DO rename the structs
+# DON'T change the identifier (e.g. @0x81c2f05a394cf4af)
+
+struct ModularAssistiveDrivingSystem {
+  state @0 :ModularAssistiveDrivingSystemState;
+  enabled @1 :Bool;
+  active @2 :Bool;
+  available @3 :Bool;
+
+  enum ModularAssistiveDrivingSystemState {
+    disabled @0;
+    paused @1;
+    enabled @2;
+    softDisabling @3;
+    overriding @4;
+  }
+}
+
+struct IntelligentCruiseButtonManagement {
+  state @0 :IntelligentCruiseButtonManagementState;
+  sendButton @1 :SendButtonState;
+  vTarget @2 :Float32;
+
+  enum IntelligentCruiseButtonManagementState {
+    inactive @0;      # No button press or default state
+    preActive @1;     # Pre-active state before transitioning to increasing or decreasing
+    increasing @2;    # Increasing speed
+    decreasing @3;    # Decreasing speed
+    holding @4;       # Holding steady speed
+  }
+
+  enum SendButtonState {
+    none @0;
+    increase @1;
+    decrease @2;
+  }
+}
+
+# Same struct as Log.RadarState.LeadData
+struct LeadData {
+  dRel @0 :Float32;
+  yRel @1 :Float32;
+  vRel @2 :Float32;
+  aRel @3 :Float32;
+  vLead @4 :Float32;
+  dPath @6 :Float32;
+  vLat @7 :Float32;
+  vLeadK @8 :Float32;
+  aLeadK @9 :Float32;
+  fcw @10 :Bool;
+  status @11 :Bool;
+  aLeadTau @12 :Float32;
+  modelProb @13 :Float32;
+  radar @14 :Bool;
+  radarTrackId @15 :Int32 = -1;
+
+  aLeadDEPRECATED @5 :Float32;
+}
+
+struct SelfdriveStateSP @0x81c2f05a394cf4af {
+  mads @0 :ModularAssistiveDrivingSystem;
+  intelligentCruiseButtonManagement @1 :IntelligentCruiseButtonManagement;
+  buttonsPressed @2 :UInt16;
+  buttonsReleaseToggle @3 :UInt16;
+
+  enum AudibleAlert {
+    none @0;
+
+    engage @1;
+    disengage @2;
+    refuse @3;
+
+    warningSoft @4;
+    warningImmediate @5;
+
+    prompt @6;
+    promptRepeat @7;
+    promptDistracted @8;
+
+    # unused, these are reserved for upstream events so we don't collide
+    reserved9 @9;
+    reserved10 @10;
+    reserved11 @11;
+    reserved12 @12;
+    reserved13 @13;
+    reserved14 @14;
+    reserved15 @15;
+    reserved16 @16;
+    reserved17 @17;
+    reserved18 @18;
+    reserved19 @19;
+    reserved20 @20;
+    reserved21 @21;
+    reserved22 @22;
+    reserved23 @23;
+    reserved24 @24;
+    reserved25 @25;
+    reserved26 @26;
+    reserved27 @27;
+    reserved28 @28;
+    reserved29 @29;
+    reserved30 @30;
+
+    promptSingleLow @31;
+    promptSingleHigh @32;
+  }
+}
+
+struct ModelManagerSP @0xaedffd8f31e7b55d {
+  activeBundle @0 :ModelBundle;
+  selectedBundle @1 :ModelBundle;
+  availableBundles @2 :List(ModelBundle);
+
+  struct DownloadUri {
+    uri @0 :Text;
+    sha256 @1 :Text;
+  }
+
+  enum DownloadStatus {
+    notDownloading @0;
+    downloading @1;
+    downloaded @2;
+    cached @3;
+    failed @4;
+    verifying @5;
+  }
+
+  struct DownloadProgress {
+    status @0 :DownloadStatus;
+    progress @1 :Float32;
+    eta @2 :UInt32;
+    speed @3 :Float32;
+    canceling @4 :Bool;
+    resuming @5 :Bool;
+  }
+
+  struct Chunk {
+    fileName @0 :Text;
+    sha256 @1 :Text;
+  }
+
+  struct Artifact {
+    fileName @0 :Text;
+    downloadUri @1 :DownloadUri;
+    downloadProgress @2 :DownloadProgress;
+    chunks @3 :List(Chunk);
+  }
+
+  struct Model {
+    type @0 :Type;
+    artifact @1 :Artifact;  # Main artifact
+    metadata @2 :Artifact;  # Metadata artifact
+
+    enum Type {
+      supercombo @0;
+      navigation @1;
+      vision @2;
+      policy @3;
+      offPolicy @4;
+      onPolicy @5;
+      chunked @6;
+    }
+  }
+
+  enum Runner {
+    snpe @0;
+    tinygrad @1;
+    stock @2;
+  }
+
+  struct Override {
+    key @0 :Text;
+    value @1 :Text;
+  }
+
+  struct ModelBundle {
+    index @0 :UInt32;
+    internalName @1 :Text;
+    displayName @2 :Text;
+    models @3 :List(Model);
+    status @4 :DownloadStatus;
+    generation @5 :UInt32;
+    environment @6 :Text;
+    runner @7 :Runner;
+    is20hz @8 :Bool;
+    ref @9 :Text;
+    minimumSelectorVersion @10 :UInt32;
+    overrides @11 :List(Override);
+  }
+}
+
+struct LongitudinalPlanSP @0xf35cc4560bbf6ec2 {
+  dec @0 :DynamicExperimentalControl;
+  longitudinalPlanSource @1 :LongitudinalPlanSource;
+  smartCruiseControl @2 :SmartCruiseControl;
+  speedLimit @3 :SpeedLimit;
+  vTarget @4 :Float32;
+  aTarget @5 :Float32;
+  events @6 :List(OnroadEventSP.Event);
+  e2eAlerts @7 :E2eAlerts;
+  fmAccelBoost @8 :Float32;  # FM Pilot: what the selected Accel Boost added to the model's target (m/s^2)
+  fmAccelBoostMode @9 :UInt8;  # FM Pilot: FM_AccelBoostMode in use (0 Off, 1 Gas, 2 Predictive, 3 Set Speed)
+  fmNavTurnSpeed @10 :Float32;  # FM Pilot: Nav Turn Speed's cap on the target speed (m/s), 0 = not capping
+  fmNavTurnDistance @11 :Float32;  # FM Pilot: m to the mapped junction it is capping for
+
+  struct DynamicExperimentalControl {
+    state @0 :DynamicExperimentalControlState;
+    enabled @1 :Bool;
+    active @2 :Bool;
+
+    enum DynamicExperimentalControlState {
+      acc @0;
+      blended @1;
+    }
+  }
+
+  struct SmartCruiseControl {
+    vision @0 :Vision;
+    map @1 :Map;
+    curve @2 :Curve;
+
+    struct Vision {
+      state @0 :VisionState;
+      vTarget @1 :Float32;
+      aTarget @2 :Float32;
+      currentLateralAccel @3 :Float32;
+      maxPredictedLateralAccel @4 :Float32;
+      enabled @5 :Bool;
+      active @6 :Bool;
+    }
+
+    struct Map {
+      state @0 :MapState;
+      vTarget @1 :Float32;
+      aTarget @2 :Float32;
+      enabled @3 :Bool;
+      active @4 :Bool;
+    }
+
+    # Curve-aware longitudinal: profile + backward-pass feedforward + reactive lateral-load governor.
+    struct Curve {
+      state @0 :CurveState;
+      vTarget @1 :Float32;
+      aTarget @2 :Float32;
+      latAccelTarget @3 :Float32;    # a_lat_max the feedforward planned to (the "feel"/EPS budget)
+      latAccelMeasured @4 :Float32;  # measured lateral load the governor is regulating
+      governorActive @5 :Bool;       # reactive governor is trimming speed / fading throttle
+      enabled @6 :Bool;
+      active @7 :Bool;
+    }
+
+    enum CurveState {
+      disabled @0; # System disabled or inactive.
+      cruise @1;   # No constraining curve ahead.
+      slowing @2;  # Decelerating ahead of a curve (feedforward backward pass).
+      curve @3;    # Holding the curve speed through the turn.
+      governing @4; # Reactive governor trimming to keep lateral load within the steering limit.
+    }
+
+    enum VisionState {
+      disabled @0; # System disabled or inactive.
+      enabled @1; # No predicted substantial turn on vision range.
+      entering @2; # A substantial turn is predicted ahead, adapting speed to turn comfort levels.
+      turning @3; # Actively turning. Managing acceleration to provide a roll on turn feeling.
+      leaving @4; # Road ahead straightens. Start to allow positive acceleration.
+      overriding @5; # System overriding with manual control.
+    }
+
+    enum MapState {
+      disabled @0; # System disabled or inactive.
+      enabled @1; # No predicted substantial turn on map range.
+      turning @2; # Actively turning. Managing acceleration to provide a roll on turn feeling.
+      overriding @3; # System overriding with manual control.
+    }
+  }
+
+  struct SpeedLimit {
+    resolver @0 :Resolver;
+    assist @1 :Assist;
+
+    struct Resolver {
+      speedLimit @0 :Float32;
+      distToSpeedLimit @1 :Float32;
+      source @2 :Source;
+      speedLimitOffset @3 :Float32;
+      speedLimitLast @4 :Float32;
+      speedLimitFinal @5 :Float32;
+      speedLimitFinalLast @6 :Float32;
+      speedLimitValid @7 :Bool;
+      speedLimitLastValid @8 :Bool;
+    }
+
+    struct Assist {
+      state @0 :AssistState;
+      enabled @1 :Bool;
+      active @2 :Bool;
+      vTarget @3 :Float32;
+      aTarget @4 :Float32;
+    }
+
+    enum Source {
+      none @0;
+      car @1;
+      map @2;
+    }
+
+    enum AssistState {
+      disabled @0;
+      inactive @1; # No speed limit set or not enabled by parameter.
+      preActive @2;
+      pending @3; # Awaiting new speed limit.
+      adapting @4; # Reducing speed to match new speed limit.
+      active @5; # Cruising at speed limit.
+    }
+  }
+
+  enum LongitudinalPlanSource {
+    cruise @0;
+    sccVision @1;
+    sccMap @2;
+    speedLimitAssist @3;
+    curveSpeed @4;
+    fmNavTurn @5;  # FM Pilot: Nav Turn Speed
+  }
+
+  struct E2eAlerts {
+    greenLightAlert @0 :Bool;
+    leadDepartAlert @1 :Bool;
+  }
+}
+
+struct OnroadEventSP @0xda96579883444c35 {
+  events @0 :List(Event);
+
+  struct Event {
+    name @0 :EventName;
+
+    # event types
+    enable @1 :Bool;
+    noEntry @2 :Bool;
+    warning @3 :Bool;   # alerts presented only when  enabled or soft disabling
+    userDisable @4 :Bool;
+    softDisable @5 :Bool;
+    immediateDisable @6 :Bool;
+    preEnable @7 :Bool;
+    permanent @8 :Bool; # alerts presented regardless of openpilot state
+    overrideLateral @10 :Bool;
+    overrideLongitudinal @9 :Bool;
+  }
+
+  enum EventName {
+    lkasEnable @0;
+    lkasDisable @1;
+    manualSteeringRequired @2;
+    manualLongitudinalRequired @3;
+    silentLkasEnable @4;
+    silentLkasDisable @5;
+    silentBrakeHold @6;
+    silentWrongGear @7;
+    silentReverseGear @8;
+    silentDoorOpen @9;
+    silentSeatbeltNotLatched @10;
+    silentParkBrake @11;
+    controlsMismatchLateral @12;
+    hyundaiRadarTracksConfirmed @13;
+    experimentalModeSwitched @14;
+    wrongCarModeAlertOnly @15;
+    pedalPressedAlertOnly @16;
+    laneTurnLeft @17;
+    laneTurnRight @18;
+    speedLimitPreActive @19;
+    speedLimitActive @20;
+    speedLimitChanged @21;
+    speedLimitPending @22;
+    e2eChime @23;
+    laneChangeRoadEdge @24;
+    bigModelReady @25;
+    belowMadsMinEngageSpeed @26;
+    fmLaneChangeRoadEdgeQuiet @27;
+    # Jetlink (AdventurePilot #12 / zoompilot); capnp enumerants are numbered in order, so after FM's @27
+    jetlinkReady @28;
+    jetlinkLinkLost @29;
+    jetlinkChime @30;
+  }
+}
+
+struct CarParamsSP @0x80ae746ee2596b11 {
+  flags @0 :UInt32;        # flags for car specific quirks in sunnypilot
+  safetyParam @1 : Int16;  # flags for sunnypilot's custom safety flags
+  pcmCruiseSpeed @3 :Bool;
+  intelligentCruiseButtonManagementAvailable @4 :Bool;
+  enableGasInterceptor @5 :Bool;
+
+  neuralNetworkLateralControl @2 :NeuralNetworkLateralControl;
+
+  struct NeuralNetworkLateralControl {
+    model @0 :Model;
+    fuzzyFingerprint @1 :Bool;
+
+    struct Model {
+      path @0 :Text;
+      name @1 :Text;
+    }
+  }
+}
+
+struct CarControlSP @0xa5cd762cd951a455 {
+  mads @0 :ModularAssistiveDrivingSystem;
+  params @1 :List(Param);
+  leadOne @2 :LeadData;
+  leadTwo @3 :LeadData;
+  intelligentCruiseButtonManagement @4 :IntelligentCruiseButtonManagement;
+  laneCentering @5 :LaneCentering;
+  releaseGuard @6 :ReleaseGuard;  # FM Pilot Release Guard
+  turnAssist @7 :TurnAssist;      # FM Pilot Turn Assist (Turn Boost / Lead / Hold / Nudge, Carry-Through)
+  fmLowSpeed @8 :FmLowSpeed;      # FM Pilot Low-Speed Steering Feedforward and Calmer Low-Speed Correction
+
+  # Curvatures are 1/m. "toward" values are how much the request moved toward the turn (>= 0); others are signed like
+  # desiredCurvature: positive is to the right.
+  struct TurnAssist {
+    sign @0 :Int8;              # turn being assisted: +1 right, -1 left, 0 none
+    source @1 :Source;
+    amount @2 :Float32;         # 0..1 speed and on/off fade (full under 15 mph, gone by 20)
+    requestIn @3 :Float32;      # request coming in (model + lane centering), signed
+    requestOut @4 :Float32;     # request going out (before controlsd's curvature limits), signed
+    boost @5 :Float32;          # toward: added by Turn Boost
+    lead @6 :Float32;           # toward: added by Turn Lead
+    driverAdds @7 :Float32;     # toward: added by Hold Adds Your Steering (your curve)
+    holdPath @8 :Float32;       # toward: added by Hold Path Source
+    holdFloor @9 :Float32;      # toward: added by Turn Hold's floor
+    nudge @10 :Float32;         # toward: added by Turn Nudge
+    smoothCut @11 :Float32;     # toward: held back by Smooth Turn Start this frame
+    exitFade @12 :Float32;      # toward: added by a hold fading out (after the signal cancels, or Hold Follows the Model's Exit)
+    holdActive @13 :Bool;       # Turn Hold is holding this turn (enabled, not released)
+    holdPeak @14 :Float32;      # toward: the turn's peak request Turn Hold keeps a floor under
+    holdFloorLevel @15 :Float32;  # toward: the floor this frame
+    turned @16 :Float32;        # deg the truck has turned toward the turn since it started
+    holdTurned @17 :Float32;    # deg Turn Hold counts toward its 75 deg release
+    holdTime @18 :Float32;      # s Turn Hold counts toward its 8 s release
+    releaseReason @19 :ReleaseReason;  # why Turn Hold let go of this turn (stays set for the rest of the turn)
+    earlyCorrection @20 :Bool;  # a press against the turn is passing through without releasing the hold
+    againstTime @21 :Float32;   # s the current press against the turn has lasted
+    restarts @22 :UInt8;        # Stop Before Turning Starts Over: times this turn was started over by a stop
+    leadYield @23 :UInt8;       # Turn Lead Yields to Your Hands: 0 none, 1 paused (a press before turn-in), 2 off for this turn
+
+    enum Source {
+      none @0;
+      desire @1;   # the blinker turn (laneTurnDirection)
+      carry @2;    # Finish Turn After Signal Cancels
+    }
+
+    enum ReleaseReason {
+      none @0;
+      driverAgainst @1;  # you steered against the turn
+      maxTurned @2;      # the truck turned 75 deg
+      maxTime @3;        # 8 s
+      modelExit @4;      # Hold Follows the Model's Exit: past 45 deg the model asked under half the hold's peak
+    }
+  }
+
+  struct FmLowSpeed {
+    feedforward @0 :Float32;  # m/s^2 lateral accel added by Low-Speed Steering Feedforward, positive to the right
+    gainScale @1 :Float32;    # Calmer Low-Speed Correction: the P gain multiplier in force at this speed (1 = openpilot's)
+  }
+
+  struct LaneCentering {
+    active @0 :Bool;         # the lane lines passed every gate this frame
+    holding @1 :Bool;        # inside the deadband, so deliberately doing nothing
+    correction @2 :Float32;  # 1/m, signed, the curvature actually added. positive is to the right
+    offset @3 :Float32;      # m, signed, distance off the aim point before the deadband is taken out
+    clipped @4 :Bool;        # the raw demand hit MAX_RAW_CORRECTION and was cut back
+    singleLine @5 :Bool;     # One-Line Mode is in charge: only one line is trusted and the car is kept clear of it
+    lineSide @6 :Int8;       # which side of the car that line is on, signed like correction: +1 right, -1 left, 0 when not in One-Line Mode
+  }
+
+  struct ReleaseGuard {
+    active @0 :Bool;     # the torque controller's P term was limited this frame
+    amount @1 :Float32;  # 1 while you press into the turn under 15 mph, fading with speed and after you let go; 0 = off
+    cut @2 :Float32;     # m/s^2 lateral accel removed from the P term, signed like curvature: positive is to the right
+    limit @3 :Float32;   # m/s^2 the P term may still push against you (Most Torque Against You, in controller units)
+  }
+
+  struct Param {
+    key @0 :Text;
+    type @2 :ParamType;
+    value @3 :Data;
+
+    valueDEPRECATED @1 :Text; # The data type change may cause issues with backwards compatibility.
+  }
+
+  enum ParamType {
+    string @0;
+    bool @1;
+    int @2;
+    float @3;
+    time @4;
+    json @5;
+    bytes @6;
+  }
+}
+
+struct BackupManagerSP @0xf98d843bfd7004a3 {
+  backupStatus @0 :Status;
+  restoreStatus @1 :Status;
+  backupProgress @2 :Float32;
+  restoreProgress @3 :Float32;
+  lastError @4 :Text;
+  currentBackup @5 :BackupInfo;
+  backupHistory @6 :List(BackupInfo);
+
+  enum Status {
+    idle @0;
+    inProgress @1;
+    completed @2;
+    failed @3;
+  }
+
+  struct Version {
+    major @0 :UInt16;
+    minor @1 :UInt16;
+    patch @2 :UInt16;
+    build @3 :UInt16;
+    branch @4 :Text;
+  }
+
+  struct MetadataEntry {
+    key @0 :Text;
+    value @1 :Text;
+    tags @2 :List(Text);
+  }
+
+  struct BackupInfo {
+    deviceId @0 :Text;
+    version @1 :UInt32;
+    config @2 :Text;
+    isEncrypted @3 :Bool;
+    createdAt @4 :Text;  # ISO timestamp
+    updatedAt @5 :Text;  # ISO timestamp
+    sunnypilotVersion @6 :Version;
+    backupMetadata @7 :List(MetadataEntry);
+  }
+}
+
+struct CarStateSP @0xb86e6369214c01c8 {
+  speedLimit @0 :Float32;
+  # FM Pilot torque readout (Rivian; 0/false elsewhere). Steering torque in CAN units, from the car controller's last frame
+  fmEpasToiActive @1 :Bool;   # EPAS_SystemStatus.H_CAN_EPSS_ToiActive: the EPAS is taking our torque overlay
+  fmSteerCap @2 :Int16;       # most torque that may be sent right now: speed curve, incl. the 95% cap past 90 degrees
+  fmMaxTorque @3 :Int16;      # low-speed limit in force this drive: the Max Torque level, or 385 without the higher panda limit
+}
+
+struct LiveMapDataSP @0xf416ec09499d9d19 {
+  speedLimitValid @0 :Bool;
+  speedLimit @1 :Float32;
+  speedLimitAheadValid @2 :Bool;
+  speedLimitAhead @3 :Float32;
+  speedLimitAheadDistance @4 :Float32;
+  roadName @5 :Text;
+}
+
+struct ModelDataV2SP @0xa1680744031fdb2d {
+  laneTurnDirection @0 :TurnDirection;
+  leftLaneChangeEdgeBlock @1 :Bool;
+  rightLaneChangeEdgeBlock @2 :Bool;
+  # FM Pilot: Blendful (sunnypilot #2073), same field IDs as sunnypilot
+  blendfulCurvature @3 :Float32;
+  blendfulTrust @4 :Float32;
+  modelCurvature @5 :Float32;
+  blendfulGoingAround @6 :Bool;
+  blendfulLeftProb @7 :Float32;
+  blendfulRightProb @8 :Float32;
+  blendfulLaneWidth @9 :Float32;
+  # FM Pilot: Map Turn Desire (the map found a street on the blinker's side)
+  fmNavTurnArmed @10 :Bool;
+  fmNavTurnActive @11 :Bool;
+  # FM Pilot: Queue Guard (the turn is waiting behind a car; laneTurnDirection is none meanwhile)
+  fmQueueGuard @12 :Bool;
+  # FM Pilot: Settle After Turn: curvature it added (1/m, positive right) and the lane center minus the plan 6 m ahead (m)
+  fmTurnSettle @13 :Float32;
+  fmTurnSettleOffset @14 :Float32;
+  # FM Pilot: Settle After Turn > Early Right Push (FM_TurnSettleEarlyPush): how far right of where the window started
+  # the truck got (m, the most reached, from its own motion), what stopped or holds the push, the phase, and the curb
+  # push-back (1/m, negative = left). All 0 / none / idle with the option off.
+  fmTurnSettlePush @15 :Float32;
+  fmTurnSettleLimit @16 :FmSettleLimit;
+  fmTurnSettlePhase @17 :FmSettlePhase;
+  fmTurnSettleGuard @18 :Float32;
+
+  enum FmSettleLimit {
+    none @0;
+    cap @1;  # the push reached its distance (0.4 m)
+    center @2;  # a 30%+ line showed the truck centered or right of center
+    curb @3;  # a sure curb: 1.4 m from it, or the body within Lane Guard's margin (then it steers back left)
+    goingAround @4;  # the model's plan heads left (going around something): held
+    hands @5;  # you steered
+    blendful @6;  # Blendful took over (trust 0.5)
+    timeout @7;  # 6 s
+    speed @8;  # over 30 mph
+    other @9;  # lane change, openpilot not steering
+  }
+
+  enum FmSettlePhase {
+    idle @0;
+    push @1;  # no lane center seen: the blind push right
+    centering @2;  # a lane center is seen: Settle's centering
+    handedOff @3;  # Blendful took over; fading out
+  }
+
+  enum TurnDirection {
+    none @0;
+    turnLeft @1;
+    turnRight @2;
+  }
+}
+
+# FM Pilot Nav Assist: where the truck is on the stored road map and the next road leaving its road to each side
+# (openpilot/sunnypilot/fm_nav). Streets and service roads (parking and access roads) are reported apart.
+struct FmNavTurn @0xcb9fd56c7057593a {
+  status @0 :Status;
+  heading @1 :Float32;  # deg clockwise from north
+  gpsAccuracy @2 :Float32;  # m, as the receiver reports it
+  roadName @3 :Text;  # the road the truck is on
+  roadKind @4 :Text;
+  onService @5 :Bool;
+  crossTrack @6 :Float32;  # m from that road's centreline
+  left @7 :Pick;
+  right @8 :Pick;
+  leftService @9 :Pick;
+  rightService @10 :Pick;
+  tiles @11 :UInt8;
+  computeMs @12 :Float32;
+
+  struct Pick {
+    valid @0 :Bool;
+    distance @1 :Float32;  # m to the junction
+    angle @2 :Float32;  # deg, + right, the side road against the truck's heading
+    name @3 :Text;
+    kind @4 :Text;
+    count @5 :UInt8;  # roads found to this side within range
+    nextGap @6 :Float32;  # m from this junction to the next one (0 = none)
+  }
+
+  enum Status {
+    noFix @0;
+    ok @1;
+    noMap @2;
+    noHeading @3;
+    offRoad @4;
+    tooFast @5;
+  }
+}
+
+# FM Pilot Jetlink Status: what the Jetlink big-model link is doing and which model is driving, read from Jetlink's own
+# records on the comma (/dev/shm/jetlink/*.json) and the comma's params (openpilot/sunnypilot/fm_jetlink). initData's
+# copy of the params is taken once when the drive starts, so it can't show a model picked later or a swap mid-drive; this
+# is the live value, published at 1 Hz and at once on a change. Text fields are "" when unknown.
+struct FmJetlinkStatus @0xc2243c65e0340384 {
+  recordAge @0 :Float32;       # s since modeld's runtime record was written; -1 = no record (no modeld with the link since boot)
+  bigDriving @1 :Bool;         # the big model drives modeld's frames now (Jetlink's own test: record alive, answered in the last 0.25 s)
+  state @2 :Text;              # the joining model's state in modeld (Jetlink's own words: ready, joining, running, retrying, ...)
+  drivingName @3 :Text;        # the model the Mac is running, while the big model drives (Jetlink's model index name)
+  drivingSha256 @4 :Text;      # ... and its weights' hash
+  drivingCheckpoint @5 :Text;
+  serverPickName @6 :Text;     # the pick the Mac last answered the comma's hello with (a pick made in the Jetlink app)
+  serverPickSha256 @7 :Text;
+  slotName @8 :Text;           # the comma's own big-model slot (ModelManager_ActiveBundleChestnut), what its selector shows
+  builtName @9 :Text;          # the last engine the Mac built (JetlinkSpec): it drives until a newer pick is built
+  builtSha256 @10 :Text;
+  builtReady @11 :Bool;
+  progressStage @12 :Text;     # JetlinkProgress: provisioning or joining stage (ready, connect, building, ...)
+  progressMsg @13 :Text;
+  linkKind @14 :Text;          # usb or cable (the iPhone), "" with no owner record
+  linkSpeed @15 :Text;         # the USB speed the owner reports
+  hostPresent @16 :Bool;       # a host is on the gadget now
+  device @17 :Text;            # what the host calls itself in its hello (ane-Apple_M2_Pro)
+  backend @18 :Text;
+  handovers @19 :UInt16;       # drive counts, from modeld's record
+  drops @20 :UInt16;
+  lags @21 :UInt16;
+  held @22 :Bool;              # the last frame was a held (repeated) output
+}
+
+# FM Pilot Radar Lead Status: what radard did with leadOne each frame (openpilot/sunnypilot/selfdrive/controls/lib/fm_radar.py),
+# for the log and the comma 4's radar badge. Logging only: nothing reads it back into control.
+struct FmRadarLead @0x9ccdc8676701b412 {
+  source @0 :Source;          # where leadOne came from this frame
+  leadProb @1 :Float32;       # the camera's (filtered) lead probability leadOne was judged on; 0 without a lead
+  earlyLead @2 :Bool;         # a lead the camera is only Lead Detection Sensitivity..50% sure of (not the low-speed radar path):
+                              # openpilot's fixed 50% wouldn't count it yet
+  ghostDropped @3 :Bool;      # Ignore Stationary Radar Ghosts dropped a standing-still radar point this frame; leadOne is
+                              # the camera's estimate instead
+  ghostDRel @4 :Float32;      # the dropped point (radar frame: m ahead, m left-positive, m/s); 0 when nothing was dropped
+  ghostYRel @5 :Float32;
+  ghostVLead @6 :Float32;
+  ghostTrackId @7 :Int32;     # -1 when nothing was dropped
+  ghostDrops @8 :UInt32;      # times the guard started dropping a point since radard started
+  guardEnabled @9 :Bool;      # FM_RadarStationaryGuard in use
+  threshold @10 :Float32;     # legacy readers see the lower of the two cutoffs
+  liveLeadProb @11 :Float32;  # the camera's (filtered) lead probability for leadOne's slot, every frame, lead or not
+                              # (radard's asymmetric filter on modelV2.leadsV3[0].prob: rises at once, falls over ~0.2 s)
+  lowSpeedLead @12 :Bool;     # leadOne is the low-speed radar path (radar point straight ahead under 4 m/s)
+  earlyRadarMatches @13 :UInt32;  # times this drive a lead got a radar match while the camera was under 50% sure
+                                  # (once per run, not per frame; not the low-speed path)
+
+  radarThreshold @14 :Float32;
+  cameraThreshold @15 :Float32;
+  smoothHandoffs @16 :Bool;
+  decisions @17 :List(Decision);  # leadOne, leadTwo
+  shadow @18 :List(Shadow);       # empty when disabled
+
+  struct Decision {
+    source @0 :Source;
+    confidence @1 :Float32;       # filtered confidence, even when absent
+    radarTrackId @2 :Int32 = -1;
+    dRel @3 :Float32;
+    vRel @4 :Float32;
+    ghostDropped @5 :Bool;
+    ghostTrackId @6 :Int32 = -1;
+    lowSpeedLead @7 :Bool;
+    admission @8 :Admission;
+    phase @9 :Phase;
+    hysteresis @10 :Bool;         # probability cleared the release cutoff only
+  }
+
+  struct Shadow {
+    radarThreshold @0 :Float32;
+    cameraThreshold @1 :Float32;
+    smoothHandoffs @2 :Bool;
+    decisions @3 :List(Decision);  # leadOne, leadTwo
+  }
+
+  enum Admission {
+    none @0;
+    radar @1;
+    camera @2;
+    lowSpeed @3;
+    hold @4;
+  }
+
+  enum Phase {
+    direct @0;
+    blend @1;
+    hold @2;
+  }
+
+  enum Source {
+    none @0;
+    radar @1;                 # paired with a radar point (incl. the low-speed radar path)
+    camera @2;                # the camera's own estimate (no sane radar match, or a ghost dropped)
+  }
+}
+
+struct CustomReserved13 @0xcd96dafb67a082d0 {
+}
+
+struct CustomReserved14 @0xb057204d7deadf3f {
+}
+
+struct CustomReserved15 @0xbd443b539493bc68 {
+}
+
+struct CustomReserved16 @0xfc6241ed8877b611 {
+}
+
+struct CustomReserved17 @0xa30662f84033036c {
+}
+
+struct CustomReserved18 @0xc86a3d38d13eb3ef {
+}
+
+struct CustomReserved19 @0xa4f1eb3323f5f582 {
+}
