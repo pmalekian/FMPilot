@@ -57,6 +57,17 @@ from openpilot.sunnypilot.modeld_v2.fm_lateral_smoothing import (PARAM_BIG_MODEL
                                                                  big_bundle_lat_smooth_seconds, big_lat_smooth_seconds,
                                                                  read_smoothing_mode, small_lat_smooth_seconds, smooth_curvature)
 
+# FM Pilot: sunnypilot #2091 (James Vecellio-Grant, Nov 4 2026, MIT), as a setting. Action-head models output a lateral
+# accel, turned into curvature by dividing by speed squared with the speed floored here; 2.5 m/s (5.6 mph) instead of
+# 1.0 asks for less curvature below 5.6 mph (64% at 2 m/s, 16% at 1 m/s) and calms crawl-speed jumps.
+ACTION_SPEED_FLOOR = 1.0
+ACTION_SPEED_FLOOR_LOW_SPEED_FIX = 2.5
+PARAM_LOW_SPEED_FLOOR = "FM_LowSpeedCurvatureFloor"
+
+
+def fm_action_speed_floor(params) -> float:
+  return ACTION_SPEED_FLOOR_LOW_SPEED_FIX if params.get_bool(PARAM_LOW_SPEED_FLOOR) else ACTION_SPEED_FLOOR
+
 
 def fm_own_model_states(model, small_model) -> list:
   """FM Pilot: modeld_v2's own ModelStates among the model the loop runs and the small model, each once. With Jetlink
@@ -69,13 +80,14 @@ def fm_own_model_states(model, small_model) -> list:
   return states
 
 
-def fm_apply_model_settings(params, model, small_model) -> None:
-  """FM Pilot: Model Lateral Smoothing on modeld_v2's own ModelStates only. A Jetlink big model keeps comma's own
-  LAT_SMOOTH_SECONDS (it has no bundle value, and 0.10 s smoothing is applied post-action without shifting lat_delay),
-  and reading `model.LAT_SMOOTH_SECONDS` afterwards still follows whichever model is driving."""
+def fm_apply_model_settings(params, model, small_model, action_speed_floor: float = ACTION_SPEED_FLOOR) -> None:
+  """FM Pilot: FM_LowSpeedCurvatureFloor and Model Lateral Smoothing on modeld_v2's own ModelStates only. A Jetlink
+  big model keeps comma's own LAT_SMOOTH_SECONDS (it has no bundle value, and 0.10 s smoothing is applied post-action
+  without shifting lat_delay), and reading `model.LAT_SMOOTH_SECONDS` afterwards still follows whichever model is driving."""
   small_mode = read_smoothing_mode(params, PARAM_SMALL_MODEL_SMOOTHING)
   big_mode = read_smoothing_mode(params, PARAM_BIG_MODEL_SMOOTHING)
   for m in fm_own_model_states(model, small_model):
+    m.action_speed_floor = action_speed_floor
     if getattr(m, 'chestnut', False):
       m.LAT_SMOOTH_SECONDS = big_bundle_lat_smooth_seconds(big_mode, m.BUNDLE_LAT_SMOOTH_SECONDS)
     else:
@@ -135,6 +147,7 @@ class ModelState(ModelStateBase):
     self.LONG_SMOOTH_SECONDS = float(overrides.get('long', ".0"))
     self.MIN_LAT_CONTROL_SPEED = 0.3
     self.PLANPLUS_CONTROL: float = 1.0
+    self.action_speed_floor = ACTION_SPEED_FLOOR
     self.chestnut = chestnut
 
     pkl_path = _find_driving_pkl(model_bundle)
@@ -273,7 +286,8 @@ class ModelState(ModelStateBase):
       desired_curvature = get_curvature_from_output(model_output, curvature_plan, v_ego, lat_action_t, self.mlsim)
     else:
       desired_accel = model_output['action'][0, 1]
-      desired_curvature = model_output['action'][0, 0] / (max(1.0, v_ego))**2
+      speed_floor = getattr(self, 'action_speed_floor', ACTION_SPEED_FLOOR)
+      desired_curvature = model_output['action'][0, 0] / (max(speed_floor, v_ego))**2
     if blendful is not None:
       desired_curvature += blendful(desired_curvature)
 
@@ -419,8 +433,9 @@ def main(demo=False):
   RELC = RoadEdgeLaneChangeController()
   blendful = Blendful()
   blendful_enabled = False
+  action_speed_floor = fm_action_speed_floor(params)  # FM Pilot: FM_LowSpeedCurvatureFloor (sunnypilot #2091)
   big_model_smoothing = read_smoothing_mode(params, PARAM_BIG_MODEL_SMOOTHING)  # FM Pilot: Model Lateral Smoothing (Big Models)
-  fm_apply_model_settings(params, model, small_model)
+  fm_apply_model_settings(params, model, small_model, action_speed_floor)
 
   while True:
     # Keep receiving frames until we are at least 1 frame ahead of previous extra frame
@@ -465,10 +480,11 @@ def main(demo=False):
       model.PLANPLUS_CONTROL = params.get("PlanplusControl", return_default=True)
       camera_offset_helper.set_offset(params.get("CameraOffset", return_default=True))
       blendful_enabled = get_lane_keep_mode(params) == MODE_BLENDFUL  # FM Pilot: the Lane Keeping selector picks Blendful
+      action_speed_floor = fm_action_speed_floor(params)
       big_model_smoothing = read_smoothing_mode(params, PARAM_BIG_MODEL_SMOOTHING)
       # on the ModelStates themselves, never on `model`: a Jetlink joining model keeps a plain write to itself (the
       # small model then never saw the setting) and has no bundle value once the big model drives (AttributeError)
-      fm_apply_model_settings(params, model, small_model)
+      fm_apply_model_settings(params, model, small_model, action_speed_floor)
     lat_delay = model.lat_delay + model.LAT_SMOOTH_SECONDS
     if sm.updated["extrinsicsCalibration"] and sm.seen['narrowRoadCameraState'] and sm.seen['deviceState']:
       device_from_calib_euler = np.array(sm["extrinsicsCalibration"].rpyCalib, dtype=np.float32)

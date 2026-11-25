@@ -20,7 +20,8 @@ from openpilot.sunnypilot.modeld_v2.fm_lateral_smoothing import (
   PARAM_BIG_MODEL_SMOOTHING,
   PARAM_SMALL_MODEL_SMOOTHING,
 )
-from openpilot.sunnypilot.modeld_v2.modeld import ModelState, fm_apply_model_settings, fm_own_model_states
+from openpilot.sunnypilot.modeld_v2.modeld import (ACTION_SPEED_FLOOR, ACTION_SPEED_FLOOR_LOW_SPEED_FIX, ModelState,
+                                                   fm_apply_model_settings, fm_own_model_states)
 
 
 class FakeParams:
@@ -36,6 +37,7 @@ def model_state(bundle_seconds: float, chestnut: bool = False) -> ModelState:
   m = ModelState.__new__(ModelState)
   m.BUNDLE_LAT_SMOOTH_SECONDS = bundle_seconds
   m.LAT_SMOOTH_SECONDS = bundle_seconds
+  m.action_speed_floor = ACTION_SPEED_FLOOR
   m.chestnut = chestnut
   m.lat_delay = 0.25
   m.PLANPLUS_CONTROL = 1.0
@@ -66,15 +68,17 @@ class TestFmModelSettingsWithJetlink(OpenpilotTestCase):
     return big
 
   def test_the_setting_reaches_the_small_model_behind_the_joining_model(self):
-    fm_apply_model_settings(FakeParams(small_mode=MODE_0_10), self.joining, self.small)
+    fm_apply_model_settings(FakeParams(small_mode=MODE_0_10), self.joining, self.small, ACTION_SPEED_FLOOR_LOW_SPEED_FIX)
     self.assertEqual(self.small.LAT_SMOOTH_SECONDS, 0.1)  # the low-pass in get_action_from_model reads this one
+    self.assertEqual(self.small.action_speed_floor, ACTION_SPEED_FLOOR_LOW_SPEED_FIX)
     self.assertEqual(self.joining.LAT_SMOOTH_SECONDS, 0.1)  # what the loop adds to the lateral delay: the same value
     # nothing was left on the wrapper to shadow the model that drives
     self.assertNotIn("LAT_SMOOTH_SECONDS", vars(self.joining))
+    self.assertNotIn("action_speed_floor", vars(self.joining))
 
   def test_model_default_restores_the_bundle_value(self):
-    fm_apply_model_settings(FakeParams(small_mode=MODE_0_10), self.joining, self.small)
-    fm_apply_model_settings(FakeParams(small_mode=MODE_DEFAULT), self.joining, self.small)
+    fm_apply_model_settings(FakeParams(small_mode=MODE_0_10), self.joining, self.small, ACTION_SPEED_FLOOR)
+    fm_apply_model_settings(FakeParams(small_mode=MODE_DEFAULT), self.joining, self.small, ACTION_SPEED_FLOOR)
     self.assertEqual(self.small.LAT_SMOOTH_SECONDS, 0.0)
     self.assertEqual(self.joining.LAT_SMOOTH_SECONDS, 0.0)
 
@@ -83,10 +87,11 @@ class TestFmModelSettingsWithJetlink(OpenpilotTestCase):
     big.LAT_SMOOTH_SECONDS = 0.05  # not a value the setting can produce, to tell the two apart
     with self.assertRaises(AttributeError):
       _ = self.joining.BUNDLE_LAT_SMOOTH_SECONDS
-    fm_apply_model_settings(FakeParams(small_mode=MODE_0_10, big_mode=MODE_0_10), self.joining, self.small)
+    fm_apply_model_settings(FakeParams(small_mode=MODE_0_10, big_mode=MODE_0_10), self.joining, self.small, ACTION_SPEED_FLOOR)
     self.assertEqual(self.joining.LAT_SMOOTH_SECONDS, 0.05)  # the loop's read follows the big model
     self.assertEqual(big.LAT_SMOOTH_SECONDS, 0.05)
     self.assertEqual(self.small.LAT_SMOOTH_SECONDS, 0.1)  # ready for the hand-back
+    self.assertFalse(hasattr(big, "action_speed_floor"))
 
   def test_own_model_states(self):
     big = model_state(0.1, chestnut=True)
@@ -98,14 +103,15 @@ class TestFmModelSettingsWithJetlink(OpenpilotTestCase):
 
   def test_a_chestnut_pair_applies_small_and_big_settings_independently(self):
     big = model_state(0.1, chestnut=True)
-    fm_apply_model_settings(FakeParams(MODE_DEFAULT, MODE_DEFAULT), big, self.small)
+    fm_apply_model_settings(FakeParams(MODE_DEFAULT, MODE_DEFAULT), big, self.small, ACTION_SPEED_FLOOR)
     self.assertEqual((big.LAT_SMOOTH_SECONDS, self.small.LAT_SMOOTH_SECONDS), (0.1, 0.0))
     # small = 0.10 s affects only small; big = 0.00 s clears big's bundle override
-    fm_apply_model_settings(FakeParams(MODE_0_10, MODE_0_00), big, self.small)
+    fm_apply_model_settings(FakeParams(MODE_0_10, MODE_0_00), big, self.small, ACTION_SPEED_FLOOR_LOW_SPEED_FIX)
     self.assertEqual((big.LAT_SMOOTH_SECONDS, self.small.LAT_SMOOTH_SECONDS), (0.0, 0.1))
+    self.assertEqual((big.action_speed_floor, self.small.action_speed_floor), (2.5, 2.5))
     # big = 0.10 s never shifts lat_delay (keeps bundle 0.0 if bundle was 0.0; post-action smooth_curvature adds 0.1 s)
     big_zero = model_state(0.0, chestnut=True)
-    fm_apply_model_settings(FakeParams(MODE_0_00, MODE_0_10), big_zero, self.small)
+    fm_apply_model_settings(FakeParams(MODE_0_00, MODE_0_10), big_zero, self.small, ACTION_SPEED_FLOOR)
     self.assertEqual((big_zero.LAT_SMOOTH_SECONDS, self.small.LAT_SMOOTH_SECONDS), (0.0, 0.0))
 
 
