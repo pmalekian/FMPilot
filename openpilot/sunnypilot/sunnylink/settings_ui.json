@@ -798,6 +798,36 @@
               ]
             }
           ]
+        },
+        {
+          "id": "fm_torque",
+          "title": "FM Custom Torque Settings",
+          "description": "FM Pilot - how much steering torque openpilot may use on the Rivian and how it backs off when you steer",
+          "items": []
+        },
+        {
+          "id": "fm_feedforward",
+          "title": "Feedforward Settings",
+          "description": "FM Pilot - extra steering torque for the wheel angle a slow turn needs, per side",
+          "items": []
+        },
+        {
+          "id": "fm_smoothing",
+          "title": "FM Smoothing Settings",
+          "description": "FM Pilot - calmer steering at low speed and when turns start",
+          "items": []
+        },
+        {
+          "id": "fm_model_smoothing",
+          "title": "Model Lateral Smoothing",
+          "description": "FM Pilot - how much the model's steering request is smoothed, for small and big models",
+          "items": []
+        },
+        {
+          "id": "fm_turns",
+          "title": "Turns",
+          "description": "FM Pilot - help through slow blinker turns, before and after them",
+          "items": []
         }
       ]
     },
