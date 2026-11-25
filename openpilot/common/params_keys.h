@@ -342,6 +342,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"FM_LateralSmoothingSeconds", {PERSISTENT | BACKUP, FLOAT}},
     {"FM_BigModelSmoothing", {PERSISTENT | BACKUP, BOOL}},
     {"FM_LowSpeedCurvatureFloor", {PERSISTENT | BACKUP, BOOL, "0"}},  // Calmer Crawl-Speed Steering (sunnypilot #2091 2.5 m/s floor)
+    {"FM_StraightPullAwayFloor", {PERSISTENT | BACKUP, BOOL, "0"}},   // Calmer Straight Pull-Away (2.5 m/s floor only on straight starts)
 
     // Rivian
     {"RivianResumeEnabled", {PERSISTENT | BACKUP, BOOL, "0"}},

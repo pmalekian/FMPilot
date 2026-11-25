@@ -56,6 +56,7 @@ from openpilot.sunnypilot import jetlink_adapter
 from openpilot.sunnypilot.modeld_v2.fm_lateral_smoothing import (PARAM_BIG_MODEL_SMOOTHING, PARAM_SMALL_MODEL_SMOOTHING,
                                                                  big_bundle_lat_smooth_seconds, big_lat_smooth_seconds,
                                                                  read_smoothing_mode, small_lat_smooth_seconds, smooth_curvature)
+from openpilot.sunnypilot.modeld_v2.fm_pull_away import StraightPullAway
 
 # FM Pilot: sunnypilot #2091 (James Vecellio-Grant, Nov 4 2026, MIT), as a setting. Action-head models output a lateral
 # accel, turned into curvature by dividing by speed squared with the speed floored here; 2.5 m/s (5.6 mph) instead of
@@ -63,10 +64,18 @@ from openpilot.sunnypilot.modeld_v2.fm_lateral_smoothing import (PARAM_BIG_MODEL
 ACTION_SPEED_FLOOR = 1.0
 ACTION_SPEED_FLOOR_LOW_SPEED_FIX = 2.5
 PARAM_LOW_SPEED_FLOOR = "FM_LowSpeedCurvatureFloor"
+PARAM_STRAIGHT_PULL_AWAY = "FM_StraightPullAwayFloor"  # the same floor, only while nothing says the driver is turning
 
 
 def fm_action_speed_floor(params) -> float:
   return ACTION_SPEED_FLOOR_LOW_SPEED_FIX if params.get_bool(PARAM_LOW_SPEED_FLOOR) else ACTION_SPEED_FLOOR
+
+
+def fm_set_action_floor(model, small_model, action_speed_floor: float) -> None:
+  """FM Pilot: the speed floor for this frame, on modeld_v2's own ModelStates only (per frame, so it is cheap: no params)."""
+  for m in fm_own_model_states(model, small_model):
+    if m.action_speed_floor != action_speed_floor:
+      m.action_speed_floor = action_speed_floor
 
 
 def fm_own_model_states(model, small_model) -> list:
@@ -434,6 +443,8 @@ def main(demo=False):
   blendful = Blendful()
   blendful_enabled = False
   action_speed_floor = fm_action_speed_floor(params)  # FM Pilot: FM_LowSpeedCurvatureFloor (sunnypilot #2091)
+  pull_away = StraightPullAway()  # FM Pilot: FM_StraightPullAwayFloor
+  straight_pull_away = params.get_bool(PARAM_STRAIGHT_PULL_AWAY)
   big_model_smoothing = read_smoothing_mode(params, PARAM_BIG_MODEL_SMOOTHING)  # FM Pilot: Model Lateral Smoothing (Big Models)
   fm_apply_model_settings(params, model, small_model, action_speed_floor)
 
@@ -481,10 +492,16 @@ def main(demo=False):
       camera_offset_helper.set_offset(params.get("CameraOffset", return_default=True))
       blendful_enabled = get_lane_keep_mode(params) == MODE_BLENDFUL  # FM Pilot: the Lane Keeping selector picks Blendful
       action_speed_floor = fm_action_speed_floor(params)
+      straight_pull_away = params.get_bool(PARAM_STRAIGHT_PULL_AWAY)
       big_model_smoothing = read_smoothing_mode(params, PARAM_BIG_MODEL_SMOOTHING)
       # on the ModelStates themselves, never on `model`: a Jetlink joining model keeps a plain write to itself (the
       # small model then never saw the setting) and has no bundle value once the big model drives (AttributeError)
       fm_apply_model_settings(params, model, small_model, action_speed_floor)
+    # the floor for this frame: the usual one, or 2.5 m/s while pulling away straight (the desire is last frame's)
+    cs = sm["carState"]
+    fm_set_action_floor(model, small_model, pull_away.update(
+      straight_pull_away, action_speed_floor, v_ego, bool(cs.leftBlinker or cs.rightBlinker),
+      desire != log.Desire.none, cs.steeringAngleDeg, bool(cs.steeringPressed)))
     lat_delay = model.lat_delay + model.LAT_SMOOTH_SECONDS
     if sm.updated["extrinsicsCalibration"] and sm.seen['narrowRoadCameraState'] and sm.seen['deviceState']:
       device_from_calib_euler = np.array(sm["extrinsicsCalibration"].rpyCalib, dtype=np.float32)
