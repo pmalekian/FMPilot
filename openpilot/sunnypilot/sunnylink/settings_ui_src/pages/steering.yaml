@@ -436,3 +436,19 @@ sections:
       key: AutoLaneChangeTimer
       op: '>'
       value: 0
+# FM Pilot sections (fm-dev-sync), after sunnypilot's own, in the order of the build plan. Each feature PR fills its own.
+- id: fm_torque
+  title: FM Custom Torque Settings
+  description: FM Pilot - how much steering torque openpilot may use on the Rivian and how it backs off when you steer
+- id: fm_feedforward
+  title: Feedforward Settings
+  description: FM Pilot - extra steering torque for the wheel angle a slow turn needs, per side
+- id: fm_smoothing
+  title: FM Smoothing Settings
+  description: FM Pilot - calmer steering at low speed and when turns start
+- id: fm_model_smoothing
+  title: Model Lateral Smoothing
+  description: FM Pilot - how much the model's steering request is smoothed, for small and big models
+- id: fm_turns
+  title: Turns
+  description: FM Pilot - help through slow blinker turns, before and after them

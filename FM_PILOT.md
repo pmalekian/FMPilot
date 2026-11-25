@@ -28,6 +28,7 @@ Added PR by PR; each row names its settings (Sunnylink page), code and default.
 
 | Feature | Settings | Code | Default |
 |---|---|---|---|
+| Quiet road-edge block: the road-edge lane change block is a small gray message with no sound instead of the orange alert and beep. Folded (was `FM_QuietRoadEdgeBlock`) | none (always on) | `selfdrived.py`, `sunnypilot/selfdrive/selfdrived/events.py` (`fmLaneChangeRoadEdgeQuiet`) | always |
 | FM log tools: fmlog, timeline, events, turns (with the path-vs-request turn-in timing from `fm-dev-max` `d189ccc`), lead, settle, sway, dm, jetlink, maclog, and their tests. They read `fm-dev-sync` drives with the repo's schema and drives from `fm-dev-nav-settle` and earlier with a copy of that branch's schema, picked per file (`FM_SCHEMA=old|new` forces one) | none | `tools/fm/` (`fmlog.py`, `schema/fm-dev-nav-settle/`) | n/a |
 
 ## Log messages
@@ -49,7 +50,24 @@ FM's one event, `fmLaneChangeRoadEdgeQuiet`, is `OnroadEventSP` @38, after AP's 
 
 ## Settings migration
 
-Lands with the settings framework (PR 3); filled in there.
+On the first boot of `fm-dev-sync` (manager start, before unset params get their defaults),
+`sunnypilot/system/fm_migration.py` copies the values of the old FM settings into the new or reshaped ones, so the
+truck drives as before. The old keys stay declared and are never written, so switching back to `fm-dev-nav-settle`
+restores the old setup (switch from the device's Software settings; uninstalling wipes settings). A migration only
+writes a new key that is still unset, runs once (`FM_SyncMigration` lists the ones that ran), and is retried on the next
+boot if it fails. A fresh install has none of the old keys and starts at stock/off. Settings whose meaning didn't
+change keep their keys.
+
+| Setting | From the old settings |
+|---|---|
+| (each mapping lands with its feature's PR) | |
+
+## Settings pages
+
+Sunnylink Steering page: sunnypilot's own sections stay where they are; FM's follow in this order: FM Custom Torque
+Settings, Feedforward Settings, FM Smoothing Settings, Model Lateral Smoothing, Turns. Lane Keeping is in Steering >
+Lane Centering. sunnypilot's Blendful toggle is hidden from the Models page (Sunnylink and the device): Blendful is one
+choice of the Lane Keeping selector.
 
 ## Credits
 

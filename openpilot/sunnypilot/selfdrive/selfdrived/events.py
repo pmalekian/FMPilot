@@ -253,6 +253,16 @@ EVENTS_SP: dict[int, dict[str, Alert | AlertCallbackType]] = {
       Priority.LOW, VisualAlert.none, AudibleAlert.prompt, 0.1),
   },
 
+  # FM Pilot: the road-edge lane change block as a small gray message, no sound (selfdrived raises this instead of
+  # laneChangeRoadEdge)
+  EventNameSP.fmLaneChangeRoadEdgeQuiet: {
+    ET.WARNING: Alert(
+      "Lane Change Unavailable: Road Edge",
+      "",
+      AlertStatus.normal, AlertSize.small,
+      Priority.LOW, VisualAlert.none, AudibleAlert.none, 0.1),
+  },
+
   EventNameSP.bigModelReady: {
     ET.PERMANENT: Alert(
       "Big Model Ready",

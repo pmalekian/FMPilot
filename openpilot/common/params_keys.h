@@ -310,6 +310,10 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"SpeedLimitPolicy", {PERSISTENT | BACKUP, INT, "3"}},
     {"SpeedLimitValueOffset", {PERSISTENT | BACKUP, INT, "0"}},
 
+    // FM Pilot (fm-dev-sync). Keys of old FM settings that fm-dev-sync reshaped stay declared, never written, so
+    // switching back to fm-dev-nav-settle restores the old setup; each lands with the PR that migrates it.
+    {"FM_SyncMigration", {PERSISTENT, STRING}},  // the one-time migrations that ran (sunnypilot/system/fm_migration.py)
+
     // Rivian
     {"RivianResumeEnabled", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"RivianEnhancedMads", {PERSISTENT | BACKUP, BOOL, "0"}},

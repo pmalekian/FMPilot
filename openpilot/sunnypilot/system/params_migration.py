@@ -163,3 +163,10 @@ def run_migration(_params):
 
   # seed the chestnut model slot from the pre-split single slot
   _migrate_model_bundle_slots(_params)
+
+  # FM Pilot: copy the old FM settings into fm-dev-sync's new or reshaped ones, once per migration
+  try:
+    from openpilot.sunnypilot.system import fm_migration
+    fm_migration.run(_params)
+  except Exception as e:
+    cloudlog.exception(f"Error running the FM Pilot migration: {e}")

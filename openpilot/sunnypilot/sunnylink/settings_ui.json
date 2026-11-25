@@ -798,6 +798,36 @@
               ]
             }
           ]
+        },
+        {
+          "id": "fm_torque",
+          "title": "FM Custom Torque Settings",
+          "description": "FM Pilot - how much steering torque openpilot may use on the Rivian and how it backs off when you steer",
+          "items": []
+        },
+        {
+          "id": "fm_feedforward",
+          "title": "Feedforward Settings",
+          "description": "FM Pilot - extra steering torque for the wheel angle a slow turn needs, per side",
+          "items": []
+        },
+        {
+          "id": "fm_smoothing",
+          "title": "FM Smoothing Settings",
+          "description": "FM Pilot - calmer steering at low speed and when turns start",
+          "items": []
+        },
+        {
+          "id": "fm_model_smoothing",
+          "title": "Model Lateral Smoothing",
+          "description": "FM Pilot - how much the model's steering request is smoothed, for small and big models",
+          "items": []
+        },
+        {
+          "id": "fm_turns",
+          "title": "Turns",
+          "description": "FM Pilot - help through slow blinker turns, before and after them",
+          "items": []
         }
       ]
     },
@@ -2476,21 +2506,8 @@
         {
           "id": "model_behavior",
           "title": "Model Behavior",
-          "description": "Lane desire, Blendful lane centering, and lead-vehicle awareness tuning",
+          "description": "Lane desire and lead-vehicle awareness tuning (FM Pilot - Blendful is picked under Steering > Lane Centering)",
           "items": [
-            {
-              "key": "Blendful",
-              "widget": "toggle",
-              "title": "Blendful (Alpha)",
-              "description": "Adds a gentle nudge toward lane center on top of the model's own steering, stronger when lane lines are clear. Yields around obstacles. Not available with the Default model.",
-              "enablement": [
-                {
-                  "type": "capability",
-                  "field": "custom_model_active",
-                  "equals": true
-                }
-              ]
-            },
             {
               "key": "LaneTurnDesire",
               "widget": "toggle",
