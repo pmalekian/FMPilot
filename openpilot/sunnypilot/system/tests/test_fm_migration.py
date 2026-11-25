@@ -112,8 +112,8 @@ class TestMaxTorque(OpenpilotTestCase):
   def test_old_keys_untouched_and_a_chosen_value_kept(self):
     params = Params()
     params.put("FM_CustomMaxTorque", 430, block=True)
-    for k, v in dict(FM_PandaHighTorque=True, FM_MaxTorque=580).items():
+    for k, v in {"FM_PandaHighTorque": True, "FM_MaxTorque": 580}.items():
       params.put(k, v, block=True)
-    run(params, [m for m in fm_migration.MIGRATIONS if m[0] == "max_torque"])
+    assert run(params, [m for m in fm_migration.MIGRATIONS if m[0] == "max_torque"]) == ["max_torque"]  # it ran
     assert params.get("FM_CustomMaxTorque") == 430
     assert params.get("FM_PandaHighTorque") is True and params.get("FM_MaxTorque") == 580

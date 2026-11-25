@@ -85,4 +85,6 @@ def _max_torque(params):
   old = params.get("FM_MaxTorque")
   value = max_torque_grid(OLD_MAX_TORQUE_DEFAULT if old is None else old) if panda else MAX_TORQUE_MIN
   written = put_if_unset(params, "FM_CustomMaxTorque", value)
-  return f"FM_CustomMaxTorque {value} (panda {panda}, FM_MaxTorque {old})" + ("" if written else ", already set: kept")
+  folded = {k: params.get(k) for k in ("FM_TorqueFastRamp", "FM_TorqueFullCapHighAngle", "FM_TorqueMode")}
+  return (f"FM_CustomMaxTorque {value} (panda {panda}, FM_MaxTorque {old}; folded, now on above 385: {folded})" +
+          ("" if written else ", already set: kept"))
