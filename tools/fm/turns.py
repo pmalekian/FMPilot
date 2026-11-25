@@ -23,6 +23,11 @@ driven curve, searched back up to ONSET_LOOKBACK_S before the turn. Times are re
                followed slowly (torque ramp, controller)
   on time      in between
 These thresholds are working guesses, to sort turns, not limits of anything.
+Path timing (fm-dev-max d189ccc): the same line also says when the model's planned path started curving, read the way
+Turn Lead reads it (a circle from the truck through the path point LEAD_S ahead, LEAD_MIN_M to LEAD_MAX_M), and when the
+model's request did, each at ONSET_FRAC of its own peak (so a driver-tightened turn doesn't make the request look late).
+"request lags path" is the late turn-in Turn Lead covers; the drive's median over openpilot-steered turns is printed at
+the end.
 Release line (only for turns where you pressed the wheel into the turn while openpilot steered): how long you pressed
 into it, the most and average torque openpilot sent against you meanwhile, and when you let go: what was still being
 sent out of the turn, how far the wheel then went past center (within RELEASE_LOOK_S) and how long openpilot's torque
@@ -60,6 +65,8 @@ RAMP_GAP = 20      # counts: asked and sent further apart than this means the ra
 STEER_MAX_LOOKUP = ([9, 13, 25, 27], [385, 350, 295, 275])
 ONSET_FRAC = 0.3        # of the turn's tightest driven curve
 ONSET_LOOKBACK_S = 4.0  # s before the turn window to look for the start of the request
+LEAD_S, LEAD_MIN_M, LEAD_MAX_M = 1.3, 4.0, 14.0  # Turn Lead's look-ahead (fm_turn_assist.py)
+PATH_STEERED = 0.8  # share of the turn openpilot steered for its request-behind-path lag to count in the median
 MODEL_LATE_S = 0.3
 WHEEL_LATE_S = 0.8
 PRESS_CURVATURE = 0.003  # 1/m: the truck already turning that way (as Release Guard and Hold Adds Your Steering)
@@ -123,6 +130,41 @@ def onset_time(t, toward, threshold, end):
     return float("nan")
   below = np.flatnonzero(~above)
   return float(t[below[-1] + 1] if below.size else t[0])
+
+
+def path_curvature(x, y, v):
+  """Curvature (right-positive, like modelV2's y) of the circle from the truck, tangent to its heading, through the
+  planned path point LEAD_S ahead (by distance, clipped to LEAD_MIN_M..LEAD_MAX_M). nan without a usable path."""
+  x, y = np.asarray(x, float), np.asarray(y, float)
+  d = float(np.clip(LEAD_S * v, LEAD_MIN_M, LEAD_MAX_M))
+  if len(x) < 2 or x[-1] < d or np.any(np.diff(x) <= 0):
+    return float("nan")
+  py = float(np.interp(d, x, y))
+  return 2 * py / (d * d + py * py)
+
+
+def own_onset(t, sig, t_from, t_to):
+  """When sig (signed toward the turn) last rose above ONSET_FRAC of its own peak in [t_from, t_to], before that
+  peak. nan without a peak toward the turn, or if it was already above at t_from."""
+  t, sig = np.asarray(t, float), np.asarray(sig, float)
+  m = (t >= t_from) & (t <= t_to) & ~np.isnan(sig)
+  tt, ss = t[m], sig[m]
+  if not len(ss) or ss.max() <= 0:
+    return float("nan")
+  i = int(np.argmax(ss))
+  below = np.flatnonzero(ss[:i + 1] < ONSET_FRAC * ss[i])
+  return float(tt[below[-1] + 1]) if len(below) else float("nan")
+
+
+def path_series(drive, cs):
+  """[(t, planned-path curvature)] per modelV2 frame (see path_curvature), at the truck's speed then."""
+  out = []
+  for e in drive.evs:
+    if e.which() == "modelV2":
+      t, p = drive.t(e), e.modelV2.position
+      v = float(np.interp(t, cs[:, 0], cs[:, 1])) if len(cs) else 0.0
+      out.append((t, path_curvature(list(p.x), list(p.y), v)))
+  return np.array(out, float).reshape(-1, 2)
 
 
 def turn_timing(t, model, openpilot, truck, peak):
@@ -313,6 +355,8 @@ def main(drive):
   turns = find_turns(t, curv, v)
   guard_logged = bool(np.any(rg[:, 3] > 0))
   ta = assist_series(drive)
+  kp = path_series(drive, cs)
+  lags = []
   print(f"{drive.label()}: model {model_name(drive.evs)}, {len(turns)} sharp turns")
   if turns:
     print(f"  {AMBIGUOUS_NOTE}")
@@ -329,7 +373,9 @@ def main(drive):
           f"driven r {1 / max(ak.max(), 1e-4):5.1f} m | hands "
           f"{np.abs(hand).mean():.2f} Nm avg; openpilot steering: with it {pct(h['with_op'])}, against it* {pct(h['against_op'])}; "
           f"you steering: into the turn {pct(h['driver_into'])}")
-    onset = print_timing(drive, t, ctl, md, curv, a, b, turn_lp)
+    onset, lag = print_timing(drive, t, ctl, md, curv, a, b, turn_lp, kp)
+    if la.mean() > PATH_STEERED and np.isfinite(lag):
+      lags.append(lag)
     if ta is not None and onset is not None:
       print_assist(drive, ta, t, a, b, turn_lp, *onset)
     asked, sent, cap, notes = torque_counts(tt, cs, cc, co, sp)
@@ -341,6 +387,9 @@ def main(drive):
           f"{pct(q['climbing'])}, held {pct(q['held'])}, unwinding {pct(q['unwinding'])}"
           + (f"  ({'; '.join(notes)})" if notes else ""))
     print_release(drive, t, cs, cc, co, sp, rg, curv, a, b, turn_lp, guard_logged)
+  if lags:
+    print(f"  request lags path: median {np.median(lags):+.1f} s over {len(lags)} openpilot-steered turns "
+          f"(range {min(lags):+.1f} to {max(lags):+.1f})")
 
 
 def print_release(drive, t, cs, cc, co, sp, rg, curv, a, b, turn_lp, guard_logged):
@@ -399,9 +448,10 @@ def print_assist(drive, ta, t, a, b, turn_lp, truck_in_t, peak_t):
   print(line)
 
 
-def print_timing(drive, t, ctl, md, curv, a, b, turn_lp):
+def print_timing(drive, t, ctl, md, curv, a, b, turn_lp, kp=None):
   """The timing line for the turn window [a, b), looking back up to ONSET_LOOKBACK_S without crossing a gap in the log.
-  Returns (truck turn-in time, truck's tightest time), or None."""
+  kp: the planned path's curvature (path_series). Returns ((truck turn-in time, truck's tightest time) or None, the
+  model request's lag behind the path in s or nan)."""
   start = a
   while start > 0 and t[a] - t[start - 1] <= ONSET_LOOKBACK_S and t[start] - t[start - 1] < 1:
     start -= 1
@@ -412,12 +462,19 @@ def print_timing(drive, t, ctl, md, curv, a, b, turn_lp):
   op = toward(ctl[start:b, 2])
   peak = int(np.argmax(truck))
   if truck[peak] <= 0:
-    return None
+    return None, float("nan")
   q = turn_timing(tw, model, op, truck, peak)
   rel = lambda x: "never" if np.isnan(x) else f"{x:+.1f} s"  # noqa: E731
+  lag, path_txt = float("nan"), ""
+  if kp is not None and len(kp):
+    t_from, t_to = tw[0], tw[peak] + 1.0
+    o_path = own_onset(kp[:, 0], toward(kp[:, 1]), t_from, t_to)
+    o_req = own_onset(md[:, 0], toward(md[:, 1]), t_from, t_to) if len(md) else float("nan")
+    lag = o_req - o_path
+    path_txt = f" | path curved {rel(o_path - q['truck'])}, request lags path {rel(lag)}"
   print(f"      timing: truck turned in at {drive.where(q['truck'])} | model asked {rel(q['model'])}, openpilot asked "
-        f"{rel(q['openpilot'])} (before is -) | {q['verdict']}")
-  return q["truck"], tw[peak]
+        f"{rel(q['openpilot'])} (before is -) | {q['verdict']}{path_txt}")
+  return (q["truck"], tw[peak]), lag
 
 
 if __name__ == "__main__":
