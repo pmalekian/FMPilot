@@ -74,6 +74,9 @@ class LatControlTorque(LatControl):
     if fm_max != self.steer_max:
       self.steer_max = fm_max
       self.update_limits()
+      # with Lateral Jerk or NNLC the PID works in torque units and the extension owns its limits (controlsd sets them
+      # each frame); put them back, or the accel-based limit above would stand for this frame
+      self.extension.update_limits()
 
     pid_log = log.ControlsState.LateralTorqueState.new_message()
     pid_log.version = VERSION
