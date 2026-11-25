@@ -1094,18 +1094,49 @@ class TestSettings:
     assert a.lead_min_speed == pytest.approx(7.0 * CV.MPH_TO_MS) and a.lead_gate_dist == pytest.approx(5.0)
     assert a.max_curvature == pytest.approx(1 / MIN_RADIUS_DEFAULT)
 
+  def test_smooth_turn_start_needs_turn_hold_or_lead(self):
+    (item,) = [i for i in self._sections()["fm_smoothing"]["items"] if i["key"] == PARAM_PHASE_IN]
+    (any_of,) = item["enablement"]
+    assert any_of["type"] == "any"
+    assert {c["key"] for c in any_of["conditions"]} == {PARAM_HOLD, PARAM_LEAD}
+    assert "Turn Lead" in item["description"] and "Turn Hold" in item["description"]
+
   def test_smooth_turn_start_goes_first_in_fm_smoothing(self):
     keys = [item["key"] for item in self._sections()["fm_smoothing"]["items"]]
     assert keys == [PARAM_PHASE_IN, "FM_LowSpeedCorrectionStrength", "FM_LowSpeedCurvatureFloor", "FM_StraightPullAwayFloor"]
 
   def test_turn_hold_settings_sub_page(self):
     turns = self._sections()["fm_turns"]
-    assert [item["key"] for item in turns["items"]] == [PARAM_HOLD]
-    (sub,) = turns["sub_panels"]
+    assert [item["key"] for item in turns["items"]] == [PARAM_HOLD, PARAM_LEAD]
+    sub = turns["sub_panels"][0]
     assert sub["label"] == "Turn Hold Settings" and sub["trigger_key"] == PARAM_HOLD
     assert [item["key"] for item in sub["items"]] == [PARAM_HOLD_PATH, PARAM_HOLD_DRIVER, PARAM_HOLD_FOLLOW_EXIT,
                                                       PARAM_RESTART_AFTER_STOP]
     assert all(item["widget"] == "toggle" for item in sub["items"])
+
+  def test_turn_lead_settings_sub_page(self):
+    turns = self._sections()["fm_turns"]
+    assert [s["id"] for s in turns["sub_panels"]] == ["turn_hold_settings", "turn_lead_settings"]
+    sub = turns["sub_panels"][1]
+    assert sub["label"] == "Turn Lead Settings" and sub["trigger_key"] == PARAM_LEAD
+    assert sub["trigger_condition"] == {"type": "param", "key": PARAM_LEAD, "equals": True}
+    items = {item["key"]: item for item in sub["items"]}
+    assert list(items) == [PARAM_LEAD_MIN_SPEED, PARAM_LEAD_ADAPTIVE, PARAM_LEAD_GATE, PARAM_LEAD_GATE_DIST, PARAM_LEAD_YIELD,
+                           PARAM_MIN_RADIUS]
+    assert [items[k]["title"] for k in items] == ["Turn Lead Min Speed", "Adaptive Look-Ahead", "Wait for the Corner",
+                                                  "Turn Lead Start Distance", "Turn Lead Yields to Your Hands",
+                                                  "Turn Path Tightest Radius"]
+    for key, lo, hi in ((PARAM_LEAD_MIN_SPEED, 2, 7), (PARAM_LEAD_GATE_DIST, 3, 10), (PARAM_MIN_RADIUS, 8, 20)):
+      assert items[key]["widget"] == "option" and (items[key]["min"], items[key]["max"], items[key]["step"]) == (lo, hi, 1)
+    for key in (PARAM_LEAD_ADAPTIVE, PARAM_LEAD_GATE, PARAM_LEAD_YIELD):
+      assert items[key]["widget"] == "toggle"
+      assert "On by default" not in items[key]["description"]
+    assert {c["key"] for c in items[PARAM_LEAD_GATE_DIST]["enablement"]} == {PARAM_LEAD, PARAM_LEAD_GATE}
+    (any_of,) = items[PARAM_MIN_RADIUS]["enablement"]
+    assert {c["key"] for c in any_of["conditions"]} == {PARAM_LEAD, PARAM_HOLD_PATH}
+    assert "Hold Path Source" in items[PARAM_MIN_RADIUS]["description"]
+    # the radius has exactly one entry, here
+    assert self.STEERING_YAML.read_text().count(f"key: {PARAM_MIN_RADIUS}") == 1
 
   def test_every_turn_assist_setting_is_declared(self):
     from openpilot.common.params import Params
