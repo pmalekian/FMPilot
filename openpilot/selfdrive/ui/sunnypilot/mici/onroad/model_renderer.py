@@ -18,4 +18,5 @@ LANE_LINE_COLORS_SP = {
 class ModelRendererSP:
   def __init__(self):
     self.rainbow_path = RainbowPath()
-    self.blendful = BlendfulRenderer(rect_relative=True)
+    # FM Pilot: Blendful's blue center line only; its readout would sit on top of the comma 4's other labels
+    self.blendful = BlendfulRenderer(readout=False, rect_relative=True)

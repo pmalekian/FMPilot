@@ -313,6 +313,8 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     // FM Pilot (fm-dev-sync). Keys of old FM settings that fm-dev-sync reshaped stay declared, never written, so
     // switching back to fm-dev-nav-settle restores the old setup; each lands with the PR that migrates it.
     {"FM_SyncMigration", {PERSISTENT, STRING}},  // the one-time migrations that ran (sunnypilot/system/fm_migration.py)
+    {"FM_LaneKeepMode", {PERSISTENT | BACKUP, INT, "0"}},  // Lane Keeping: 0 Off, 1 Lane Centering (AP), 2 Lane Guard, 3 Blendful
+    {"LaneGuardEnabled", {PERSISTENT | BACKUP, BOOL}},  // old Lane Guard toggle (fm-dev-set and earlier): read by the migration
     {"FM_CustomMaxTorque", {PERSISTENT | BACKUP, INT, "385"}},  // Max Torque, 385-580 step 15; 385 = stock AP; read at onroad start
     // old (fm-dev-nav-settle) torque settings, folded into Max Torque: read once by the migration, never written
     {"FM_PandaHighTorque", {PERSISTENT | BACKUP, BOOL}},

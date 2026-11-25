@@ -31,10 +31,11 @@ class FakeParams:
                    "LaneCenteringSingleLineEdgeDist": float(edge_dist), "LaneCenteringSingleLineLaneDist": float(lane_dist)}
 
   def get_bool(self, key):
-    return bool(self.values[key])
+    return bool(self.values.get(key, False))
 
   def get(self, key, return_default=False):
-    return self.values[key]
+    # FM_LaneKeepMode is unset unless a test sets it, so the mode comes from LaneCenteringEnabled as on an older device
+    return self.values.get(key)
 
 
 def _path(y, y_std=0.1):
@@ -303,6 +304,19 @@ def test_centering_waits_after_the_driver_lets_go():
   for _ in range(hold - 1):
     assert abs(_update(controller, model)) < 1e-6
   assert abs(_update(controller, model)) > 0.0
+
+
+def test_lane_keep_mode_decides_when_set():
+  # FM Pilot: once FM_LaneKeepMode is set it wins over the older LaneCenteringEnabled toggle
+  controller = LaneCenteringController(FakeParams(enabled=False))
+  controller.params.values["FM_LaneKeepMode"] = 1
+  controller.get_params()
+  assert controller.enabled
+  for mode in (0, 2, 3):
+    controller.params.values["FM_LaneKeepMode"] = mode
+    controller.params.values["LaneCenteringEnabled"] = True
+    controller.get_params()
+    assert not controller.enabled
 
 
 def test_disabling_mid_drive_fades_rather_than_snaps():

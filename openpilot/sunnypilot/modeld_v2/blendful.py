@@ -3,6 +3,11 @@ Copyright (c) 2021-, Haibin Wen, sunnypilot, and a number of other contributors.
 
 This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
+
+FM Pilot: turned on through the Lane Keeping selector (FM_LaneKeepMode, sunnypilot/selfdrive/controls/lib/
+fm_lane_keep_mode.py) instead of sunnypilot's Blendful toggle, so it never runs with Lane Centering or Lane Guard. One
+FM change: MIN_SPEED 0.3 m/s instead of 5.0 (Nov 24 2026, the value Blendful's author James Vecellio-Grant /
+Discountchubbs runs himself, per his Discord note in the sunnypilot Fairy Tale thread), so it centers in slow traffic.
 """
 import numpy as np
 
@@ -14,7 +19,7 @@ LANE_WIDTH_DEFAULT = 3.6  # m
 LANE_WIDTH_CLIP = (2.8, 4.5)  # m
 LOOKAHEAD_TIME = 1.5  # s
 MIN_LOOKAHEAD = 10.0  # m
-MIN_SPEED = 5.0  # m/s
+MIN_SPEED = 0.3  # m/s; FM Pilot: was 5.0 (~11 mph). 0.3 is what Blendful's author runs, so it works in slow traffic
 LINE_STD = (0.2, 0.6)
 POINT_STD = 0.1
 YIELD = (0.2, 0.45)

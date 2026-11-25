@@ -202,6 +202,14 @@ class CerealOutgoingMessageProxy(AsyncTaskRunner):
     except UnknownKeyName:
       return False
 
+  def _lane_centering_enabled(self) -> bool:
+    # FM Pilot: lane centering is one choice of FM_LaneKeepMode (ported from fm-dev-nav-settle)
+    from openpilot.sunnypilot.selfdrive.controls.lib.fm_lane_keep_mode import MODE_CENTERING, get_lane_keep_mode
+    try:
+      return get_lane_keep_mode(self.params) == MODE_CENTERING
+    except UnknownKeyName:
+      return self._param_bool("LaneCenteringEnabled")
+
   def _param_int(self, key: str) -> int:
     try:
       return int(self.params.get(key, return_default=True) or 0)
@@ -222,7 +230,7 @@ class CerealOutgoingMessageProxy(AsyncTaskRunner):
       "SPCruiseSpeedOffset": self._param_int("SPCruiseSpeedOffset"),
       "ShowTurnSignals": self._param_bool("ShowTurnSignals"),
       "BlindSpot": self._param_bool("BlindSpot"),
-      "LaneCenteringEnabled": self._param_bool("LaneCenteringEnabled"),
+      "LaneCenteringEnabled": self._lane_centering_enabled(),
     }
 
   def update(self):

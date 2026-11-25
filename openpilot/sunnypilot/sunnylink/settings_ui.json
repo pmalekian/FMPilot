@@ -292,25 +292,43 @@
         {
           "id": "lane_centering",
           "title": "Lane Centering",
-          "description": "Keep the car in the middle of the painted lane",
+          "description": "Keep the car in its lane. One of Lane Centering, Lane Guard or Blendful (FM Pilot)",
           "items": [
             {
-              "key": "LaneCenteringEnabled",
-              "widget": "toggle",
+              "key": "FM_LaneKeepMode",
+              "widget": "option",
               "title": "Lane Centering",
-              "description": "Keep the car in the middle of the painted lane instead of wherever the driving model chooses to sit. Only acts when both lane lines are clearly visible (unless One-Line Mode is on), and steps aside for lane changes and turn signals.",
-              "details": "Corrections are deliberately small and are smoothed in over about half a second, so this should read as the car\nsitting straighter rather than as active steering. Whenever the lane lines become unreliable, a lane change starts\nor a turn signal comes on, the correction fades away rather than being dropped in one go."
+              "description": "FM Pilot - pick one way of keeping the car in its lane, or Off for the driving model alone. Lane Centering (AdventurePilot): keeps the car in the middle of the painted lane instead of wherever the driving model chooses to sit; only acts when both lane lines are clearly visible (unless One-Line Mode is on), and steps aside for lane changes and turn signals. Lane Guard: a gentle correction only when the planned path brings the body too close to a lane line or road edge; pauses while you steer or signal (from gerrylum's rx-wb). Blendful (alpha): a gentle nudge toward the lane center on top of the model's own steering, stronger when the lane lines are clear; yields around obstacles, works down to about 1 mph (0.3 m/s), off during turns and lane changes; draws its blue center line. Needs a custom (non-Default) model (from sunnypilot).",
+              "details": "Lane Centering's corrections are deliberately small and are smoothed in over about half a second, so this should\nread as the car sitting straighter rather than as active steering. Whenever the lane lines become unreliable, a\nlane change starts or a turn signal comes on, the correction fades away rather than being dropped in one go.\nOnly one of the three can be on at a time.",
+              "options": [
+                {
+                  "value": 0,
+                  "label": "Off"
+                },
+                {
+                  "value": 1,
+                  "label": "Lane Centering"
+                },
+                {
+                  "value": 2,
+                  "label": "Lane Guard"
+                },
+                {
+                  "value": 3,
+                  "label": "Blendful"
+                }
+              ]
             }
           ],
           "sub_panels": [
             {
               "id": "lane_centering_settings",
               "label": "Lane Centering Settings",
-              "trigger_key": "LaneCenteringEnabled",
+              "trigger_key": "FM_LaneKeepMode",
               "trigger_condition": {
                 "type": "param",
-                "key": "LaneCenteringEnabled",
-                "equals": true
+                "key": "FM_LaneKeepMode",
+                "equals": 1
               },
               "items": [
                 {
@@ -325,8 +343,8 @@
                   "enablement": [
                     {
                       "type": "param",
-                      "key": "LaneCenteringEnabled",
-                      "equals": true
+                      "key": "FM_LaneKeepMode",
+                      "equals": 1
                     }
                   ]
                 },
@@ -341,8 +359,8 @@
                   "enablement": [
                     {
                       "type": "param",
-                      "key": "LaneCenteringEnabled",
-                      "equals": true
+                      "key": "FM_LaneKeepMode",
+                      "equals": 1
                     }
                   ]
                 },
@@ -358,8 +376,8 @@
                   "enablement": [
                     {
                       "type": "param",
-                      "key": "LaneCenteringEnabled",
-                      "equals": true
+                      "key": "FM_LaneKeepMode",
+                      "equals": 1
                     }
                   ]
                 },
@@ -374,8 +392,8 @@
                   "enablement": [
                     {
                       "type": "param",
-                      "key": "LaneCenteringEnabled",
-                      "equals": true
+                      "key": "FM_LaneKeepMode",
+                      "equals": 1
                     }
                   ]
                 },
@@ -388,8 +406,8 @@
                   "enablement": [
                     {
                       "type": "param",
-                      "key": "LaneCenteringEnabled",
-                      "equals": true
+                      "key": "FM_LaneKeepMode",
+                      "equals": 1
                     }
                   ]
                 },
@@ -435,8 +453,8 @@
                   "enablement": [
                     {
                       "type": "param",
-                      "key": "LaneCenteringEnabled",
-                      "equals": true
+                      "key": "FM_LaneKeepMode",
+                      "equals": 1
                     }
                   ]
                 }

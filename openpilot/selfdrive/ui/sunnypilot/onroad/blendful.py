@@ -60,7 +60,8 @@ class BlendfulRenderer:
     return rl.Color(*rgb, int(alpha * self._alpha.x))
 
   def draw(self, rect: rl.Rectangle) -> None:
-    if not UIStateSP.lateral_active(ui_state):
+    # FM Pilot: only while Blendful is the selected lane keeping mode
+    if not ui_state.blendful_enabled or not UIStateSP.lateral_active(ui_state):
       return
     if self._center_points.size and self._trust > 0.05:
       points = self._center_points + (rect.x, rect.y) if self._rect_relative else self._center_points

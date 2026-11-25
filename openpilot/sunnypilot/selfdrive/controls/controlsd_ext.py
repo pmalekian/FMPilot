@@ -19,6 +19,7 @@ from openpilot.sunnypilot.selfdrive.controls.lib.blinker_pause_lateral import Bl
 from openpilot.sunnypilot.selfdrive.controls.lib.lane_centering import LaneCenteringController
 from openpilot.sunnypilot.selfdrive.controls.lib.latcontrol_torque_v0 import LatControlTorque as LatControlTorqueV0
 from openpilot.sunnypilot.selfdrive.controls.lib.rivian_offtrack import RivianOfftrack
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_lateral import FmLateral
 
 
 class ControlsExt(ModelStateBase):
@@ -30,6 +31,7 @@ class ControlsExt(ModelStateBase):
     self.blinker_pause_lateral = BlinkerPauseLateral()
     self.lane_centering = LaneCenteringController(params)
     self.rivian_offtrack = RivianOfftrack(CP, params)
+    self.fm_lateral = FmLateral(CP, params)  # FM Pilot: Lane Guard (and Turn Assist, later)
 
     cloudlog.info("controlsd_ext is waiting for CarParamsSP")
     self.CP_SP = messaging.log_from_bytes(params.get("CarParamsSP", block=True), custom.CarParamsSP)
