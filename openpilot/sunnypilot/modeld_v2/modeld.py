@@ -53,6 +53,34 @@ from openpilot.sunnypilot.modeld_v2.model_adapters import get_model_adapter
 from openpilot.sunnypilot.models.helpers import get_active_bundle
 from openpilot.sunnypilot.selfdrive.controls.lib.relc import RoadEdgeLaneChangeController
 from openpilot.sunnypilot import jetlink_adapter
+from openpilot.sunnypilot.modeld_v2.fm_lateral_smoothing import (PARAM_BIG_MODEL_SMOOTHING, PARAM_SMALL_MODEL_SMOOTHING,
+                                                                 big_bundle_lat_smooth_seconds, big_lat_smooth_seconds,
+                                                                 read_smoothing_mode, small_lat_smooth_seconds, smooth_curvature)
+
+
+def fm_own_model_states(model, small_model) -> list:
+  """FM Pilot: modeld_v2's own ModelStates among the model the loop runs and the small model, each once. With Jetlink
+  on, `model` is jetlink's joining model: a read on it answers for whichever model is driving and a write stays on
+  the wrapper itself (jetlink's JoiningModelState), so per-model settings are written to the ModelStates here."""
+  states = []
+  for m in (model, small_model):
+    if isinstance(m, ModelState) and not any(m is s for s in states):
+      states.append(m)
+  return states
+
+
+def fm_apply_model_settings(params, model, small_model) -> None:
+  """FM Pilot: Model Lateral Smoothing on modeld_v2's own ModelStates only. A Jetlink big model keeps comma's own
+  LAT_SMOOTH_SECONDS (it has no bundle value, and 0.10 s smoothing is applied post-action without shifting lat_delay),
+  and reading `model.LAT_SMOOTH_SECONDS` afterwards still follows whichever model is driving."""
+  small_mode = read_smoothing_mode(params, PARAM_SMALL_MODEL_SMOOTHING)
+  big_mode = read_smoothing_mode(params, PARAM_BIG_MODEL_SMOOTHING)
+  for m in fm_own_model_states(model, small_model):
+    if getattr(m, 'chestnut', False):
+      m.LAT_SMOOTH_SECONDS = big_bundle_lat_smooth_seconds(big_mode, m.BUNDLE_LAT_SMOOTH_SECONDS)
+    else:
+      m.LAT_SMOOTH_SECONDS = small_lat_smooth_seconds(small_mode, m.BUNDLE_LAT_SMOOTH_SECONDS)
+
 
 PROCESS_NAME = "openpilot.selfdrive.modeld.modeld_tinygrad"
 BIG_MODEL_TIMEOUT = 60
@@ -102,7 +130,8 @@ class ModelState(ModelStateBase):
     self.generation = model_bundle.generation if model_bundle is not None else None
     overrides = {override.key: override.value for override in model_bundle.overrides} if model_bundle else {}
 
-    self.LAT_SMOOTH_SECONDS = float(overrides.get('lat', ".0"))
+    self.BUNDLE_LAT_SMOOTH_SECONDS = float(overrides.get('lat', ".0"))
+    self.LAT_SMOOTH_SECONDS = self.BUNDLE_LAT_SMOOTH_SECONDS  # FM Pilot: Model Lateral Smoothing replaces it while driving
     self.LONG_SMOOTH_SECONDS = float(overrides.get('long', ".0"))
     self.MIN_LAT_CONTROL_SPEED = 0.3
     self.PLANPLUS_CONTROL: float = 1.0
@@ -390,6 +419,8 @@ def main(demo=False):
   RELC = RoadEdgeLaneChangeController()
   blendful = Blendful()
   blendful_enabled = False
+  big_model_smoothing = read_smoothing_mode(params, PARAM_BIG_MODEL_SMOOTHING)  # FM Pilot: Model Lateral Smoothing (Big Models)
+  fm_apply_model_settings(params, model, small_model)
 
   while True:
     # Keep receiving frames until we are at least 1 frame ahead of previous extra frame
@@ -434,6 +465,10 @@ def main(demo=False):
       model.PLANPLUS_CONTROL = params.get("PlanplusControl", return_default=True)
       camera_offset_helper.set_offset(params.get("CameraOffset", return_default=True))
       blendful_enabled = get_lane_keep_mode(params) == MODE_BLENDFUL  # FM Pilot: the Lane Keeping selector picks Blendful
+      big_model_smoothing = read_smoothing_mode(params, PARAM_BIG_MODEL_SMOOTHING)
+      # on the ModelStates themselves, never on `model`: a Jetlink joining model keeps a plain write to itself (the
+      # small model then never saw the setting) and has no bundle value once the big model drives (AttributeError)
+      fm_apply_model_settings(params, model, small_model)
     lat_delay = model.lat_delay + model.LAT_SMOOTH_SECONDS
     if sm.updated["extrinsicsCalibration"] and sm.seen['narrowRoadCameraState'] and sm.seen['deviceState']:
       device_from_calib_euler = np.array(sm["extrinsicsCalibration"].rpyCalib, dtype=np.float32)
@@ -513,6 +548,8 @@ def main(demo=False):
       blendful_active = desire == log.Desire.none and DH.lane_change_state == log.LaneChangeState.off
       action = model.get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego,
                                            partial(blendful.update, model_output, v_ego, blendful_active, enabled=blendful_enabled))
+      # FM Pilot: Model Lateral Smoothing (Big Models); after run(), so a Jetlink swap inside it is already reflected
+      smooth_curvature(action, prev_action, big_lat_smooth_seconds(big_model_smoothing, model))
       prev_action = action
       fill_model_msg(drivingdata_send, modelv2_send, model_output, action,
                      publish_state, meta_main.frame_id, meta_extra.frame_id, frame_id,
