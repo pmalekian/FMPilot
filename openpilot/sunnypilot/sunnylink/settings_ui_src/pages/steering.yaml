@@ -555,6 +555,23 @@ sections:
     unit: '%'
     enablement:
     - {type: capability, field: brand, equals: rivian}
+  - key: FM_LowSpeedCurvatureFloor
+    widget: toggle
+    title: Calmer Crawl-Speed Steering
+    description: 'Below 5.6 mph, ask for less steering than the model''s raw output (about 64% at 4.5 mph, 36% at 3.4 mph,
+      16% at 2.2 mph), as sunnypilot and openpilot now do. Calms twitchy steering near a stop, but turns pulled out from
+      a stop may start softer. Applies to all driving, not only blinker turns. Off: stock AP behavior (1.0 m/s floor).
+      From sunnypilot #2091.'
+  - key: FM_StraightPullAwayFloor
+    widget: toggle
+    title: Calmer Straight Pull-Away
+    description: 'Some models (Cheddar especially) are slightly off from straight while stopped, and that is read as a
+      tight curve the moment steering starts, so the wheel jerks to one side and then straightens. With this on, pulling
+      away from a stop asks for much less steering below 5.6 mph (like Calmer Crawl-Speed Steering) when, at the stop,
+      there was no blinker or turn and the wheel was within 30 degrees of straight. A blinker or turn during the pull-away,
+      or steering it yourself for a moment, brings full steering back over half a second. Turns from a stop with the
+      blinker on, and slowing to crawl speed without stopping, are unchanged. Off: stock AP behavior. Not needed with
+      Calmer Crawl-Speed Steering on.'
 - id: fm_model_smoothing
   title: Model Lateral Smoothing
   description: FM Pilot - how much the model's steering request is smoothed, for small and big models
