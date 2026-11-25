@@ -50,6 +50,8 @@ Added PR by PR; each row names its settings (Sunnylink page), code and default.
 | Off-tracking near-zero curvature crash fix: AP's rear off-tracking is worked in curvature, so a curvature below ~1e-154 can no longer raise OverflowError in controlsd; same result everywhere else | none | `sunnypilot/selfdrive/controls/lib/rivian_offtrack.py` | always |
 | Quiet road-edge block: the road-edge lane change block is a small gray message with no sound instead of the orange alert and beep. Folded (was `FM_QuietRoadEdgeBlock`) | none (always on) | `selfdrived.py`, `sunnypilot/selfdrive/selfdrived/events.py` (`fmLaneChangeRoadEdgeQuiet`) | always |
 | FM log tools: fmlog, timeline, events, turns (with the path-vs-request turn-in timing from `fm-dev-max` `d189ccc`), lead, settle, sway, dm, jetlink, maclog, and their tests. They read `fm-dev-sync` drives with the repo's schema and drives from `fm-dev-nav-settle` and earlier with a copy of that branch's schema, picked per file (`FM_SCHEMA=old|new` forces one) | none | `tools/fm/` (`fmlog.py`, `schema/fm-dev-nav-settle/`) | n/a |
+| Accel Boost picker: at most one boost on the model's (e2e) acceleration target, before the planner's min() with the lead MPC and the cruise ramp, so the lead and set speed still limit it. **Off** (nothing added); **Gas** (openpilot's Gas Override Boost: after you press the gas while the model holds the car below what the lead and set speed allow, up to +0.2 m/s² for the engagement); **Sunny Boost** (sunnypilot's Acceleration Boost: up to +0.4 / 0.25 / 0.1 m/s² aggressive / standard / relaxed when the model predicts no reason to slow; fades in tight curves, on a stop and when the model brakes); **EVP Set Speed** (EVPilot's Set Speed Assist: above 20 mph, or 10 mph for 3 s after a lead it braked for leaves, lifts the model toward the cruise ramp by up to +0.7 / 0.5 / 0.3 m/s², with FM's engage grace and end-of-grace fade); **AP Accel Control** (AP's Acceleration Control: +0.3 / 0.2 / 0.1 m/s² on model requests from 0 to 0.1 m/s² up, 10 → 20 mph ramp, faded by Curve Speed Control's throttle interlock; without Gas Override Boost on top, as AP ran it); **OP Personality** (openpilot #39430 + #39440: +0.15 / 0.05 / 0 m/s², faded 5 → 10 m/s and as the model brakes from -0.5 to -1.0 m/s²). sunnypilot's Acceleration Boost (`AccelBoostSP`) and AP's Acceleration Control (`AccelerationControl`) toggles are hidden and not read: the picker alone decides. Each mode starts clean when picked. What it added goes in `longitudinalPlan.accelBoost` (every mode), the mode in `fmPlan.accelBoostMode` | `FM_AccelBoostMode` Off / Gas / Sunny Boost / EVP Set Speed / AP Accel Control / OP Personality (Cruise > Accel Boost; comma 4: toggles > accel boost) | `sunnypilot/selfdrive/controls/lib/fm_accel_boost_mode.py`, `set_speed_assist.py`, `fm_op_personality_boost.py`, `selfdrive/controls/lib/longitudinal_planner.py`, `plannerd.py` | Off |
+| Boost bar: green bar in the comma 4 side panel (in place of the confidence ball) while an Accel Boost mode is on and engaged; fills with `longitudinalPlan.accelBoost` up to the picked mode's maximum for the personality, only while the boosted model target sets the speed (EVP Set Speed also when tied with the cruise ramp); OP Personality in Relaxed adds nothing, so it stays empty | `FM_AccelBoostIndicator` (Cruise > Show Accel Boost On Screen, shown when a mode is picked) | `selfdrive/ui/sunnypilot/mici/onroad/accel_boost_indicator.py`, `mici/onroad/augmented_road_view.py` | off |
 
 ## Log messages
 
@@ -91,6 +93,7 @@ change keep their keys.
 | Finish Turn After Signal Cancels (`FM_TurnCarryThrough`) | None needed: same key and meaning, an existing value carries forward. On `fm-dev-nav-settle` it defaulted on; fresh installs start off here. Carry Only at Turn-In (`FM_TurnCarryTurnInOnly`) is folded (always on with it), nothing copied; a stored off no longer turns it off |
 | Pre/Post Turn Behavior (`FM_TurnQueueGuard`, `FM_TurnPulseOnPullAway`, `FM_TurnSettle`, `FM_TurnSettleEarlyPush`) | None needed: same keys and meaning, existing values carry forward; all four defaulted off on `fm-dev-nav-settle` too |
 | Max Torque (`FM_CustomMaxTorque`) | `FM_PandaHighTorque` off -> 385; on -> `FM_MaxTorque` rounded to the 15 grid (580 -> 580; unset -> the old default 480 -> 475). Faster ramp, full cap past 90° and the Higher Torque mode are folded, nothing copied |
+| Accel Boost (`FM_AccelBoostMode`, `FM_AccelBoostIndicator`) | Same keys; `fm-dev-nav-settle`'s values 0-3 mean the same (0 Off, 1 Gas, 2 Predictive = Sunny Boost, 3 Set Speed = EVP Set Speed), so a stored mode is kept (there the default was Gas, written at boot, so it carries; fresh installs start Off). Unset (a device that never ran `fm-dev-nav-settle`) with sunnypilot's `AccelBoostSP` on and AP's `AccelerationControl` off -> Sunny Boost (2), the one boost the base ran; any other unset case -> nothing written (Off). A stored mode, including 0, is never changed from those toggles. `AccelBoostSP` and `AccelerationControl` are read, never written (migration `accel_boost_mode`) |
 
 ## Settings pages
 
@@ -106,6 +109,10 @@ Look-Ahead, Wait for the Corner, Turn Lead Start Distance, Turn Lead Yields to Y
 (shared with Hold Path Source, so with Turn Lead off it keeps its value but isn't shown). Pre/Post Turn Behavior (a plain
 sub-page, always shown: its trigger is its own first toggle, as sunnypilot's Speed Limit Settings) holds Queue Guard, Turn
 Pulse on Pull-Away, Settle After Turn and Settle After Turn: Early Right Push (enabled by Settle After Turn).
+
+Sunnylink Cruise page: Accel Boost (the picker) and, when a mode is picked, Show Accel Boost On Screen take the place of
+sunnypilot's Acceleration Boost and AP's Acceleration Control toggles (hidden there and on the device's Cruise page). On
+the comma 4, toggles > accel boost replaces acceleration control.
 
 ## Credits
 
@@ -134,6 +141,15 @@ Pulse on Pull-Away, Settle After Turn and Settle After Turn: Early Right Push (e
   Lead Yields to Your Hands are FM Pilot's own.
 - **Finish Turn After Signal Cancels** (with Carry Only at Turn-In): FM Pilot's own, ported from `fm-dev-nav-settle`
   `ca08aac9` (`5a5ab9e`, `812b394` there).
+- **Accel Boost picker** (FM Pilot's own selector and wiring): **Gas** is openpilot #39015 Gas Override Boost (Harald
+  Schäfer, MIT) as carried by sunnypilot and AP; **Sunny Boost** is sunnypilot #2089 Acceleration Boost (`AccelBoostSP`,
+  James Vecellio-Grant / Discountchubbs, MIT), upstream's code in the base (FM's old copy dropped); **EVP Set Speed** is
+  EVPilot's Set Speed Assist (evpilotgo/openpilot dev `c5943813`, Gerry / gerrylum, MIT) with FM's fixes, ported from
+  `fm-dev-nav-settle` `ca08aac9`; **AP Accel Control** is AdventurePilot's Acceleration Control (AdventurePilotDev, MIT),
+  AP's code in the base; **OP Personality** is openpilot #39430 (`ff300ecf`, Nov 19, 2026) + #39440 (`6daa874b`, Nov 23,
+  2026), Harald Schäfer (MIT), ported (#39440's Relaxed follow-time change not ported).
+- **Boost bar**: sunnypilot #2090 (rav4kumar and Jason Wen, MIT; not merged there), ported from `fm-dev-nav-settle`
+  `ca08aac9`, now reading `longitudinalPlan.accelBoost` for all five modes.
 - **Queue Guard**, **Turn Pulse on Pull-Away** and **Settle After Turn** (with Early Right Push): FM Pilot's own, ported
   from `fm-dev-nav-settle` `ca08aac9` (`5a112cd`, `792475a`, `35908da` and Build C there). Early Right Push's curb guard
   uses Lane Guard's road-edge math (`get_lane_guard_curvature`, gerrylum rx-wb `17ea338`, MIT) and its yield uses
