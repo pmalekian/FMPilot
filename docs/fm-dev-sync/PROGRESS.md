@@ -24,7 +24,9 @@ Plan PR numbers (BUILD_PLAN.md) differ from GitHub PR numbers. Status as of Nov 
   **For PR 17 (Jetlink):** on ca08aac9, Settle After Turn and Blendful also ran on the Jetlink large model through
   `fm_jetlink_action.py`. On fm-dev-sync, AP's Jetlink adapter skips that hook, so Settle acts only with local models.
   Restoring it is Jetlink scope; flag it to Frankie if PR 17 doesn't cover it.
-- **Claude:** plan PRs 10-15. Next: **M2 full suites**, then **PR 14** Accel Boost picker.
+- **Claude:** plan PRs 10-15. Next: **PR 14** Accel Boost picker.
+  M2 full suites passed on `da5b06a` (same known/sandbox-only failures as M1; PR 10-13 equivalence scripts: only the
+  documented PR 13 Queue Guard carry and Settle-after-carry differences).
   M1 full suites passed on `d02379c` (only the 2 known failures plus sandbox-only ones: no network/display/GPU; the
   jetlink `test_seam` large-model test fails in the sandbox because tinygrad probes `/sys`, also before PR 9).
   PR 13: Queue Guard holds now count as a wait in Turn Assist (controlsd subscribes to `fmModel`), so a hold can't
