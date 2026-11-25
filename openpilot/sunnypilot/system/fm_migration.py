@@ -144,3 +144,40 @@ def _low_speed_correction(params):
   value = min(max(int(OLD_GAIN_PERCENT_DEFAULT if old is None else old), 40), 100) if on else 100
   written = put_if_unset(params, "FM_LowSpeedCorrectionStrength", value)
   return f"FM_LowSpeedCorrectionStrength {value} (on {on}, percent {old})" + ("" if written else ", already set: kept")
+
+
+OLD_LAT_SMOOTH_SECONDS_DEFAULT = 0.1  # fm-dev-nav-settle's FM_LateralSmoothingSeconds default
+
+
+@migration("small_model_lat_smoothing")
+def _small_model_lat_smoothing(params):
+  """Small Model Smoothing: off -> Model Default (0); on -> 0 -> 0.00 s (1), 0.1 or 0.2 -> 0.10 s (2; unset -> 0.1,
+  the old default)."""
+  import math
+  on = params.get("FM_LateralSmoothingEnabled")
+  if on is None:
+    return "no old setting"
+  old = params.get("FM_LateralSmoothingSeconds")
+  if not on:
+    mode = 0
+  else:
+    sec = OLD_LAT_SMOOTH_SECONDS_DEFAULT if old is None else float(old)
+    if not math.isfinite(sec):
+      mode = 0
+    elif sec < 0.05:
+      mode = 1
+    else:
+      mode = 2
+  written = put_if_unset(params, "FM_SmallModelLatSmoothing", mode)
+  return f"FM_SmallModelLatSmoothing {mode} (on {on}, seconds {old})" + ("" if written else ", already set: kept")
+
+
+@migration("big_model_lat_smoothing")
+def _big_model_lat_smoothing(params):
+  """Big Model Smoothing: off -> Model Default (0); on -> 0.10 s (2)."""
+  on = params.get("FM_BigModelSmoothing")
+  if on is None:
+    return "no old setting"
+  mode = 2 if on else 0
+  written = put_if_unset(params, "FM_BigModelLatSmoothing", mode)
+  return f"FM_BigModelLatSmoothing {mode} (on {on})" + ("" if written else ", already set: kept")

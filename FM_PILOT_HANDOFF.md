@@ -70,8 +70,9 @@ ruff check .
 | PR 4 torque | merged, PR #8 (`44d8a07`) after the fresh-Opus review (findings and fixes in the PR's comment: Headroom kept Lateral Jerk / NNLC's PID limits, reads vEgoRaw, tighter safety tests, override force documented): Max Torque `FM_CustomMaxTorque` 385-580 step 15 (panda follows it; above 385 faster ramp, full cap past 90°, Headroom), steerLimitTimer 0.8, off-tracking near-zero fix; migration `max_torque` |
 | PR 5 Release Guard | merged, PR #9 (`1653723`): `FM_ReleaseGuardLimit` Stock / 75 / 150, v0 + v1, migration `release_guard`; controlsd publishes `fmControls` |
 | PR 6 feedforward + correction strength | merged, PR #10 (`60c057b`): `FM_LowSpeedFFLeft/Right` (Off default), `FM_LowSpeedCorrectionStrength` (100 default), v0 + v1, migrations `low_speed_feedforward`, `low_speed_correction` |
-| PR 7 Lane Keeping | this PR: `FM_LaneKeepMode` Off / Lane Centering / Lane Guard / Blendful (Off default), Lane Guard (gerrylum rx-wb `17ea338`) via `fm_lateral.py`, Blendful at 0.3 m/s with the blue line only; migration `lane_keep_mode` |
-| PRs 8-18 | not started (paused after PR 7 at Frankie's request, Nov 25) |
+| PR 7 Lane Keeping | merged, PR #11 (`99a2b44`): `FM_LaneKeepMode` Off / Lane Centering / Lane Guard / Blendful (Off default), Lane Guard (gerrylum rx-wb `17ea338`) via `fm_lateral.py`, Blendful at 0.3 m/s with the blue line only; migration `lane_keep_mode` |
+| PR 8 Model Lateral Smoothing | this PR: `FM_SmallModelLatSmoothing` and `FM_BigModelLatSmoothing` drop-downs (Model Default / 0.00 s / 0.10 s, Model Default default), both modelds (`fm_lateral_smoothing.py`, zoompilot `6cb59d3` for big models), Jetlink `JoiningModelState` safe; migrations `small_model_lat_smoothing`, `big_model_lat_smoothing` |
+| PRs 9-18 | not started |
 
 ## Reference (unchanged from before)
 

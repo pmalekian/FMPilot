@@ -335,6 +335,12 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"FM_LowSpeedFFStepRight", {PERSISTENT | BACKUP, INT}},
     {"FM_LowSpeedGainEnabled", {PERSISTENT | BACKUP, BOOL}},
     {"FM_LowSpeedGainPercent", {PERSISTENT | BACKUP, INT}},
+    {"FM_SmallModelLatSmoothing", {PERSISTENT | BACKUP, INT, "0"}},  // Model Lateral Smoothing (Small Models): 0 Model Default, 1 0.00 s, 2 0.10 s
+    {"FM_BigModelLatSmoothing", {PERSISTENT | BACKUP, INT, "0"}},    // Model Lateral Smoothing (Big Models): 0 Model Default, 1 0.00 s, 2 0.10 s
+    // old (fm-dev-nav-settle) lateral smoothing toggles + seconds: read once by the migration, never written
+    {"FM_LateralSmoothingEnabled", {PERSISTENT | BACKUP, BOOL}},
+    {"FM_LateralSmoothingSeconds", {PERSISTENT | BACKUP, FLOAT}},
+    {"FM_BigModelSmoothing", {PERSISTENT | BACKUP, BOOL}},
 
     // Rivian
     {"RivianResumeEnabled", {PERSISTENT | BACKUP, BOOL, "0"}},
