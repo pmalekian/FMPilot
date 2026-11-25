@@ -823,6 +823,33 @@
                   "equals": "rivian"
                 }
               ]
+            },
+            {
+              "key": "FM_ReleaseGuardLimit",
+              "widget": "multiple_button",
+              "title": "Release Guard",
+              "description": "When you hold the wheel tighter than openpilot wants in a slow turn, openpilot's correction pushes back against your hands, and that push is still there when you let go, so the wheel can swing past center. Release Guard limits that push against you while you steer into the turn under 15 mph (fading out by 20 mph), and fades out over 0.5 s after you let go. Stock = off. 150 = at most 150 counts against you, 75 = at most 75. Never touches feedforward or any torque limit; off with Lateral Jerk or NNLC.",
+              "options": [
+                {
+                  "value": 0,
+                  "label": "Stock"
+                },
+                {
+                  "value": 75,
+                  "label": "75"
+                },
+                {
+                  "value": 150,
+                  "label": "150"
+                }
+              ],
+              "enablement": [
+                {
+                  "type": "capability",
+                  "field": "brand",
+                  "equals": "rivian"
+                }
+              ]
             }
           ]
         },

@@ -88,3 +88,16 @@ def _max_torque(params):
   folded = {k: params.get(k) for k in ("FM_TorqueFastRamp", "FM_TorqueFullCapHighAngle", "FM_TorqueMode")}
   return (f"FM_CustomMaxTorque {value} (panda {panda}, FM_MaxTorque {old}; folded, now on above 385: {folded})" +
           ("" if written else ", already set: kept"))
+
+
+@migration("release_guard")
+def _release_guard(params):
+  """Release Guard: off -> Stock (0); on -> its Most Torque Against You, 75 or 150 (anything else, or unset, -> 150, the
+  old default)."""
+  on = params.get("FM_ReleaseGuard")
+  if on is None:
+    return "no old setting"
+  old = params.get("FM_ReleaseGuardMax")
+  value = (old if old in (75, 150) else 150) if on else 0
+  written = put_if_unset(params, "FM_ReleaseGuardLimit", value)
+  return f"FM_ReleaseGuardLimit {value} (on {on}, max {old})" + ("" if written else ", already set: kept")

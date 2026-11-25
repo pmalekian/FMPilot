@@ -117,3 +117,35 @@ class TestMaxTorque(OpenpilotTestCase):
     assert run(params, [m for m in fm_migration.MIGRATIONS if m[0] == "max_torque"]) == ["max_torque"]  # it ran
     assert params.get("FM_CustomMaxTorque") == 430
     assert params.get("FM_PandaHighTorque") is True and params.get("FM_MaxTorque") == 580
+
+
+class TestReleaseGuard(OpenpilotTestCase):
+  """Release Guard: off -> Stock (0); on -> 75 or 150 (anything else or unset -> 150)."""
+
+  def migrate(self, **old):
+    params = Params()
+    for k in ("FM_ReleaseGuardLimit", "FM_ReleaseGuard", "FM_ReleaseGuardMax", FLAG):
+      params.remove(k)
+    for k, v in old.items():
+      params.put(k, v, block=True)
+    assert run(params, [m for m in fm_migration.MIGRATIONS if m[0] == "release_guard"]) == ["release_guard"]
+    return params
+
+  def test_his_setup_carries_over(self):
+    assert self.migrate(FM_ReleaseGuard=True, FM_ReleaseGuardMax=150).get("FM_ReleaseGuardLimit") == 150
+
+  def test_75(self):
+    assert self.migrate(FM_ReleaseGuard=True, FM_ReleaseGuardMax=75).get("FM_ReleaseGuardLimit") == 75
+
+  def test_off_is_stock_whatever_the_level(self):
+    assert self.migrate(FM_ReleaseGuard=False, FM_ReleaseGuardMax=75).get("FM_ReleaseGuardLimit") == 0
+
+  def test_on_without_a_level_is_the_old_default(self):
+    assert self.migrate(FM_ReleaseGuard=True).get("FM_ReleaseGuardLimit") == 150
+
+  def test_fresh_install_writes_nothing(self):
+    assert self.migrate().get("FM_ReleaseGuardLimit") is None
+
+  def test_old_keys_untouched(self):
+    params = self.migrate(FM_ReleaseGuard=True, FM_ReleaseGuardMax=75)
+    assert params.get("FM_ReleaseGuard") is True and params.get("FM_ReleaseGuardMax") == 75

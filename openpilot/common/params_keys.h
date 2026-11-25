@@ -320,6 +320,10 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"FM_TorqueFastRamp", {PERSISTENT | BACKUP, BOOL}},
     {"FM_TorqueFullCapHighAngle", {PERSISTENT | BACKUP, BOOL}},
     {"FM_TorqueMode", {PERSISTENT | BACKUP, INT}},
+    {"FM_ReleaseGuardLimit", {PERSISTENT | BACKUP, INT, "0"}},  // Release Guard: 0 = Stock (off), 75, 150 counts against you
+    // old (fm-dev-nav-settle) Release Guard toggle + level, now the drop-down: read once by the migration, never written
+    {"FM_ReleaseGuard", {PERSISTENT | BACKUP, BOOL}},
+    {"FM_ReleaseGuardMax", {PERSISTENT | BACKUP, INT}},
 
     // Rivian
     {"RivianResumeEnabled", {PERSISTENT | BACKUP, BOOL, "0"}},
