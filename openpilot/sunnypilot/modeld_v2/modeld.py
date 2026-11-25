@@ -41,6 +41,9 @@ from openpilot.selfdrive.modeld.modeld import ChestnutGpuState
 from openpilot.sunnypilot.modeld_v2.fill_model_msg import fill_model_msg, fill_pose_msg, PublishState, get_curvature_from_output
 from openpilot.sunnypilot.modeld_v2.parse_model_outputs import Parser
 from openpilot.sunnypilot.modeld_v2.blendful import Blendful
+from openpilot.sunnypilot.modeld_v2.fm_lateral_smoothing import (
+  PARAM_BIG_MODEL, PARAM_SMALL_MODEL, smooth_big_model_action, smoothing_override,
+)
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_lane_keep_mode import MODE_BLENDFUL, get_lane_keep_mode
 from openpilot.sunnypilot.modeld_v2.constants import ModelConstants, Plan
 from openpilot.sunnypilot.modeld_v2.meta_helper import load_meta_constants
@@ -102,7 +105,9 @@ class ModelState(ModelStateBase):
     self.generation = model_bundle.generation if model_bundle is not None else None
     overrides = {override.key: override.value for override in model_bundle.overrides} if model_bundle else {}
 
-    self.LAT_SMOOTH_SECONDS = float(overrides.get('lat', ".0"))
+    self.bundle_lat_smooth_seconds = float(overrides.get('lat', ".0"))
+    self.LAT_SMOOTH_SECONDS = self.bundle_lat_smooth_seconds
+    self.big_model_smoothing: float | None = None
     self.LONG_SMOOTH_SECONDS = float(overrides.get('long', ".0"))
     self.MIN_LAT_CONTROL_SPEED = 0.3
     self.PLANPLUS_CONTROL: float = 1.0
@@ -111,6 +116,10 @@ class ModelState(ModelStateBase):
     pkl_path = _find_driving_pkl(model_bundle)
     assert pkl_path is not None, f"No driving pkl found for {'chestnut' if chestnut else 'small model'} — all models must be compiled with compile_modeld.py"
     self._init_combined(pkl_path, cam_w, cam_h, model_bundle)
+
+  def apply_lateral_smoothing(self, params):
+    seconds = smoothing_override(params, PARAM_SMALL_MODEL)
+    self.LAT_SMOOTH_SECONDS = self.bundle_lat_smooth_seconds if seconds is None else seconds
 
   def _init_combined(self, pkl_path, cam_w, cam_h, bundle):
     cloudlog.warning(f"loading combined pkl: {pkl_path}")
@@ -251,9 +260,13 @@ class ModelState(ModelStateBase):
     stop = v_ego < 0.3 and desired_accel < 0.1
     desired_accel = smooth_value(desired_accel, prev_action.desiredAcceleration, self.LONG_SMOOTH_SECONDS)
 
-    if self.generation is not None and self.generation >= 10: # smooth curvature for post FOF models
+    # Keep the delay input tied to the bundle for big models, including with a filter override.
+    post_fof = self.generation is not None and self.generation >= 10
+    big_smoothing = getattr(self, "big_model_smoothing", None)
+    if post_fof or big_smoothing:
       if v_ego > self.MIN_LAT_CONTROL_SPEED:
-        desired_curvature = smooth_value(desired_curvature, prev_action.desiredCurvature, self.LAT_SMOOTH_SECONDS)
+        seconds = self.LAT_SMOOTH_SECONDS if big_smoothing is None else big_smoothing
+        desired_curvature = smooth_value(desired_curvature, prev_action.desiredCurvature, seconds)
       else:
         desired_curvature = prev_action.desiredCurvature
 
@@ -390,6 +403,11 @@ def main(demo=False):
   RELC = RoadEdgeLaneChangeController()
   blendful = Blendful()
   blendful_enabled = False
+  big_model_smoothing = smoothing_override(params, PARAM_BIG_MODEL)
+  if small_model is not None:
+    small_model.apply_lateral_smoothing(params)
+  if isinstance(model, ModelState) and model.chestnut:
+    model.big_model_smoothing = big_model_smoothing
 
   while True:
     # Keep receiving frames until we are at least 1 frame ahead of previous extra frame
@@ -434,6 +452,12 @@ def main(demo=False):
       model.PLANPLUS_CONTROL = params.get("PlanplusControl", return_default=True)
       camera_offset_helper.set_offset(params.get("CameraOffset", return_default=True))
       blendful_enabled = get_lane_keep_mode(params) == MODE_BLENDFUL  # FM Pilot: the Lane Keeping selector picks Blendful
+      big_model_smoothing = smoothing_override(params, PARAM_BIG_MODEL)
+      # Jetlink delegates reads to the active model, but writes stay on its wrapper.
+      if small_model is not None:
+        small_model.apply_lateral_smoothing(params)
+      if isinstance(model, ModelState) and model.chestnut:
+        model.big_model_smoothing = big_model_smoothing
     lat_delay = model.lat_delay + model.LAT_SMOOTH_SECONDS
     if sm.updated["extrinsicsCalibration"] and sm.seen['narrowRoadCameraState'] and sm.seen['deviceState']:
       device_from_calib_euler = np.array(sm["extrinsicsCalibration"].rpyCalib, dtype=np.float32)
@@ -513,6 +537,9 @@ def main(demo=False):
       blendful_active = desire == log.Desire.none and DH.lane_change_state == log.LaneChangeState.off
       action = model.get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego,
                                            partial(blendful.update, model_output, v_ego, blendful_active, enabled=blendful_enabled))
+      # A Jetlink swap happens inside run(), so check which model produced this frame after inference.
+      if not isinstance(model, ModelState):
+        smooth_big_model_action(action, prev_action, model, big_model_smoothing)
       prev_action = action
       fill_model_msg(drivingdata_send, modelv2_send, model_output, action,
                      publish_state, meta_main.frame_id, meta_extra.frame_id, frame_id,

@@ -144,3 +144,19 @@ def _low_speed_correction(params):
   value = min(max(int(OLD_GAIN_PERCENT_DEFAULT if old is None else old), 40), 100) if on else 100
   written = put_if_unset(params, "FM_LowSpeedCorrectionStrength", value)
   return f"FM_LowSpeedCorrectionStrength {value} (on {on}, percent {old})" + ("" if written else ", already set: kept")
+
+
+@migration("model_lateral_smoothing")
+def _model_lateral_smoothing(params):
+  """Copy each model size's old setting independently; 0.20 s becomes 0.10 s."""
+  from openpilot.sunnypilot.modeld_v2.fm_lateral_smoothing import (
+    MODEL_DEFAULT, PARAM_BIG_MODEL, PARAM_SMALL_MODEL, TENTH_SECOND, ZERO_SECONDS,
+  )
+  small = params.get("FM_LateralSmoothingEnabled")
+  big = params.get("FM_BigModelSmoothing")
+  if small is not None:
+    seconds = params.get("FM_LateralSmoothingSeconds")
+    small_mode = (ZERO_SECONDS if seconds == 0.0 else TENTH_SECOND) if small else MODEL_DEFAULT
+    put_if_unset(params, PARAM_SMALL_MODEL, small_mode)
+  if big is not None:
+    put_if_unset(params, PARAM_BIG_MODEL, TENTH_SECOND if big else MODEL_DEFAULT)

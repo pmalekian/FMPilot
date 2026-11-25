@@ -1008,7 +1008,48 @@
           "id": "fm_model_smoothing",
           "title": "Model Lateral Smoothing",
           "description": "FM Pilot - how much the model's steering request is smoothed, for small and big models",
-          "items": []
+          "items": [
+            {
+              "key": "FM_SmallModelSmoothingMode",
+              "widget": "multiple_button",
+              "title": "Small Models",
+              "description": "Model Default uses the model bundle. Higher smoothing makes steering calmer and reads slightly farther ahead in the model plan, so it can steer a little earlier.",
+              "options": [
+                {
+                  "value": 0,
+                  "label": "Model Default"
+                },
+                {
+                  "value": 1,
+                  "label": "0.00 s"
+                },
+                {
+                  "value": 2,
+                  "label": "0.10 s"
+                }
+              ]
+            },
+            {
+              "key": "FM_BigModelSmoothingMode",
+              "widget": "multiple_button",
+              "title": "Big Models",
+              "description": "Model Default uses the model\u2019s own behavior. 0.10 s smooths the steering request and can make it respond about 0.1 s later. Prediction timing stays the same.",
+              "options": [
+                {
+                  "value": 0,
+                  "label": "Model Default"
+                },
+                {
+                  "value": 1,
+                  "label": "0.00 s"
+                },
+                {
+                  "value": 2,
+                  "label": "0.10 s"
+                }
+              ]
+            }
+          ]
         },
         {
           "id": "fm_turns",

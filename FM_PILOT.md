@@ -35,6 +35,7 @@ Added PR by PR; each row names its settings (Sunnylink page), code and default.
 | Lane Keeping selector: one choice of Off, Lane Centering (AP's), Lane Guard or Blendful, so two never run together. The device's Lane Centering toggle still turns Lane Centering on and off | `FM_LaneKeepMode` drop-down (Steering > Lane Centering) | `sunnypilot/selfdrive/controls/lib/fm_lane_keep_mode.py`, `lane_centering.py`, `modeld_v2/modeld.py`, `ui_state.py`, `webrtcd.py` | Off |
 | Lane Guard (from gerrylum's rx-wb, Rivian tune): a small correction only when the planned path brings the body too close to a lane line (in curves) or a road edge; fades out while you steer, pauses around lane changes. Added to the request after lane centering, before AP's off-tracking | Lane Keeping = Lane Guard | `selfdrive/controls/lib/lane_guard.py`, `sunnypilot/selfdrive/controls/lib/fm_lateral.py`, `controlsd.py` | Off |
 | Blendful (sunnypilot's): works from 0.3 m/s instead of 5 m/s, so it centers in slow traffic; the comma 4 draws only its blue center line (no readout), only while it's selected | Lane Keeping = Blendful | `sunnypilot/modeld_v2/blendful.py`, `selfdrive/ui/sunnypilot/onroad/blendful.py`, `mici/onroad/model_renderer.py` | Off |
+| Model Lateral Smoothing: the small-model choice sets the curvature filter and the plan look-ahead offset. The big-model choice sets only the curvature filter, including on Chestnut or Jetlink | `FM_SmallModelSmoothingMode`, `FM_BigModelSmoothingMode`: Model Default / 0.00 s / 0.10 s (Steering > Model Lateral Smoothing) | `modeld_v2/fm_lateral_smoothing.py`, both modelds | Model Default |
 | Rivian steerLimitTimer 0.8 s (AP 0.4): the steering-required alert and anything reading steerSaturated wait 0.8 s of saturation | none | `opendbc/car/rivian/interface.py` | always |
 | Off-tracking near-zero curvature crash fix: AP's rear off-tracking is worked in curvature, so a curvature below ~1e-154 can no longer raise OverflowError in controlsd; same result everywhere else | none | `sunnypilot/selfdrive/controls/lib/rivian_offtrack.py` | always |
 | Quiet road-edge block: the road-edge lane change block is a small gray message with no sound instead of the orange alert and beep. Folded (was `FM_QuietRoadEdgeBlock`) | none (always on) | `selfdrived.py`, `sunnypilot/selfdrive/selfdrived/events.py` (`fmLaneChangeRoadEdgeQuiet`) | always |
@@ -73,6 +74,7 @@ change keep their keys.
 | Low-Speed Feedforward (`FM_LowSpeedFFLeft`, `FM_LowSpeedFFRight`) | `FM_LowSpeedFFEnabled` off -> both Off; on -> `FM_LowSpeedFFStepLeft` / `FM_LowSpeedFFStepRight` (0-4; unset -> Gentle) |
 | Low-Speed Correction Strength (`FM_LowSpeedCorrectionStrength`) | `FM_LowSpeedGainEnabled` off -> 100; on -> `FM_LowSpeedGainPercent` (40-100; unset -> 70) |
 | Release Guard (`FM_ReleaseGuardLimit`) | `FM_ReleaseGuard` off -> Stock (0); on -> `FM_ReleaseGuardMax` (75 / 150; unset -> 150) |
+| Model Lateral Smoothing (`FM_SmallModelSmoothingMode`, `FM_BigModelSmoothingMode`) | Small: `FM_LateralSmoothingEnabled` off -> Model Default, on -> `FM_LateralSmoothingSeconds` 0.00 -> 0.00 s, 0.10 or 0.20 (or unset) -> 0.10 s. Big: `FM_BigModelSmoothing` off -> Model Default, on -> 0.10 s |
 | Max Torque (`FM_CustomMaxTorque`) | `FM_PandaHighTorque` off -> 385; on -> `FM_MaxTorque` rounded to the 15 grid (580 -> 580; unset -> the old default 480 -> 475). Faster ramp, full cap past 90° and the Higher Torque mode are folded, nothing copied |
 
 ## Settings pages
@@ -96,5 +98,6 @@ choice of the Lane Keeping selector.
   (`selfdrive/controls/lib/lane_guard.py` and its tests). The selector and its wiring are FM Pilot's.
 - **Blendful**: sunnypilot #2073 (James Vecellio-Grant / Discountchubbs, MIT); FM changes only its minimum speed
   (0.3 m/s, the value its author runs) and what the comma 4 draws.
+- **Big-model lateral smoothing**: zoompilot's BigModelSmoothing, Zeph Leggett, `zoompilot/zoompilot` `6cb59d3` (MIT).
 - Credits for each borrowed feature are added with the PR that ports it.
 - Everything else here is FM Pilot's own, built on AdventurePilot, sunnypilot and openpilot (MIT).
