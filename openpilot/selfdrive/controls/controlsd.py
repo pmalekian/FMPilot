@@ -47,7 +47,7 @@ class Controls(ControlsExt):
     self.sm = messaging.SubMaster(['lateralDelay', 'vehicleParameters', 'lateralTorqueParameters', 'modelV2', 'selfdriveState',
                                    'extrinsicsCalibration', 'deviceMotion', 'longitudinalPlan', 'lateralManeuverPlan', 'carState', 'carOutput',
                                    'driverMonitoringState', 'onroadEvents', 'driverAssistance'] + self.sm_services_ext +
-                                  ['modelDataV2SP'],  # FM Pilot: the active turn desire, for Turn Assist (fm_lateral.py)
+                                  ['modelDataV2SP', 'fmModel'],  # FM Pilot: the turn desire and Queue Guard, for Turn Assist
                                   poll='selfdriveState')
     self.pm = messaging.PubMaster(['carControl', 'controlsState'] + self.pm_services_ext)
 
