@@ -17,6 +17,7 @@ Each feature PR that reshapes a setting adds its migration here with @migration(
 """
 from collections.abc import Callable
 
+from opendbc.sunnypilot.car.rivian.values import MAX_TORQUE_MIN, max_torque_grid
 from openpilot.common.swaglog import cloudlog
 
 FLAG = "FM_SyncMigration"
@@ -67,3 +68,21 @@ def run(params, migrations=None) -> list[str]:
   if ran:
     params.put(FLAG, ",".join(sorted(finished)), block=True)
   return ran
+
+
+# --- mappings, one per reshaped setting (registered at import, run in this order) ---
+
+OLD_MAX_TORQUE_DEFAULT = 480  # fm-dev-nav-settle's FM_MaxTorque default
+
+
+@migration("max_torque")
+def _max_torque(params):
+  """Max Torque: Panda Allows Higher Torque off -> 385; on -> Max Torque rounded to the 15 grid (580 -> 580). Faster
+  Torque Ramp, Full Torque Past 90 and Higher Torque mode are folded into it, so nothing else is copied."""
+  panda = params.get("FM_PandaHighTorque")
+  if panda is None:
+    return "no old setting"
+  old = params.get("FM_MaxTorque")
+  value = max_torque_grid(OLD_MAX_TORQUE_DEFAULT if old is None else old) if panda else MAX_TORQUE_MIN
+  written = put_if_unset(params, "FM_CustomMaxTorque", value)
+  return f"FM_CustomMaxTorque {value} (panda {panda}, FM_MaxTorque {old})" + ("" if written else ", already set: kept")
