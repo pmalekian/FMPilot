@@ -8,6 +8,7 @@ from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.selfdrive.ui.mici.layouts.settings.initial_cruise_speed import InitialCruiseSpeedButton
 
 PERSONALITY_TO_INT = log.LongitudinalPersonality.schema.enumerants
+ACCEL_BOOST_OPTIONS = ("off", "gas", "sunny boost", "evp set speed", "ap accel control", "op personality")  # FM_AccelBoostMode 0-5
 
 
 class TogglesLayoutMici(NavScroller):
@@ -22,7 +23,10 @@ class TogglesLayoutMici(NavScroller):
     self._initial_cruise_speed = InitialCruiseSpeedButton()
     self._initial_cruise_speed.set_visible(lambda: ui_state.CP is not None and ui_state.has_longitudinal_control and not ui_state.CP.pcmCruise)
     self._curve_speed_toggle = BigParamControl("curve speed control", "CurveSpeedControl")
-    self._acceleration_control_toggle = BigParamControl("acceleration control", "AccelerationControl")
+    # FM Pilot: AP's Acceleration Control is one option of the Accel Boost picker (FM_AccelBoostMode, fm_accel_boost_mode.py)
+    self._accel_boost_picker = BigMultiParamToggle("accel boost", "FM_AccelBoostMode", list(ACCEL_BOOST_OPTIONS),
+                                                   description="One boost on top of the model's acceleration, or off.\n" +
+                                                               "Details in sunnylink: Cruise > Accel Boost.")
     is_metric_toggle = BigToggle("use metric units", initial_state=ui_state.params.get_bool("IsMetric"), toggle_callback=self._on_metric_toggle)
     ldw_toggle = BigParamControl("lane departure warnings", "IsLdwEnabled",
                                  description="Warn when you drift across a detected lane line.\n" +
@@ -45,7 +49,7 @@ class TogglesLayoutMici(NavScroller):
       self._personality_toggle,
       self._initial_cruise_speed,
       self._curve_speed_toggle,
-      self._acceleration_control_toggle,
+      self._accel_boost_picker,
       is_metric_toggle,
       ldw_toggle,
       always_on_dm_toggle,
@@ -58,7 +62,6 @@ class TogglesLayoutMici(NavScroller):
     # Toggle lists
     self._refresh_toggles = (
       ("CurveSpeedControl", self._curve_speed_toggle),
-      ("AccelerationControl", self._acceleration_control_toggle),
       ("IsMetric", is_metric_toggle),
       ("IsLdwEnabled", ldw_toggle),
       ("AlwaysOnDM", always_on_dm_toggle),
@@ -104,10 +107,9 @@ class TogglesLayoutMici(NavScroller):
     # refresh loop below mirrors the param back into the widget when it's shown again.
     if ui_state.CP is not None:
       long_avail = ui_state.has_longitudinal_control
-      for w in (self._personality_toggle, self._curve_speed_toggle, self._acceleration_control_toggle):
+      for w in (self._personality_toggle, self._curve_speed_toggle, self._accel_boost_picker):
         w.set_visible(long_avail)
-      # like the sunnylink setting, Acceleration Control only changes while parked
-      self._acceleration_control_toggle.set_enabled(lambda: ui_state.is_offroad())
+    self._accel_boost_picker._load_value()  # FM Pilot: mirror a mode picked in sunnylink
 
     # Refresh toggles from params to mirror external changes
     for key, item in self._refresh_toggles:

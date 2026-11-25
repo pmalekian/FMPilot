@@ -262,3 +262,36 @@ class TestModelLateralSmoothing(OpenpilotTestCase):
                           FM_LateralSmoothingEnabled=True, FM_BigModelSmoothing=True)
     assert params.get("FM_SmallModelSmoothingMode") == 0
     assert params.get("FM_BigModelSmoothingMode") == 1
+
+
+class TestAccelBoostMode(OpenpilotTestCase):
+  KEYS = ("FM_AccelBoostMode", "AccelBoostSP", "AccelerationControl", FLAG)
+
+  def migrate(self, **values):
+    params = Params()
+    for key in self.KEYS:
+      params.remove(key)
+    for key, value in values.items():
+      params.put(key, value, block=True)
+    assert run(params, [m for m in fm_migration.MIGRATIONS if m[0] == "accel_boost_mode"]) == ["accel_boost_mode"]
+    return params
+
+  def test_old_values_are_kept_and_read_the_same(self):
+    from opendbc.car import structs
+    from openpilot.sunnypilot.selfdrive.controls.lib.fm_accel_boost_mode import FmAccelBoostMode
+    for old in (0, 1, 2, 3):  # fm-dev-nav-settle: Off, Gas, Predictive (= Sunny Boost), Set Speed (= EVP Set Speed)
+      for sp, ac in ((False, False), (True, False), (True, True)):
+        params = self.migrate(FM_AccelBoostMode=old, AccelBoostSP=sp, AccelerationControl=ac)
+        assert params.get("FM_AccelBoostMode") == old
+        assert params.get("AccelBoostSP") is sp and params.get("AccelerationControl") is ac  # never written
+        assert FmAccelBoostMode(structs.CarParams(openpilotLongitudinalControl=True)).mode == old
+
+  def test_unset_with_acceleration_boost_alone_becomes_sunny_boost(self):
+    assert self.migrate(AccelBoostSP=True, AccelerationControl=False).get("FM_AccelBoostMode") == 2
+    assert self.migrate(AccelBoostSP=True).get("FM_AccelBoostMode") == 2
+
+  def test_unset_otherwise_stays_unset(self):
+    for values in ({}, {"AccelBoostSP": False}, {"AccelBoostSP": True, "AccelerationControl": True},
+                   {"AccelerationControl": True}, {"AccelBoostSP": False, "AccelerationControl": False}):
+      params = self.migrate(**values)
+      assert params.get("FM_AccelBoostMode") is None, values

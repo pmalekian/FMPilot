@@ -378,6 +378,11 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"FM_TurnHoldSteadyPeak", {PERSISTENT | BACKUP, BOOL}},
     // old (fm-dev-nav-settle) Carry Only at Turn-In, folded (always on with Finish Turn After Signal Cancels): never read
     {"FM_TurnCarryTurnInOnly", {PERSISTENT | BACKUP, BOOL}},
+    // Accel Boost picker: 0 Off, 1 Gas, 2 Sunny Boost, 3 EVP Set Speed, 4 AP Accel Control, 5 OP Personality. Same key as
+    // fm-dev-nav-settle, where 0-3 meant the same (its default was 1 Gas; fresh installs start Off here). The picker alone
+    // decides: sunnypilot's AccelBoostSP and AP's AccelerationControl toggles are hidden and not read by the planner.
+    {"FM_AccelBoostMode", {PERSISTENT | BACKUP, INT, "0"}},
+    {"FM_AccelBoostIndicator", {PERSISTENT | BACKUP, BOOL, "0"}},  // Boost bar on the comma 4 side panel (same key)
 
     // Rivian
     {"RivianResumeEnabled", {PERSISTENT | BACKUP, BOOL, "0"}},

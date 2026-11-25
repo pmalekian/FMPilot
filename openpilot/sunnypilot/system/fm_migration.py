@@ -160,3 +160,21 @@ def _model_lateral_smoothing(params):
     put_if_unset(params, PARAM_SMALL_MODEL, small_mode)
   if big is not None:
     put_if_unset(params, PARAM_BIG_MODEL, TENTH_SECOND if big else MODEL_DEFAULT)
+
+
+@migration("accel_boost_mode")
+def _accel_boost_mode(params):
+  """Accel Boost picker: same key as fm-dev-nav-settle, 0-3 mean the same there, so a stored mode is kept as it is.
+  Unset (a device that never ran fm-dev-nav-settle) with sunnypilot's Acceleration Boost on and AP's Acceleration Control
+  off -> Sunny Boost (2): the base ran exactly that boost alone. Acceleration Control on is left Off: the base ran it with
+  Gas Override Boost on top, which no single mode reproduces. A stored 0 is never changed (chosen on fm-dev-nav-settle)."""
+  from openpilot.sunnypilot.selfdrive.controls.lib.fm_accel_boost_mode import MODE_SUNNY, PARAM_MODE
+  mode = params.get(PARAM_MODE)
+  sp, ac = params.get("AccelBoostSP"), params.get("AccelerationControl")
+  toggles = f"AccelBoostSP {sp}, AccelerationControl {ac}, now not read"
+  if mode is not None:
+    return f"{PARAM_MODE} {mode} kept; {toggles}"
+  if sp and not ac:
+    put_if_unset(params, PARAM_MODE, MODE_SUNNY)
+    return f"{PARAM_MODE} {MODE_SUNNY} (Sunny Boost) from AccelBoostSP; {toggles}"
+  return f"{PARAM_MODE} unset (Off); {toggles}"

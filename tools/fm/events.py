@@ -7,7 +7,7 @@ usage: events.py rlog.zst [rlog.zst ...] [--each]
 from fmlog import load_drives, log_args, log_msg, model_name, params, version
 
 KEYS = ("FM_", "LaneCentering", "LaneGuardEnabled", "RivianOfftrack", "LaneTurn", "EnforceTorqueControl", "LagdToggle",
-        "NeuralNetworkLateralControl", "Blendful", "AccelerationControl")
+        "NeuralNetworkLateralControl", "Blendful", "AccelerationControl", "AccelBoostSP")
 WORDS = ("fault", "fm custom model", "loading combined pkl", "rivian", "lockout", "refus", "rack")
 
 

@@ -1,5 +1,9 @@
 """Actual planner selection/publication with a deterministic MPC output boundary.
 
+FM Pilot: the boost step is the Accel Boost picker now (fm_accel_boost_mode.py): "Acceleration Control on" is picker mode
+4 (AP Accel Control), "off" mode 0 (Off). The base's AccelBoostSP / AccelerationControl selection tests became picker
+tests (one boost at a time; the toggles are not read), and every mode's published accelBoost is checked.
+
 The generated MPC optimizer and unrelated SP controllers are seams. The production
 planner update, cruise limiter, plan interpolation, AccelBoost, AccelerationControl,
 min-selection, clipping and both publishers execute unchanged. No road/replay claim.
@@ -15,10 +19,14 @@ from openpilot.cereal import log, custom
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.common.realtime import DT_MDL
 from openpilot.selfdrive.controls.lib.longitudinal_planner import LongitudinalPlanner, T_IDXS_MPC
-from openpilot.selfdrive.controls.lib.accel_boost import AccelBoost
-from openpilot.sunnypilot.selfdrive.controls.lib.accel_boost import AccelBoostSP
+from openpilot.sunnypilot.selfdrive.controls.lib.accel_boost import ACCEL_BOOST_MAX as SUNNY_MAX
+from openpilot.sunnypilot.selfdrive.controls.lib.acceleration_control import ACCELERATION_CONTROL_BOOST
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_accel_boost_mode import (
+  MODES, MODE_AP_ACCEL_CONTROL, MODE_GAS, MODE_OFF, MODE_OP_PERSONALITY, MODE_SUNNY, PARAM_MODE, READ_FRAMES, FmAccelBoostMode,
+)
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_op_personality_boost import ACCEL_BOOST as OP_MAX
 from openpilot.sunnypilot.selfdrive.controls.lib.longitudinal_planner import LongitudinalPlannerSP
-from openpilot.sunnypilot.selfdrive.controls.lib.tests.test_acceleration_control import _assist, _sm
+from openpilot.sunnypilot.selfdrive.controls.lib.tests.test_acceleration_control import _sm
 
 Source = log.LongitudinalPlan.LongitudinalPlanSource
 SP_UPDATE = LongitudinalPlannerSP.update  # _planner stubs it; the boost selection tests need the real one
@@ -62,7 +70,16 @@ class Publisher:
       self.messages[service] = decoded.to_dict()[service]
 
 
-def _planner(monkeypatch, raw, cruise, lead, enabled=True):
+class ModeParams:
+  def __init__(self, mode):
+    self.mode = mode
+
+  def get(self, key, return_default=False):
+    assert key == PARAM_MODE
+    return self.mode
+
+
+def _planner(monkeypatch, raw, cruise, lead, enabled=True, mode=None):
   # Isolate unrelated controllers without replacing update's selection algorithms.
   monkeypatch.setattr(LongitudinalPlannerSP, 'update', lambda self, sm: None)
   monkeypatch.setattr(LongitudinalPlannerSP, 'update_targets',
@@ -70,8 +87,8 @@ def _planner(monkeypatch, raw, cruise, lead, enabled=True):
   planner = object.__new__(LongitudinalPlanner)
   planner.CP = structs.CarParams(openpilotLongitudinalControl=True, longitudinalActuatorDelay=0.35)
   planner.mpc = DeterministicMPC(lead)
-  planner.accel_boost = AccelBoost()
-  planner.acceleration_control = _assist(enabled=enabled)
+  mode = (MODE_AP_ACCEL_CONTROL if enabled else MODE_OFF) if mode is None else mode
+  planner.accel_boost = FmAccelBoostMode(planner.CP, ModeParams(mode))
   # curve control's lateral throttle interlock, inactive
   planner.scc = SimpleNamespace(governor=SimpleNamespace(throttle_scale=lambda: 1.0))
   planner.dt = DT_MDL
@@ -148,64 +165,78 @@ def test_parent_to_sp_requested_telemetry_and_disable(monkeypatch, cruise, lead)
   assert pm.messages['longitudinalPlanSP']['accelerationControlBoostRequested'] == 0
 
 
-class BoolParams:
-  def __init__(self, value):
-    self.value = value
-
-  def get_bool(self, key):
-    return self.value
-
-
-def _planner_with_boost_selection(monkeypatch, acceleration_control, predictive_boost):
-  """A whole planner frame with the real selection step, both real boosts, and a model that wants the boost."""
-  planner, sm = _planner(monkeypatch, 0.1, 1, 1, acceleration_control)
+def _planner_with_mode(monkeypatch, mode, personality=log.LongitudinalPersonality.standard):
+  """A whole planner frame with the real SP update and a model that wants every boost (no reason to slow, 25 m/s)."""
+  planner, sm = _planner(monkeypatch, 0.1, 1, 1, mode=mode)
   monkeypatch.setattr(LongitudinalPlannerSP, 'update', SP_UPDATE)
-  planner.accel_boost_sp = AccelBoostSP()
-  planner.accel_boost_sp.params = BoolParams(predictive_boost)
-  planner.openpilot_longitudinal = True
   planner.events_sp = SimpleNamespace(clear=lambda: None)
   planner.e2e_alerts_helper = SimpleNamespace(update=lambda sm, events: None)
   probs = [0.0, 0.05, 0.0, 0.0, 0.0, 0.0]
   sm['modelV2'] = log.ModelDataV2.new_message(action={'desiredAcceleration': 0.1},
                                               meta={'disengagePredictions': {'brakePressProbs': probs, 'gasPressProbs': probs}})
+  sm['selfdriveState'].personality = personality
   return planner, sm
 
 
-def _published_boost(planner, sm):
+def _publish(planner, sm):
   _publication_fields(planner)
   pm = Publisher()
   planner.publish(sm, pm)
-  return pm.messages['longitudinalPlan']['accelBoost']
+  return pm.messages
 
 
-def test_acceleration_control_keeps_predictive_boost_out_of_the_whole_frame(monkeypatch):
-  planner, sm = _planner_with_boost_selection(monkeypatch, acceleration_control=True, predictive_boost=True)
+def test_ap_accel_control_alone_in_the_whole_frame(monkeypatch):
+  planner, sm = _planner_with_mode(monkeypatch, MODE_AP_ACCEL_CONTROL)
   for _ in range(60):
     planner.update(sm)
-    assert type(planner.accel_boost) is AccelBoost
-    # the model's 0.1 plus Acceleration Control's 0.2 for Standard, and nothing from predictive boost
+    # the model's 0.1 plus Acceleration Control's 0.2 for Standard, and nothing from any other boost
     assert planner.output_a_target <= 0.3 + 1e-6
   assert planner.output_a_target == pytest.approx(0.3, abs=1e-6)
-  assert _published_boost(planner, sm) == 0
+  msgs = _publish(planner, sm)
+  assert msgs['longitudinalPlan']['accelBoost'] == pytest.approx(0.2, abs=1e-6)  # the bar's field: what it added
+  assert msgs['longitudinalPlanSP']['accelerationControlBoostRequested'] == pytest.approx(0.2)
+  assert msgs['fmPlan']['accelBoostMode'] == 'apAccelControl'
 
 
-def test_predictive_boost_runs_with_acceleration_control_off(monkeypatch):
-  planner, sm = _planner_with_boost_selection(monkeypatch, acceleration_control=False, predictive_boost=True)
+def test_sunny_boost_alone_in_the_whole_frame(monkeypatch):
+  planner, sm = _planner_with_mode(monkeypatch, MODE_SUNNY)
   for _ in range(60):
     planner.update(sm)
-  assert planner.accel_boost is planner.accel_boost_sp
   # Standard's 0.25 m/s^2 on the model's 0.1, reached at 0.2 m/s^3 well inside 3 s
   assert planner.output_a_target == pytest.approx(0.35, abs=1e-6)
-  assert _published_boost(planner, sm) == pytest.approx(0.25, abs=1e-6)
+  msgs = _publish(planner, sm)
+  assert msgs['longitudinalPlan']['accelBoost'] == pytest.approx(SUNNY_MAX[1], abs=1e-6)
+  assert msgs['longitudinalPlanSP']['accelerationControlBoostRequested'] == 0
+  assert msgs['fmPlan']['accelBoostMode'] == 'sunnyBoost'
 
 
-def test_acceleration_control_turned_off_mid_drive_stays_on_comma_boost(monkeypatch):
-  planner, sm = _planner_with_boost_selection(monkeypatch, acceleration_control=True, predictive_boost=True)
+def test_switching_from_ap_to_gas_mid_drive_drops_the_lift(monkeypatch):
+  planner, sm = _planner_with_mode(monkeypatch, MODE_AP_ACCEL_CONTROL)
   for _ in range(5):
     planner.update(sm)
-  planner.acceleration_control.params = BoolParams(False)
-  for _ in range(60):
+  planner.accel_boost.params = ModeParams(MODE_GAS)
+  for _ in range(READ_FRAMES + 1):
     planner.update(sm)
-  assert not planner.acceleration_control.enabled
-  assert type(planner.accel_boost) is AccelBoost
-  assert planner.output_a_target == pytest.approx(0.1, abs=1e-6)
+  assert planner.accel_boost.mode == MODE_GAS
+  assert planner.output_a_target == pytest.approx(0.1, abs=1e-6)  # no gas press: Gas Override Boost adds nothing
+
+
+@pytest.mark.parametrize('mode', MODES)
+def test_boost_bar_field_for_every_mode(monkeypatch, mode):
+  """longitudinalPlan.accelBoost is what the picked mode added to the model's target this frame, in every mode."""
+  planner, sm = _planner_with_mode(monkeypatch, mode, personality=log.LongitudinalPersonality.aggressive)
+  sm['carState'].vCruise = 40 * 3.6  # far above: the cruise ramp leaves room for EVP Set Speed
+  planner.a_cruise = 2.0
+  for frame in range(200):
+    sm['carState'].gasPressed = 20 <= frame < 100  # Gas Override Boost builds only while the driver presses the gas
+    planner.update(sm)
+  msgs = _publish(planner, sm)
+  boost = msgs['longitudinalPlan']['accelBoost']
+  assert boost == pytest.approx(planner.accel_boost.applied)
+  expected = {MODE_OFF: 0.0, MODE_SUNNY: SUNNY_MAX[0], MODE_AP_ACCEL_CONTROL: ACCELERATION_CONTROL_BOOST[0], MODE_OP_PERSONALITY: OP_MAX[0]}
+  if mode in expected:
+    assert boost == pytest.approx(expected[mode], abs=1e-6)
+  else:  # Gas: some of one override's 0.05; EVP Set Speed: toward its 0.7 cap
+    assert boost > 0.0
+  names = {v: k for k, v in custom.FmPlan.AccelBoostMode.schema.enumerants.items()}
+  assert msgs['fmPlan']['accelBoostMode'] == names[mode]
