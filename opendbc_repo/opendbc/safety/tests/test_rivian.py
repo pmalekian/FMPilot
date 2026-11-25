@@ -211,7 +211,7 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.DriverTorqueSteeringSafe
     """FM Pilot: openpilot may ask past 1.0 (Headroom). Whatever it asks, the controller must stay inside the panda's
     limit at every speed and reach the cap: AP's curve at 385, the higher curve above it."""
     cap_at = self._fm_lookup()
-    for speed in (0.5, 4.0, 8.0, 9.0, 12.0, 13.0, 17.0, 21.0, 25.0, 27.0, 33.0):
+    for speed in self.FM_SPEEDS:
       for sign in (1.0, -1.0):
         self._torque_loop_setup(angle=30.0, speed=speed)
         peak = 0
@@ -314,6 +314,8 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.DriverTorqueSteeringSafe
   ENHANCED_MADS = False
   # FM Pilot "Max Torque" (385 = stock AP: nothing sent)
   MAX_TORQUE_SETTING = 385
+  # speeds (m/s) the real controller is run against the panda at; around every breakpoint of both curves
+  FM_SPEEDS = (0.5, 4.0, 8.0, 9.0, 12.0, 13.0, 17.0, 21.0, 25.0, 27.0, 33.0)
 
   def _max_torque_param_sp(self):
     level = max_torque_level(self.MAX_TORQUE_SETTING)
@@ -478,6 +480,7 @@ class TestRivianStockSafetyMaxTorque580(TestRivianStockSafety):
   MAX_TORQUE_SETTING = 580
   MAX_TORQUE_LOOKUP = [9, 25, 27], [580, 295, 275]
   MAX_RATE_UP = 5
+  FM_SPEEDS = tuple(sorted({float(x) for x in range(35)} | {0.5, 8.5, 9.5, 12.5, 16.5, 17.5, 24.5, 25.5}))  # 0-34 m/s at his setting
 
   def _rate_up_allowed(self, speed, step):
     for _ in range(6):
@@ -497,6 +500,22 @@ class TestRivianStockSafetyMaxTorque580(TestRivianStockSafety):
     self.assertTrue(self._rate_up_allowed(13.0, 3))
     self.assertFalse(self._rate_up_allowed(13.0, 4))
     self.assertFalse(self._rate_up_allowed(20.0, 4))
+
+  def test_fast_ramp_boundary(self):
+    self.assertTrue(self._rate_up_allowed(12.45, 5))
+    self.assertFalse(self._rate_up_allowed(12.5, 4))
+    self.assertTrue(self._rate_up_allowed(12.5, 3))
+
+  def test_fast_ramp_waits_for_the_highest_recent_speed(self):
+    """braking from above the cutoff, the panda keeps the normal ramp until every recent speed sample is below it
+    (vehicle_speed.max), so a fast-ramp frame is never allowed early"""
+    self._rate_up_allowed(14.0, 3)  # fill the samples at 14 m/s
+    self.assertTrue(self._rx(self._speed_msg(11.0)))
+    self.assertTrue(self._rx(self._speed_msg_2(11.0)))
+    self.safety.set_desired_torque_last(100)
+    self.safety.set_rt_torque_last(100)
+    self.assertFalse(self._tx(self._torque_cmd_msg(105)))  # still 14 m/s among the recent samples
+    self.assertTrue(self._rate_up_allowed(11.0, 5))  # once they are all 11 m/s
 
   def test_fast_ramp_car_code_is_never_refused(self):
     """the real controller at 5 per frame from zero to the cap, through blips, stays inside the panda's checks"""
@@ -548,8 +567,8 @@ class TestRivianMaxTorqueGate(unittest.TestCase):
                      RivianSafetyFlagsSP.ENHANCED_MADS):
       packer, safety = self._safety(param_sp)
       self.assertTrue(self._allowed(safety, packer, 385), param_sp)
-      self.assertFalse(self._allowed(safety, packer, 387), param_sp)
-      self.assertFalse(self._allowed(safety, packer, -387), param_sp)
+      self.assertFalse(self._allowed(safety, packer, 386), param_sp)
+      self.assertFalse(self._allowed(safety, packer, -386), param_sp)
       self.assertTrue(self._allowed(safety, packer, 103, last=100), param_sp)
       self.assertFalse(self._allowed(safety, packer, 104, last=100), param_sp)  # AP's ramp
 
@@ -559,7 +578,8 @@ class TestRivianMaxTorqueGate(unittest.TestCase):
       packer, safety = self._safety(self._param(level))
       self.assertTrue(self._allowed(safety, packer, value), value)
       self.assertTrue(self._allowed(safety, packer, -value), value)
-      self.assertFalse(self._allowed(safety, packer, value + 2), value)
+      self.assertFalse(self._allowed(safety, packer, value + 1), value)
+      self.assertFalse(self._allowed(safety, packer, -value - 1), value)
       self.assertTrue(self._allowed(safety, packer, 105, last=100), value)  # the faster ramp
       self.assertFalse(self._allowed(safety, packer, 106, last=100), value)
 
