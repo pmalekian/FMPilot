@@ -48,6 +48,7 @@ from openpilot.sunnypilot import jetlink_adapter
 from openpilot.sunnypilot.modeld_v2.fm_lateral_smoothing import (
   PARAM_BIG_MODEL, PARAM_SMALL_MODEL, smooth_big_model_action, smoothing_override,
 )
+from openpilot.sunnypilot.modeld_v2.fm_pull_away import ACTION_SPEED_FLOOR, StraightPullAway
 
 SEND_RAW_PRED = os.getenv('SEND_RAW_PRED')
 
@@ -59,7 +60,8 @@ BIG_MODEL_TIMEOUT = 60
 
 def get_action_from_model(model_output: dict[str, np.ndarray], prev_action: log.ModelDataV2.Action,
                           lat_action_t: float, long_action_t: float, v_ego: float,
-                          *, lat_smooth_seconds: float = LAT_SMOOTH_SECONDS) -> log.ModelDataV2.Action:
+                          *, lat_smooth_seconds: float = LAT_SMOOTH_SECONDS,
+                          action_speed_floor: float = ACTION_SPEED_FLOOR) -> log.ModelDataV2.Action:
   if 'action' not in model_output:
     plan = model_output['plan'][0]
     desired_accel = get_accel_from_plan(plan[:,Plan.VELOCITY][:,0],
@@ -73,7 +75,7 @@ def get_action_from_model(model_output: dict[str, np.ndarray], prev_action: log.
                                                 lat_action_t)
   else:
     desired_accel = model_output['action'][0,1]
-    desired_curvature = model_output['action'][0,0] / (max(1.0, v_ego))**2
+    desired_curvature = model_output['action'][0,0] / max(action_speed_floor, v_ego)**2
   stop = should_stop(v_ego, desired_accel)
   desired_accel = smooth_value(desired_accel, prev_action.desiredAcceleration, LONG_SMOOTH_SECONDS)
   if v_ego > MIN_LAT_CONTROL_SPEED:
@@ -356,6 +358,8 @@ def main(demo=False):
   RELC = RoadEdgeLaneChangeController()
   big_model_smoothing = smoothing_override(params, PARAM_BIG_MODEL)
   small_model_smoothing = smoothing_override(params, PARAM_SMALL_MODEL, LAT_SMOOTH_SECONDS)
+  pull_away = StraightPullAway()
+  pull_away.read_params(params)
 
   while True:
     # Keep receiving frames until we are at least 1 frame ahead of previous extra frame
@@ -394,11 +398,14 @@ def main(demo=False):
     desire = DH.desire
     is_rhd = sm["driverMonitoringState"].isRHD
     frame_id = sm["narrowRoadCameraState"].frameId
-    v_ego = max(sm["carState"].vEgo, 0.)
+    car_state = sm["carState"]
+    v_ego = max(car_state.vEgo, 0.)
     model.lat_delay = get_lat_delay(params, sm["lateralDelay"].lateralDelay)
     if sm.frame % 60 == 0:
       big_model_smoothing = smoothing_override(params, PARAM_BIG_MODEL)
       small_model_smoothing = smoothing_override(params, PARAM_SMALL_MODEL, LAT_SMOOTH_SECONDS)
+      pull_away.read_params(params)
+    action_speed_floor = pull_away.speed_floor(v_ego, car_state, desire != log.Desire.none)
     lat_delay = sm["lateralDelay"].lateralDelay + (LAT_SMOOTH_SECONDS if model.chestnut else small_model_smoothing)
     if sm.updated["extrinsicsCalibration"] and sm.seen['narrowRoadCameraState'] and sm.seen['deviceState']:
       device_from_calib_euler = np.array(sm["extrinsicsCalibration"].rpyCalib, dtype=np.float32)
@@ -471,7 +478,8 @@ def main(demo=False):
       if not sm['carControl'].latActive:
         prev_action.desiredCurvature = sm['controlsState'].curvature
       seconds = LAT_SMOOTH_SECONDS if model.chestnut else small_model_smoothing
-      action = get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego, lat_smooth_seconds=seconds)
+      action = get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego,
+                                     lat_smooth_seconds=seconds, action_speed_floor=action_speed_floor)
       smooth_big_model_action(action, prev_action, model, big_model_smoothing)
       prev_action = action
       fill_model_msg(modelv2_send, model_output, action,

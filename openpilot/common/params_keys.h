@@ -329,6 +329,8 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"FM_LowSpeedFFLeft", {PERSISTENT | BACKUP, INT, "0"}},   // Low-Speed Feedforward, left turns: 0 Off, 1 Gentle, 2 Medium, 3 Firm, 4 Full
     {"FM_LowSpeedFFRight", {PERSISTENT | BACKUP, INT, "0"}},  // right turns, same steps
     {"FM_LowSpeedCorrectionStrength", {PERSISTENT | BACKUP, INT, "100"}},  // 40-100 %, 100 = stock
+    {"FM_LowSpeedCurvatureFloor", {PERSISTENT | BACKUP, BOOL, "0"}},
+    {"FM_StraightPullAwayFloor", {PERSISTENT | BACKUP, BOOL, "0"}},
     // old (fm-dev-nav-settle) feedforward toggle + steps and Calmer Low-Speed Correction: read once by the migration
     {"FM_LowSpeedFFEnabled", {PERSISTENT | BACKUP, BOOL}},
     {"FM_LowSpeedFFStepLeft", {PERSISTENT | BACKUP, INT}},

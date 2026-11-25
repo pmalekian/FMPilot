@@ -26,18 +26,15 @@ class TestJetlinkSeam(GuardedTest, OpenpilotTestCase):
       assert check_seam(str(REPO / modeld)) == [], modeld
 
   def test_the_large_model_takes_modeld_v2s_action_call(self):
-    """modeld_v2 calls the model's get_action_from_model with its own arguments,
-    blendful sixth. The large model runs stock's function, whose sixth is
-    lat_smooth_seconds: the partial reached smooth_value() and modeld died
-    once the truck moved. Stock's must get modeld_v2's first five, no more.
-    """
+    """Forward the action floor to stock while keeping Blendful local to modeld_v2."""
     from openpilot.sunnypilot.modeld_v2.modeld import ModelState
-    names = [name for name in inspect.signature(ModelState.get_action_from_model).parameters if name != 'self']
+    parameters = list(inspect.signature(ModelState.get_action_from_model).parameters.values())[1:]
+    args = [object() for param in parameters if param.kind == inspect.Parameter.POSITIONAL_OR_KEYWORD]
+    kwargs = {param.name: 2.5 for param in parameters if param.kind == inspect.Parameter.KEYWORD_ONLY}
     with mock.patch('openpilot.selfdrive.modeld.modeld.get_action_from_model') as stock:
       action = jetlink_adapter.adapter().action_function()
-      action(*[object() for _ in names])
-    args, kwargs = stock.call_args
-    assert len(args) == 5 and kwargs == {}
+      action(*args, **kwargs)
+    stock.assert_called_once_with(*args[:5], action_speed_floor=2.5)
 
   def test_every_hook_answers_as_the_link_off(self):
     assert check_fallback(jetlink_adapter._Off("why"), jetlink_adapter.HOOK_NAMES,

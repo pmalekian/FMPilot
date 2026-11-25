@@ -116,17 +116,13 @@ def _adapter_class():
       return ModelConstants
 
     def action_function(self):
-      # modeld_v2 calls model.get_action_from_model(output, prev_action,
-      # lat_action_t, long_action_t, v_ego, blendful), and stock's sixth
-      # parameter is lat_smooth_seconds: handed straight through, blendful's
-      # partial reached smooth_value() as the time constant and modeld died on
-      # the first frame above MIN_LAT_CONTROL_SPEED. The large model keeps
-      # stock's action path, smoothing included; blendful is the local
-      # bundle's
       from openpilot.selfdrive.modeld.modeld import get_action_from_model
+      from openpilot.sunnypilot.modeld_v2.fm_pull_away import ACTION_SPEED_FLOOR
 
-      def action(model_output, prev_action, lat_action_t, long_action_t, v_ego, blendful=None):
-        return get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego)
+      # The large model uses stock smoothing. Blendful belongs to the local bundle.
+      def action(model_output, prev_action, lat_action_t, long_action_t, v_ego, blendful=None, *, action_speed_floor=ACTION_SPEED_FLOOR):
+        return get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego,
+                                     action_speed_floor=action_speed_floor)
       return action
 
     # The large model is comma's, so the stock parser, constants and action path

@@ -1001,6 +1001,18 @@
                   "equals": "rivian"
                 }
               ]
+            },
+            {
+              "key": "FM_LowSpeedCurvatureFloor",
+              "widget": "toggle",
+              "title": "Calmer Crawl-Speed Steering",
+              "description": "Reduces steering requests from action-head models below 5.6 mph. This can calm twitchy steering near a stop and soften the start of tight turns. Off uses the stock floor."
+            },
+            {
+              "key": "FM_StraightPullAwayFloor",
+              "widget": "toggle",
+              "title": "Calmer Straight Pull-Away",
+              "description": "Reduces steering requests from action-head models when pulling away straight below 5.6 mph. A turn signal, turn request, or sustained steering input brings back the usual steering over half a second. Calmer Crawl-Speed Steering already applies this reduction whenever you are crawling."
             }
           ]
         },
