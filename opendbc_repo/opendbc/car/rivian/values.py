@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum, IntFlag
 
 from opendbc.car import Bus, CarSpecs, DbcDict, PlatformConfig, Platforms, structs, uds
+from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.docs_definitions import CarHarness, CarDocs, CarParts
 from opendbc.car.fw_query_definitions import FwQueryConfig, Request, StdQueries, p16
 from opendbc.car.vin import Vin
@@ -147,9 +148,21 @@ class CarControllerParams:
   # oversteer at mid speed); this halves the mid-speed bump and reverts low speed
   # to original. Knee moved 17 -> 27 m/s so modest help extends through ~55 mph.
   STEER_MAX_LOOKUP = [9, 13, 25, 27], [385, 350, 295, 275]
+
+  @staticmethod
+  def steer_max_lookup_high(cap: int):
+    """FM Pilot "Max Torque": the cap above 385 this drive, under 20 mph (9 m/s), back to the curve above by 17 m/s
+    (38 mph; 332 ~ the curve above there), identical from 25 m/s. The car code takes the larger of this and
+    STEER_MAX_LOOKUP. The panda's envelope [9,25,27] -> [cap,295,275] sits >= both at every speed for any cap >= 369
+    (at 17 m/s it is (cap+295)/2 >= 340). Shape from AP 5270cbba (Uncle-Tony, MIT), its 481 replaced by the setting."""
+    return [9, 17, 25, 27], [cap, 332, 295, 275]
   STEER_STEP = 1
   STEER_DELTA_UP = 3  # torque increase per refresh
   STEER_DELTA_DOWN = 5  # torque decrease per refresh
+  # FM Pilot: torque increase per refresh below FAST_RAMP_MAX_SPEED with Max Torque above 385 (the panda allows it
+  # below 12.5 m/s, about 28 mph)
+  STEER_DELTA_UP_FAST = 5
+  FAST_RAMP_MAX_SPEED = 25 * CV.MPH_TO_MS
   STEER_DRIVER_ALLOWANCE = 100  # allowed driver torque before start limiting
   STEER_DRIVER_MULTIPLIER = 2  # weight driver torque
   STEER_DRIVER_FACTOR = 100

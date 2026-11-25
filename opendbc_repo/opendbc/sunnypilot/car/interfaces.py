@@ -24,7 +24,7 @@ from opendbc.car.toyota.values import ToyotaSafetyFlags
 from opendbc.sunnypilot.car.hyundai.enable_radar_tracks import enable_radar_tracks as hyundai_enable_radar_tracks
 from opendbc.sunnypilot.car.hyundai.longitudinal.helpers import LongitudinalTuningType
 from opendbc.sunnypilot.car.hyundai.values import HyundaiFlagsSP
-from opendbc.sunnypilot.car.rivian.values import RivianFlagsSP, RivianSafetyFlagsSP
+from opendbc.sunnypilot.car.rivian.values import RivianFlagsSP, RivianSafetyFlagsSP, max_torque_level
 from opendbc.sunnypilot.car.subaru.values_ext import SubaruFlagsSP, SubaruSafetyFlagsSP
 from opendbc.sunnypilot.car.tesla.values import MadsScreenButtonType, TeslaFlagsSP, TeslaSafetyFlagsSP
 from opendbc.sunnypilot.car.toyota.values import ToyotaFlagsSP
@@ -116,6 +116,7 @@ def setup_interfaces(CI, CP: structs.CarParams, CP_SP: structs.CarParamsSP,
   _initialize_coop_steering(CP, CP_SP, params_dict)
   _initialize_tesla_mads_screen_button(CP, CP_SP, params_dict)
   _initialize_rivian_enhanced_mads(CP, CP_SP, params_dict)
+  _initialize_rivian_max_torque(CP, CP_SP, params_dict)
   _initialize_radar_tracks(CP, CP_SP, can_recv, can_send)
   _initialize_stop_and_go(CP, CP_SP, params_dict)
   _initialize_toyota(CP, CP_SP, params_dict)
@@ -166,6 +167,18 @@ def _initialize_rivian_enhanced_mads(CP: structs.CarParams, CP_SP: structs.CarPa
     if str(params_dict.get("RivianEnhancedMads", False)) in ("1", "True"):
       CP_SP.flags |= RivianFlagsSP.ENHANCED_MADS.value
       CP_SP.safetyParam |= RivianSafetyFlagsSP.ENHANCED_MADS
+
+
+def _initialize_rivian_max_torque(CP: structs.CarParams, CP_SP: structs.CarParamsSP,
+                                  params_dict: dict[str, str]) -> None:
+  # FM Pilot "Max Torque" (FM_CustomMaxTorque, 385-580): read once at onroad start so the panda and the car code use the
+  # same steering limit for the whole drive. 385 (stock AP) sets nothing. Above it the panda enforces exactly this level,
+  # and the car code adds the faster ramp and the full cap past 90 degrees.
+  if CP.brand == 'rivian':
+    level = max_torque_level(params_dict.get("FM_CustomMaxTorque", None))
+    if level >= 1:
+      CP_SP.flags |= RivianFlagsSP.HIGH_TORQUE_PANDA.value
+      CP_SP.safetyParam |= RivianSafetyFlagsSP.HIGH_TORQUE | (level << RivianSafetyFlagsSP.TORQUE_LEVEL_SHIFT)
 
 
 def _initialize_radar_tracks(CP: structs.CarParams, CP_SP: structs.CarParamsSP,

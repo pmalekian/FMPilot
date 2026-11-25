@@ -48,6 +48,14 @@ static uint32_t rivian_compute_checksum(const CANPacket_t *msg) {
 static uint8_t rivian_prev_user_adas_request = 0U;
 // "Use enhanced Rivian MADS" setting. Off, MADS here is stock: no stalk MADS toggle.
 static bool rivian_enhanced_mads = false;
+// FM Pilot "Max Torque", read once per drive from the safety param. Off (385, stock AP), the steering limits are AP's.
+// Above 385, the low-speed limit is rivian_high_torque_cap (385 + 15 * level, 400-580) and torque may rise 5 per frame
+// instead of 3 below RIVIAN_FAST_RAMP_MAX_SPEED. The envelope's shape is from AP 5270cbba (Uncle-Tony, MIT).
+static bool rivian_high_torque = false;
+static int rivian_high_torque_cap = 385;
+// The car code ramps faster only below 25 mph (11.2 m/s); the margin covers speed sensor differences. The 250 ms
+// real-time limit (125) is unchanged, so the most torque can build in 250 ms is unchanged.
+#define RIVIAN_FAST_RAMP_MAX_SPEED 12.5  // m/s, about 28 mph
 
 static bool rivian_get_quality_flag_valid(const CANPacket_t *msg) {
   bool valid = false;
@@ -149,6 +157,30 @@ static bool rivian_tx_hook(const CANPacket_t *msg) {
     .has_steer_req_tolerance = true,
   };
 
+  // FM Pilot "Max Torque": same limits with a higher low-speed envelope and the faster ramp. Envelope around the car
+  // code's high lookup ([9,17,25,27]->[cap,332,295,275]): sits >= it at every speed (cap at 9 m/s, (cap+295)/2 >= 340
+  // at 17, 295 at 25, 275 from 27) and >= AP's curve above. Real-time limit and driver-torque rules are unchanged.
+  // highest recent vehicle speed, so a speed rising past the limit gets the normal ramp right away
+  const bool fast_ramp = (vehicle_speed.max / VEHICLE_SPEED_FACTOR) < RIVIAN_FAST_RAMP_MAX_SPEED;
+  const TorqueSteeringLimits RIVIAN_STEERING_LIMITS_HIGH = {
+    .max_torque = rivian_high_torque_cap,
+    .dynamic_max_torque = true,
+    .max_torque_lookup = {
+      {9., 25., 27.},
+      {(float)rivian_high_torque_cap, 295, 275},
+    },
+    .max_rate_up = fast_ramp ? 5 : 3,
+    .max_rate_down = 5,
+    .max_rt_delta = 125,
+    .driver_torque_multiplier = 2,
+    .driver_torque_allowance = 100,
+    .type = TorqueDriverLimited,
+    .min_valid_request_frames = 89,
+    .max_invalid_request_frames = 2,
+    .min_valid_request_rt_interval = 810000,
+    .has_steer_req_tolerance = true,
+  };
+
   const LongitudinalLimits RIVIAN_LONG_LIMITS = {
     .max_accel = 200,
     .min_accel = -350,
@@ -162,7 +194,8 @@ static bool rivian_tx_hook(const CANPacket_t *msg) {
     int desired_torque = ((msg->data[2] << 3U) | (msg->data[3] >> 5U)) - 1024U;
     bool steer_req = (msg->data[3] >> 4) & 1U;
 
-    if (steer_torque_cmd_checks(desired_torque, steer_req, RIVIAN_STEERING_LIMITS)) {
+    const TorqueSteeringLimits limits = rivian_high_torque ? RIVIAN_STEERING_LIMITS_HIGH : RIVIAN_STEERING_LIMITS;
+    if (steer_torque_cmd_checks(desired_torque, steer_req, limits)) {
       tx = false;
     }
   }
@@ -211,6 +244,13 @@ static safety_config rivian_init(uint16_t param) {
 
   const uint16_t RIVIAN_PARAM_SP_ENHANCED_MADS = 1;
   rivian_enhanced_mads = GET_FLAG(current_safety_param_sp, RIVIAN_PARAM_SP_ENHANCED_MADS);
+  // FM Pilot "Max Torque": bit 1 says it is above 385; level 1-13 in bits 2-5 means 385 + 15 * level (400-580).
+  // Anything else keeps AP's limits.
+  const uint16_t RIVIAN_PARAM_SP_HIGH_TORQUE = 2;
+  const uint16_t rivian_torque_level = (current_safety_param_sp >> 2U) & 0xFU;
+  rivian_high_torque = GET_FLAG(current_safety_param_sp, RIVIAN_PARAM_SP_HIGH_TORQUE) &&
+                       (rivian_torque_level >= 1U) && (rivian_torque_level <= 13U);
+  rivian_high_torque_cap = rivian_high_torque ? (385 + (15 * (int)rivian_torque_level)) : 385;
   #ifdef ALLOW_DEBUG
     const int FLAG_RIVIAN_LONG_CONTROL = 1;
     rivian_longitudinal = GET_FLAG(param, FLAG_RIVIAN_LONG_CONTROL);
