@@ -225,3 +225,56 @@ class TestLaneKeepMode(OpenpilotTestCase):
   def test_old_keys_untouched(self):
     p = self.migrate(LaneGuardEnabled=True, Blendful=True)
     assert p.get("LaneGuardEnabled") is True and p.get("Blendful") is True
+
+
+class TestModelLateralSmoothing(OpenpilotTestCase):
+  """Small Model Smoothing: off -> Model Default (0), 0 -> 0.00 (1), 0.1/0.2 -> 0.10 (2); Big: off -> 0, on -> 2."""
+  KEYS = ("FM_SmallModelLatSmoothing", "FM_BigModelLatSmoothing", "FM_LateralSmoothingEnabled",
+          "FM_LateralSmoothingSeconds", "FM_BigModelSmoothing", FLAG)
+
+  def migrate(self, **old):
+    params = Params()
+    for k in self.KEYS:
+      params.remove(k)
+    for k, v in old.items():
+      params.put(k, v, block=True)
+    names = ("small_model_lat_smoothing", "big_model_lat_smoothing")
+    assert run(params, [m for m in fm_migration.MIGRATIONS if m[0] in names]) == list(names)
+    return params
+
+  def test_small_off_is_model_default(self):
+    assert self.migrate(FM_LateralSmoothingEnabled=False, FM_LateralSmoothingSeconds=0.1).get("FM_SmallModelLatSmoothing") == 0
+
+  def test_small_zero_maps_to_0_00(self):
+    assert self.migrate(FM_LateralSmoothingEnabled=True, FM_LateralSmoothingSeconds=0.0).get("FM_SmallModelLatSmoothing") == 1
+
+  def test_small_0_1_and_0_2_map_to_0_10(self):
+    assert self.migrate(FM_LateralSmoothingEnabled=True, FM_LateralSmoothingSeconds=0.1).get("FM_SmallModelLatSmoothing") == 2
+    assert self.migrate(FM_LateralSmoothingEnabled=True, FM_LateralSmoothingSeconds=0.2).get("FM_SmallModelLatSmoothing") == 2
+
+  def test_small_on_unset_seconds_uses_old_default_0_1(self):
+    assert self.migrate(FM_LateralSmoothingEnabled=True).get("FM_SmallModelLatSmoothing") == 2
+
+  def test_big_off_and_on(self):
+    assert self.migrate(FM_BigModelSmoothing=False).get("FM_BigModelLatSmoothing") == 0
+    assert self.migrate(FM_BigModelSmoothing=True).get("FM_BigModelLatSmoothing") == 2
+
+  def test_fresh_install_writes_nothing(self):
+    p = self.migrate()
+    assert p.get("FM_SmallModelLatSmoothing") is None
+    assert p.get("FM_BigModelLatSmoothing") is None
+
+  def test_old_keys_untouched_and_chosen_value_kept(self):
+    params = Params()
+    for k in self.KEYS:
+      params.remove(k)
+    params.put("FM_SmallModelLatSmoothing", 1, block=True)
+    params.put("FM_BigModelLatSmoothing", 1, block=True)
+    for k, v in {"FM_LateralSmoothingEnabled": True, "FM_LateralSmoothingSeconds": 0.2, "FM_BigModelSmoothing": True}.items():
+      params.put(k, v, block=True)
+    names = ("small_model_lat_smoothing", "big_model_lat_smoothing")
+    assert run(params, [m for m in fm_migration.MIGRATIONS if m[0] in names]) == list(names)
+    assert params.get("FM_SmallModelLatSmoothing") == 1 and params.get("FM_BigModelLatSmoothing") == 1
+    assert params.get("FM_LateralSmoothingEnabled") is True
+    assert params.get("FM_LateralSmoothingSeconds") == 0.2
+    assert params.get("FM_BigModelSmoothing") is True
