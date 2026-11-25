@@ -321,10 +321,12 @@ def main(demo=False):
   config_realtime_process(7, 54)
 
   # messaging
-  pub_socks = ["modelV2", "drivingModelData", "cameraOdometry", "modelDataV2SP"] + (["chestnutGpuState"] if CHESTNUT else [])
+  pub_socks = ["modelV2", "drivingModelData", "cameraOdometry", "modelDataV2SP", "fmModel"] + (["chestnutGpuState"] if CHESTNUT else [])
   pm = PubMaster(pub_socks)
   sm = SubMaster(["deviceState", "carState", "narrowRoadCameraState", "extrinsicsCalibration", "driverMonitoringState",
-                  "carControl", "controlsState", "lateralDelay"])
+                  "carControl", "controlsState", "lateralDelay", "radarState"],
+                 ignore_alive=["radarState"], ignore_avg_freq=["radarState"],
+                 ignore_valid=["radarState"])  # FM Pilot: radarState for Queue Guard
 
   publish_state = PublishState()
   params = Params()
@@ -396,6 +398,7 @@ def main(demo=False):
 
     sm.update(0)
     desire = DH.desire
+    model_desire = DH.model_desire  # FM Pilot: DH.desire, except for Turn Pulse on Pull-Away
     is_rhd = sm["driverMonitoringState"].isRHD
     frame_id = sm["narrowRoadCameraState"].frameId
     car_state = sm["carState"]
@@ -421,8 +424,8 @@ def main(demo=False):
     traffic_convention[int(is_rhd)] = 1
 
     vec_desire = np.zeros(ModelConstants.DESIRE_LEN, dtype=np.float32)
-    if desire >= 0 and desire < ModelConstants.DESIRE_LEN:
-      vec_desire[desire] = 1
+    if model_desire >= 0 and model_desire < ModelConstants.DESIRE_LEN:
+      vec_desire[model_desire] = 1
 
     # tracked dropped frames
     vipc_dropped_frames = max(0, meta_main.frame_id - last_vipc_frame_id - 1)
@@ -492,7 +495,9 @@ def main(demo=False):
       r_lane_change_prob = desire_state[log.Desire.laneChangeRight]
       lane_change_prob = l_lane_change_prob + r_lane_change_prob
       left_edge, right_edge = RELC.update_and_fill(modelv2_send.modelV2, mdv2sp_send.modelDataV2SP, v_ego)
-      DH.update(sm['carState'], sm['carControl'].latActive, lane_change_prob, left_edge, right_edge)
+      queue_lead = sm['radarState'].leadOne if sm.alive['radarState'] else None  # FM Pilot: Queue Guard
+      DH.update(sm['carState'], sm['carControl'].latActive, lane_change_prob, left_edge, right_edge,
+                lead=queue_lead, curvature=sm['controlsState'].curvature)
       modelv2_send.modelV2.meta.laneChangeState = DH.lane_change_state
       modelv2_send.modelV2.meta.laneChangeDirection = DH.lane_change_direction
       mdv2sp_send.valid = modelv2_send.valid
@@ -503,6 +508,12 @@ def main(demo=False):
       pm.send('modelV2', modelv2_send)
       pm.send('drivingModelData', drivingdata_send)
       pm.send('cameraOdometry', posenet_send)
+      # FM Pilot's own model message (fmModel): sent before modelDataV2SP, so controlsd never sees a Queue Guard hold's
+      # hidden turn desire before the hold itself
+      fm_send = messaging.new_message('fmModel')
+      fm_send.valid = modelv2_send.valid
+      fm_send.fmModel.queueGuard = bool(DH.fm_queue_hold)
+      pm.send('fmModel', fm_send)
       pm.send('modelDataV2SP', mdv2sp_send)
     last_vipc_frame_id = meta_main.frame_id
 

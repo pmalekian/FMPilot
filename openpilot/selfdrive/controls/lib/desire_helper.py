@@ -3,6 +3,8 @@ from openpilot.common.constants import CV
 from openpilot.common.realtime import DT_MDL
 from openpilot.sunnypilot.selfdrive.controls.lib.auto_lane_change import AutoLaneChangeController, AutoLaneChangeMode
 from openpilot.sunnypilot.selfdrive.controls.lib.lane_turn_desire import LaneTurnController
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_queue_guard import FmQueueGuard
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_pulse import FmTurnPulse
 
 LaneChangeState = log.LaneChangeState
 LaneChangeDirection = log.LaneChangeDirection
@@ -25,15 +27,21 @@ class DesireHelper:
     self.lane_change_timer = 0.0
     self.prev_one_blinker = False
     self.desire = log.Desire.none
+    self.model_desire = log.Desire.none  # what modeld feeds the model; FM Pilot's Turn Pulse on Pull-Away can differ
     self.alc = AutoLaneChangeController(self)
     self.lane_turn_controller = LaneTurnController(self)
     self.lane_turn_direction = TurnDirection.none
+    self.fm_queue_guard = FmQueueGuard()  # FM Pilot: a turn waits while stopped close behind a car
+    self.fm_queue_hold = False
+    self.fm_turn_pulse = FmTurnPulse()  # FM Pilot: fresh turn pulse to the model when pulling away from a stop
 
   @staticmethod
   def get_lane_change_direction(CS):
     return LaneChangeDirection.left if CS.leftBlinker else LaneChangeDirection.right
 
-  def update(self, carstate, lateral_active, lane_change_prob, left_edge_detected=False, right_edge_detected=False):
+  def update(self, carstate, lateral_active, lane_change_prob, left_edge_detected=False, right_edge_detected=False,
+             lead=None, curvature=0.0):
+    """lead: radarState.leadOne (or None); curvature: controlsState.curvature, both for FM Pilot's Queue Guard."""
     self.alc.update_params()
     self.lane_turn_controller.update_params()
     v_ego = carstate.vEgo
@@ -44,6 +52,15 @@ class DesireHelper:
     self.lane_turn_controller.update_lane_turn(blindspot_left=carstate.leftBlindspot, blindspot_right=carstate.rightBlindspot,
                                                left_blinker=carstate.leftBlinker, right_blinker=carstate.rightBlinker, v_ego=v_ego)
     self.lane_turn_direction = self.lane_turn_controller.get_turn_direction()
+
+    # FM Pilot: Queue Guard. Stopped close behind a car, the turn waits (withheld from the model, Turn Assist and the
+    # alert) until that car pulls away; then it comes back as a fresh turn.
+    turn_sign = 1 if self.lane_turn_direction == TurnDirection.turnRight else (-1 if self.lane_turn_direction == TurnDirection.turnLeft else 0)
+    lead_present = bool(lead is not None and lead.present)
+    self.fm_queue_hold = self.fm_queue_guard.update(turn_sign, v_ego, float(curvature), DT_MDL, lead_present,
+                                                    float(lead.dRel) if lead_present else float('inf'))
+    if self.fm_queue_hold:
+      self.lane_turn_direction = TurnDirection.none
 
     if not lateral_active or self.lane_change_timer > LANE_CHANGE_TIME_MAX or self.alc.lane_change_set_timer == AutoLaneChangeMode.OFF:
       self.lane_change_state = LaneChangeState.off
@@ -103,5 +120,7 @@ class DesireHelper:
           self.desire = log.Desire.laneChangeLeft
         elif self.lane_change_direction == LaneChangeDirection.right:
           self.desire = log.Desire.laneChangeRight
+
+    self.model_desire = self.fm_turn_pulse.update(self.desire, v_ego)
 
     self.alc.update_state()

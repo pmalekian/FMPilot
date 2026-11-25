@@ -45,6 +45,8 @@ from openpilot.sunnypilot.modeld_v2.fm_lateral_smoothing import (
   PARAM_BIG_MODEL, PARAM_SMALL_MODEL, smooth_big_model_action, smoothing_override,
 )
 from openpilot.sunnypilot.modeld_v2.fm_pull_away import ACTION_SPEED_FLOOR, StraightPullAway
+from openpilot.sunnypilot.modeld_v2.fm_turn_settle import PARAM as PARAM_TURN_SETTLE, PARAM_EARLY as PARAM_TURN_SETTLE_EARLY, \
+  TurnSettle, settle_from_model
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_lane_keep_mode import MODE_BLENDFUL, get_lane_keep_mode
 from openpilot.sunnypilot.modeld_v2.constants import ModelConstants, Plan
 from openpilot.sunnypilot.modeld_v2.meta_helper import load_meta_constants
@@ -367,10 +369,13 @@ def main(demo=False):
   config_realtime_process(7, 54)
 
   # messaging
-  pub_socks = ["modelV2", "drivingModelData", "cameraOdometry", "modelDataV2SP"] + (["chestnutGpuState"] if CHESTNUT else [])
+  pub_socks = ["modelV2", "drivingModelData", "cameraOdometry", "modelDataV2SP", "fmModel"] + (["chestnutGpuState"] if CHESTNUT else [])
   pm = PubMaster(pub_socks)
   sm = SubMaster(["deviceState", "carState", "narrowRoadCameraState", "extrinsicsCalibration", "driverMonitoringState",
-                  "carControl", "controlsState", "lateralDelay"])
+                  "carControl", "controlsState", "lateralDelay", "radarState", "fmControls"],
+                 ignore_alive=["radarState", "fmControls"], ignore_avg_freq=["radarState", "fmControls"],
+                 ignore_valid=["radarState", "fmControls"])  # FM Pilot: radarState for Queue Guard, fmControls'
+  # Turn Assist carry for Settle After Turn
 
   publish_state = PublishState()
   chestnut_state = ChestnutGpuState(pm, model.chestnut) if CHESTNUT else None
@@ -408,6 +413,9 @@ def main(demo=False):
   big_model_smoothing = smoothing_override(params, PARAM_BIG_MODEL)
   pull_away = StraightPullAway()
   pull_away.read_params(params)
+  settle = TurnSettle()  # FM Pilot: Settle After Turn
+  turn_settle = params.get_bool(PARAM_TURN_SETTLE)
+  turn_settle_early = params.get_bool(PARAM_TURN_SETTLE_EARLY)  # FM Pilot: Settle After Turn > Early Right Push
   if small_model is not None:
     small_model.apply_lateral_smoothing(params)
   if isinstance(model, ModelState) and model.chestnut:
@@ -448,6 +456,7 @@ def main(demo=False):
 
     sm.update(0)
     desire = DH.desire
+    model_desire = DH.model_desire  # FM Pilot: DH.desire, except for Turn Pulse on Pull-Away
     is_rhd = sm["driverMonitoringState"].isRHD
     frame_id = sm["narrowRoadCameraState"].frameId
     car_state = sm["carState"]
@@ -459,6 +468,8 @@ def main(demo=False):
       blendful_enabled = get_lane_keep_mode(params) == MODE_BLENDFUL  # FM Pilot: the Lane Keeping selector picks Blendful
       big_model_smoothing = smoothing_override(params, PARAM_BIG_MODEL)
       pull_away.read_params(params)
+      turn_settle = params.get_bool(PARAM_TURN_SETTLE)
+      turn_settle_early = params.get_bool(PARAM_TURN_SETTLE_EARLY)
       # Jetlink delegates reads to the active model, but writes stay on its wrapper.
       if small_model is not None:
         small_model.apply_lateral_smoothing(params)
@@ -479,8 +490,8 @@ def main(demo=False):
     traffic_convention[int(is_rhd)] = 1
 
     vec_desire = np.zeros(model.constants.DESIRE_LEN, dtype=np.float32)
-    if desire >= 0 and desire < model.constants.DESIRE_LEN:
-      vec_desire[desire] = 1
+    if model_desire >= 0 and model_desire < model.constants.DESIRE_LEN:
+      vec_desire[model_desire] = 1
 
     # tracked dropped frames
     vipc_dropped_frames = max(0, meta_main.frame_id - last_vipc_frame_id - 1)
@@ -542,8 +553,15 @@ def main(demo=False):
       if not sm['carControl'].latActive:
         prev_action.desiredCurvature = sm['controlsState'].curvature
       blendful_active = desire == log.Desire.none and DH.lane_change_state == log.LaneChangeState.off
-      action = model.get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego,
-                                           partial(blendful.update, model_output, v_ego, blendful_active, enabled=blendful_enabled),
+      blend = partial(blendful.update, model_output, v_ego, blendful_active, enabled=blendful_enabled)
+
+      def lane_keep(curvature, blend=blend, model_output=model_output, v_ego=v_ego, desire=desire, turn_settle=turn_settle,
+                    turn_settle_early=turn_settle_early):
+        # Blendful, then FM Pilot's Settle After Turn (which hands over to Blendful's trust); exactly 0.0 when both are off
+        return blend(curvature) + settle_from_model(settle, turn_settle, desire, DH.lane_change_state, v_ego, sm,
+                                                    blendful.trust, model_output, turn_settle_early, curvature)
+
+      action = model.get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego, lane_keep,
                                            action_speed_floor=action_speed_floor)
       # A Jetlink swap happens inside run(), so check which model produced this frame after inference.
       if not isinstance(model, ModelState):
@@ -559,7 +577,9 @@ def main(demo=False):
       r_lane_change_prob = desire_state[log.Desire.laneChangeRight]
       lane_change_prob = l_lane_change_prob + r_lane_change_prob
       left_edge, right_edge = RELC.update_and_fill(modelv2_send.modelV2, mdv2sp_send.modelDataV2SP, v_ego)
-      DH.update(sm['carState'], sm['carControl'].latActive, lane_change_prob, left_edge, right_edge)
+      queue_lead = sm['radarState'].leadOne if sm.alive['radarState'] else None  # FM Pilot: Queue Guard
+      DH.update(sm['carState'], sm['carControl'].latActive, lane_change_prob, left_edge, right_edge,
+                lead=queue_lead, curvature=sm['controlsState'].curvature)
       modelv2_send.modelV2.meta.laneChangeState = DH.lane_change_state
       modelv2_send.modelV2.meta.laneChangeDirection = DH.lane_change_direction
       mdv2sp_send.valid = modelv2_send.valid
@@ -578,6 +598,18 @@ def main(demo=False):
       pm.send('modelV2', modelv2_send)
       pm.send('drivingModelData', drivingdata_send)
       pm.send('cameraOdometry', posenet_send)
+      # FM Pilot's own model message (fmModel): sent before modelDataV2SP, so controlsd never sees a Queue Guard hold's
+      # hidden turn desire before the hold itself
+      fm_send = messaging.new_message('fmModel')
+      fm_send.valid = modelv2_send.valid
+      fm_send.fmModel.queueGuard = bool(DH.fm_queue_hold)
+      fm_send.fmModel.turnSettle = float(settle.curvature)
+      fm_send.fmModel.turnSettleOffset = float(settle.offset)
+      fm_send.fmModel.turnSettlePush = float(settle.push)
+      fm_send.fmModel.turnSettleLimit = settle.limit
+      fm_send.fmModel.turnSettlePhase = settle.phase
+      fm_send.fmModel.turnSettleGuard = float(settle.guard)
+      pm.send('fmModel', fm_send)
       pm.send('modelDataV2SP', mdv2sp_send)
     last_vipc_frame_id = meta_main.frame_id
 

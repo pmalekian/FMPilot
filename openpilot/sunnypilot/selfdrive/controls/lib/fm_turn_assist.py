@@ -517,11 +517,13 @@ class FmTurnAssist:
 
   def update(self, desired_curvature: float, turn_direction, v_ego: float, actual_curvature: float,
              steering_pressed: bool, lat_active: bool, model_v2=None, a_ego: float = 0.0,
-             lane_changing: bool = False, steering_torque: float = 0.0) -> float:
+             lane_changing: bool = False, steering_torque: float = 0.0, queue_hold: bool = False) -> float:
+    """queue_hold: Queue Guard (fmModel.queueGuard) is holding the turn back, its desire hidden: never a carry."""
     self._clear_log(desired_curvature)
     desire_sign = turn_sign(turn_direction) if self.enabled else 0
     # Finish Turn After Signal Cancels: once the desire ends, the carried turn's sign while it lasts
-    sign = self._carry(desire_sign, v_ego, actual_curvature, steering_pressed, steering_torque, lat_active, lane_changing)
+    sign = self._carry(desire_sign, v_ego, actual_curvature, steering_pressed, steering_torque, lat_active, lane_changing,
+                       queue_hold)
     self.log_source = SOURCE_DESIRE if desire_sign != 0 else (SOURCE_CARRY if sign != 0 else SOURCE_NONE)
     step = DT_CTRL / FADE_TIME
     if sign == 0 and self.hold_exit_amount > 0.0:
@@ -715,7 +717,7 @@ class FmTurnAssist:
         setattr(msg, name, value)
 
   def _carry(self, sign: int, v_ego: float, actual_curvature: float, steering_pressed: bool, steering_torque: float,
-             lat_active: bool, lane_changing: bool) -> int:
+             lat_active: bool, lane_changing: bool, queue_hold: bool = False) -> int:
     """Finish Turn After Signal Cancels: when the turn desire ends (blinker cancelled or self-cancelled) while the truck
     is still turning that way, keep the turn going for Turn Assist until the truck straightens out. Returns the turn's
     sign to use this step."""
@@ -723,6 +725,12 @@ class FmTurnAssist:
       self.carry_sign, self.carry_time, self.carry_against = 0, 0.0, 0.0
       self.carry_done = sign == 0  # a carry only follows a turn desire seen while this was on
       return sign
+
+    if queue_hold:
+      # Queue Guard hides the turn desire while the truck waits behind a car: that is a wait, not the blinker cancelling
+      # mid-turn, so it never starts (or keeps) a carry. The turn comes back as a fresh turn when the hold lets go.
+      self.carry_sign, self.carry_time, self.carry_against, self.carry_done = 0, 0.0, 0.0, True
+      return 0
 
     if self.carry_sign == 0:
       # the turn desire just ended: start only if a turn was active and the truck is turning that way now

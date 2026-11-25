@@ -1308,6 +1308,44 @@
                   ]
                 }
               ]
+            },
+            {
+              "id": "pre_post_turn",
+              "label": "Pre/Post Turn Behavior",
+              "trigger_key": "FM_TurnQueueGuard",
+              "items": [
+                {
+                  "key": "FM_TurnQueueGuard",
+                  "widget": "toggle",
+                  "title": "Queue Guard",
+                  "description": "Waiting in a line of cars with the blinker on, the turn normally starts right away, so every creep forward steers toward the turn. With this on, once you are stopped with a car within 8 m ahead, the turn waits (no steering toward it, and the Turning alert goes away) until that car is more than 10 m ahead or gone, or you reach 10 mph; then the turn starts fresh. A turn the truck has already started (10 degrees or more) is never held, and a wait is never taken for the blinker cancelling (Finish Turn After Signal Cancels doesn't carry it)."
+                },
+                {
+                  "key": "FM_TurnPulseOnPullAway",
+                  "widget": "toggle",
+                  "title": "Turn Pulse on Pull-Away",
+                  "description": "The model only hears a turn for about 5 seconds after it starts, so after a long wait at a corner it has forgotten the turn and turns in late. With this on, when you pull away from a stop with a turn still on, the model is told about the turn again. Only the model's input changes; the turn, its alert and Turn Assist are the same."
+                },
+                {
+                  "key": "FM_TurnSettle",
+                  "widget": "toggle",
+                  "title": "Settle After Turn",
+                  "description": "For up to 6 seconds after a blinker turn, between 8 and 30 mph, gently steers toward the middle of the lane using lane lines the model is only 30% sure of, before Blendful or lane centering trust them. After a left turn it only moves away from the center line, never toward it. Road edges only keep it from aiming too close to the curb. It lets go as soon as Blendful takes over, you steer, a new blinker or lane change starts, or you pass 30 mph. When Finish Turn After Signal Cancels carries a turn on, it waits until that carry ends."
+                },
+                {
+                  "key": "FM_TurnSettleEarlyPush",
+                  "widget": "toggle",
+                  "title": "Settle After Turn: Early Right Push",
+                  "description": "Needs Settle After Turn. Starts as soon as the truck straightens out of the turn (not only when the blinker goes off), from 3 mph. If no lane line can be seen yet, it eases the truck to the right, at most 0.4 m (about 16 inches), after left and right turns alike, because oncoming traffic is always on the left. It stops when a line shows you are centered or right of center (then it centers as Settle After Turn does), 1.4 m from a sure curb (and steers back left if the path gets too close to it), and holds when the model steers left around something such as a parked car. Your steering cancels it at once. Gentle at low speed. The 3 mph, 0.4 m and strength values are provisional, not yet checked on a recorded drive.",
+                  "enablement": [
+                    {
+                      "type": "param",
+                      "key": "FM_TurnSettle",
+                      "equals": true
+                    }
+                  ]
+                }
+              ]
             }
           ]
         }
