@@ -28,6 +28,9 @@ Added PR by PR; each row names its settings (Sunnylink page), code and default.
 
 | Feature | Settings | Code | Default |
 |---|---|---|---|
+| Max Torque (Rivian): the most steering torque openpilot may use under about 20 mph, 385-580 in steps of 15, back to AP's curve by about 38 mph (envelope [9,25,27] m/s -> [Max,295,275]; car code the larger of AP's curve and [9,17,25,27] -> [Max,332,295,275]), highway unchanged. The panda enforces exactly this level (safety param bit 1 + level 1-13 in bits 2-5). Above 385 also, folded: torque builds 5 per frame instead of 3 below 25 mph (panda below 12.5 m/s), no 95% cap past 90° of wheel, and both torque controllers (v0 and v1) may request up to the higher curve (Headroom: requests unscaled, so only where they would have saturated; blends in over 1 s). 385 = stock AP: nothing changes. Off-road only, applies next drive | `FM_CustomMaxTorque` (Steering > FM Custom Torque Settings) | `opendbc/sunnypilot/car/rivian/values.py`, `opendbc/sunnypilot/car/interfaces.py`, `opendbc/car/rivian/carcontroller.py`, `values.py`, `opendbc/safety/modes/rivian.h`, `sunnypilot/selfdrive/controls/lib/fm_torque_mode.py`, `latcontrol_torque.py`, `latcontrol_torque_v0.py` | 385 |
+| Rivian steerLimitTimer 0.8 s (AP 0.4): the steering-required alert and anything reading steerSaturated wait 0.8 s of saturation | none | `opendbc/car/rivian/interface.py` | always |
+| Off-tracking near-zero curvature crash fix: AP's rear off-tracking is worked in curvature, so a curvature below ~1e-154 can no longer raise OverflowError in controlsd; same result everywhere else | none | `sunnypilot/selfdrive/controls/lib/rivian_offtrack.py` | always |
 | Quiet road-edge block: the road-edge lane change block is a small gray message with no sound instead of the orange alert and beep. Folded (was `FM_QuietRoadEdgeBlock`) | none (always on) | `selfdrived.py`, `sunnypilot/selfdrive/selfdrived/events.py` (`fmLaneChangeRoadEdgeQuiet`) | always |
 | FM log tools: fmlog, timeline, events, turns (with the path-vs-request turn-in timing from `fm-dev-max` `d189ccc`), lead, settle, sway, dm, jetlink, maclog, and their tests. They read `fm-dev-sync` drives with the repo's schema and drives from `fm-dev-nav-settle` and earlier with a copy of that branch's schema, picked per file (`FM_SCHEMA=old|new` forces one) | none | `tools/fm/` (`fmlog.py`, `schema/fm-dev-nav-settle/`) | n/a |
 
@@ -60,7 +63,7 @@ change keep their keys.
 
 | Setting | From the old settings |
 |---|---|
-| (each mapping lands with its feature's PR) | |
+| Max Torque (`FM_CustomMaxTorque`) | `FM_PandaHighTorque` off -> 385; on -> `FM_MaxTorque` rounded to the 15 grid (580 -> 580; unset -> the old default 480 -> 475). Faster ramp, full cap past 90° and the Higher Torque mode are folded, nothing copied |
 
 ## Settings pages
 
@@ -73,5 +76,11 @@ choice of the Lane Keeping selector.
 
 - **openpilot** (comma.ai), **sunnypilot** (sunnypilot contributors) and **AdventurePilot** (AdventurePilotDev,
   Uncle-Tony and contributors), all MIT: the base of everything here.
+- **Max Torque**: the higher low-speed limit's panda envelope shape and the high curve's shape come from AdventurePilot
+  `5270cbba` (Uncle-Tony, May 16, 2026, MIT; 481 there, backed off upstream in `5c5a1c98`), the fixed 481 replaced by the
+  setting. Headroom, the slider, the faster ramp and full cap past 90° are FM Pilot's own.
+- **Near-zero curvature crash fix** and **Rivian steerLimitTimer 0.8**: EVPilot `a0500916` (Nov 2, 2026) and the
+  `steerLimitTimer` line of `9214103e` (Oct 28, 2026), Gerry / gerrylum (MIT); the fix applied to AP's off-tracking
+  here, the tests are FM Pilot's.
 - Credits for each borrowed feature are added with the PR that ports it.
 - Everything else here is FM Pilot's own, built on AdventurePilot, sunnypilot and openpilot (MIT).

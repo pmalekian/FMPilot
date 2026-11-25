@@ -14,11 +14,16 @@ Max Torque 580 -> 580). Fresh installs start at stock/off.
   (385 = stock AP, said in the slider's description; slider 385–580 in steps of 15). Confirmed Nov 24. Was
   `FM_PandaHighTorque`.
 - **Higher Torque mode:** always Headroom. Was `FM_TorqueMode` (Off / Headroom / Full).
-- **Faster Torque Ramp:** always on (faster ramp below 25 mph). Was `FM_TorqueFastRamp`.
-- **Full Torque Past 90°:** always on (skips AP's 95% cap past 90° of wheel, so tight turns can use the full Max Torque).
-  Was `FM_TorqueFullCapHighAngle`.
+- **Faster Torque Ramp:** always on with Max Torque above 385 (5 per frame below 25 mph; the panda allows it below
+  about 28 mph). Was `FM_TorqueFastRamp`.
+- **Full Torque Past 90°:** always on with Max Torque above 385 (skips AP's 95% cap past 90° of wheel, so tight turns
+  can use the full Max Torque). Was `FM_TorqueFullCapHighAngle`.
+- At 385 nothing above applies: panda, car code and torque controller are stock AP, as these all needed Panda Allows
+  Higher Torque on before. Code: `opendbc/sunnypilot/car/rivian/values.py`, `opendbc/car/rivian/carcontroller.py`,
+  `opendbc/safety/modes/rivian.h`, `sunnypilot/selfdrive/controls/lib/fm_torque_mode.py`.
 - **Rivian steerLimitTimer 0.8 + near-zero curvature crash fix** (EVPilot): always on, as before (never a setting).
-- Still settings: Max Torque slider (`FM_MaxTorque`), Release Guard drop-down (Stock / 75 / 150).
+- Still settings: Max Torque slider (`FM_CustomMaxTorque`; new key, the old `FM_MaxTorque` is left untouched), Release
+  Guard drop-down (Stock / 75 / 150).
 
 ## Turn Hold (when Turn Hold is on)
 - **Turn Nudge:** always on. Was `FM_TurnNudgeEnabled`.
