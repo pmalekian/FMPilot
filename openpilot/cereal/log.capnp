@@ -2651,12 +2651,12 @@ struct Event {
     customReserved11 @137 :Custom.CustomReserved11;
     customReserved12 @138 :Custom.CustomReserved12;
     customReserved13 @139 :Custom.CustomReserved13;
-    customReserved14 @140 :Custom.CustomReserved14;
-    customReserved15 @141 :Custom.CustomReserved15;
-    customReserved16 @142 :Custom.CustomReserved16;
-    customReserved17 @143 :Custom.CustomReserved17;
-    customReserved18 @144 :Custom.CustomReserved18;
-    customReserved19 @145 :Custom.CustomReserved19;
+    fmJetlinkStatus @140 :Custom.FmJetlinkStatus;  # FM Pilot (was customReserved14)
+    fmRadarLead @141 :Custom.FmRadarLead;  # FM Pilot (was customReserved15)
+    fmCarState @142 :Custom.FmCarState;  # FM Pilot (was customReserved16)
+    fmPlan @143 :Custom.FmPlan;  # FM Pilot (was customReserved17)
+    fmModel @144 :Custom.FmModel;  # FM Pilot (was customReserved18)
+    fmControls @145 :Custom.FmControls;  # FM Pilot (was customReserved19)
 
     # *********** legacy + deprecated ***********
     model @9 :Deprecated.ModelData; # TODO: rename modelV2 and mark this as deprecated

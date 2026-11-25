@@ -61,7 +61,7 @@ def shadow_report(events, start):
       t = radar_time if radar_time is not None and 0 <= t - radar_time < 0.05 else t
       active = name(msg.radarThreshold, msg.cameraThreshold, msg.smoothHandoffs)
       results.append(LeadFrame(t, f'active {active}', tuple(map(display, msg.decisions))))
-      for shadow in msg.shadow:
+      for shadow in getattr(msg, 'shadow', ()):  # Lead Shadow Log: old layout only
         variant = name(shadow.radarThreshold, shadow.cameraThreshold, shadow.smoothHandoffs)
         results.append(LeadFrame(t, variant, tuple(map(display, shadow.decisions))))
     elif kind == 'longitudinalPlan' and event.valid:

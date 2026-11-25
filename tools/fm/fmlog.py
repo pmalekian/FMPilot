@@ -26,7 +26,71 @@ def load_schema(name):
 
 
 # drives recorded on fm-dev-nav-settle and the branches before it (FM fields appended to sunnypilot's structs)
-log = load_schema("fm-dev-nav-settle")
+log_old = load_schema("fm-dev-nav-settle")
+# drives from fm-dev-sync on: the repo's own schema, FM's data in its own messages (fmControls, fmModel, ...)
+log_new = capnp.SchemaParser().load(os.path.join(REPO, "openpilot", "cereal", "log.capnp"),
+                                    imports=[os.path.join(REPO, "opendbc_repo", "opendbc", "car")])
+log = log_old  # the tests write synthetic logs in the old layout with this
+
+# FM-owned messages that only the fm-dev-sync layout has; one of them in a log means the new schema
+NEW_FM_MSGS = frozenset(("fmControls", "fmModel", "fmPlan", "fmCarState"))
+NEW_BRANCH_PREFIXES = ("fm-dev-sync", "fm-sync/")
+SCHEMA_SCAN = 3000  # events looked at for an FM-owned message when initData's branch doesn't say
+
+
+def pick_schema(data):
+  """'new' or 'old': the schema one rlog was written with. FM_SCHEMA=old|new overrides. Otherwise new when initData's
+  branch is fm-dev-sync (or an fm-sync/ PR branch), or one of the first SCHEMA_SCAN events is an FM-owned message;
+  old for everything else (fm-dev-nav-settle and earlier, AP, sunnypilot)."""
+  forced = os.environ.get("FM_SCHEMA", "").lower()
+  if forced in ("old", "new"):
+    return forced
+  for i, e in enumerate(log_new.Event.read_multiple_bytes(data)):
+    w = e.which()
+    if w in NEW_FM_MSGS:
+      return "new"
+    if w == "initData" and e.initData.gitBranch.startswith(NEW_BRANCH_PREFIXES):
+      return "new"
+    if i >= SCHEMA_SCAN:
+      break
+  return "old"
+
+
+# FM data that moved between the two layouts: part -> ((old message, old field), (new message, new field)); field None
+# is the whole message. Fields inside a part keep their names, except the settle ones (old fmTurnSettle* on
+# modelDataV2SP, new turnSettle* on fmModel: see settle_field) and Turn Boost's, which the new layout dropped.
+FM_PARTS = {
+  "turnAssist": (("carControlSP", "turnAssist"), ("fmControls", "turnAssist")),
+  "releaseGuard": (("carControlSP", "releaseGuard"), ("fmControls", "releaseGuard")),
+  "lowSpeed": (("carControlSP", "fmLowSpeed"), ("fmControls", "lowSpeed")),
+  "steerCap": (("carStateSP", "fmSteerCap"), ("fmCarState", "steerCap")),
+  "settle": (("modelDataV2SP", None), ("fmModel", None)),
+}
+FM_PART_MSGS = {part: frozenset(m for m, _ in v) for part, v in FM_PARTS.items()}
+
+
+FM_PART_MARK = {"settle": ("fmTurnSettle", "turnSettle")}  # a whole-message part: one of these fields must exist
+
+
+def fm_part(e, part):
+  """The FM part (a sub-message or a value) carried by event e in either layout, or None when e doesn't carry it
+  (another message, or the same message in the other layout: the new carControlSP has no turnAssist)."""
+  w = e.which()
+  for msg, field in FM_PARTS[part]:
+    if w != msg:
+      continue
+    m = getattr(e, w)
+    if field is not None:
+      return getattr(m, field, None)
+    if any(getattr(m, f, None) is not None for f in FM_PART_MARK[part]):
+      return m
+  return None
+
+
+def settle_field(m, name):
+  """A Settle After Turn field (new-layout name, e.g. 'turnSettlePhase') of an fmModel or an old modelDataV2SP."""
+  v = getattr(m, name, None)
+  return v if v is not None else getattr(m, "fm" + name[0].upper() + name[1:])
 
 MPH = 2.23694
 
@@ -41,8 +105,8 @@ GAP_S = 2.0  # a jump in time longer than this is a missing piece of the drive, 
 SLIM = {"modelV2": ("big", "modelExecutionTime")}
 
 
-def _slim(e, fields):
-  out = log.Event.new_message()
+def _slim(e, fields, schema):
+  out = schema.Event.new_message()
   out.logMonoTime, out.valid = e.logMonoTime, e.valid
   src, dst = getattr(e, e.which()), out.init(e.which())
   for f in fields:
@@ -62,12 +126,13 @@ def read(path, keep=None):
   elif data[:3] == b"BZh":
     import bz2
     data = bz2.decompress(data)
-  evs = log.Event.read_multiple_bytes(data)
+  schema = log_new if pick_schema(data) == "new" else log_old
+  evs = schema.Event.read_multiple_bytes(data)
   if keep is None:
     evs = list(evs)
   else:
     # copies sized to the message (the default first segment is 8 KB each, which an hour of small messages can't afford)
-    evs = [_slim(e, SLIM[e.which()]) if e.which() in SLIM else
+    evs = [_slim(e, SLIM[e.which()], schema) if e.which() in SLIM else
            e.as_builder(num_first_segment_words=e.total_size.word_count + 1).as_reader() for e in evs if e.which() in keep]
   # rlogs are not strictly in time order (00000073--8: a modelDataV2SP sent at 13.440 s is stored after a carState
   # from 13.469 s), so put them in the order they were sent; a stable sort keeps same-time messages as stored

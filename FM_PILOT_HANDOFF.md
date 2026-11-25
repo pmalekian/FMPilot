@@ -18,6 +18,9 @@ Features, settings and credits: `FM_PILOT.md`. Log tools: `tools/fm/README.md`.
   builds, unit tests, ruff, Sunnylink compile + validator, Rivian panda safety tests where touched, and synthetic
   same-input checks against the `fm-dev-nav-settle` modules. Each PR description lists what couldn't be checked.
   **PR 4 (torque) gets an independent fresh-Opus code review before merge.**
+- **Opening and merging PRs:** the GitHub connector's `create_pull_request` returns 403 for this repo; use the shell:
+  `gh api repos/pmalekian/FMPilot/pulls -f title=... -f head=<branch> -f base=fm-dev-sync -F body=@<file>`, merge with
+  `gh api -X PUT repos/pmalekian/FMPilot/pulls/<n>/merge -f merge_method=merge -f sha=<head sha>`.
 - **Commits:** author `Frankie Malekian <107580415+pmalekian@users.noreply.github.com>`, message starts "FM Pilot", one
   logical change each, borrowed code credited in the message, the source file and `FM_PILOT.md`. Push with
   `--no-verify` and `-c push.negotiate=true`.
@@ -56,8 +59,9 @@ ruff check .
 | Step | State |
 |---|---|
 | Step 0 base | done, `4efb05a`, pushed |
-| PR 1 docs and tools | this PR: `tools/fm` without nav (reads old drives with a copy of `fm-dev-nav-settle`'s schema), `turns.py` path timing from `fm-dev-max` `d189ccc`, fresh `FM_PILOT.md` / handoff, `FM_FOLDED_DEFAULTS.md`, `FM_PILOT_FINDINGS.md` |
-| PRs 2-18 | not started |
+| PR 1 docs and tools | merged, PR #5 (`fba53fc`) |
+| PR 2 log schema | this PR: FM's own messages `fmControls` @145, `fmModel` @144, `fmPlan` @143, `fmCarState` @142, `fmRadarLead` @141, `fmJetlinkStatus` @140 (free slots from the top: sunnypilot master took slot 10 for `gpsLocationSP`), event `fmLaneChangeRoadEdgeQuiet` @38; `tools/fm` picks the old or new schema per file |
+| PRs 3-18 | not started |
 
 ## Reference (unchanged from before)
 

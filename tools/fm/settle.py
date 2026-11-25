@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Settle After Turn > Early Right Push: one line per settle window from modelDataV2SP (fmTurnSettlePhase,
-fmTurnSettlePush, fmTurnSettleLimit, fmTurnSettleGuard, fmTurnSettle), and how often each limit stopped a push.
+"""Settle After Turn > Early Right Push: one line per settle window from fmModel (turnSettlePhase, turnSettlePush,
+turnSettleLimit, turnSettleGuard, turnSettle; on fm-dev-nav-settle and earlier modelDataV2SP's fmTurnSettle* fields),
+and how often each limit stopped a push.
 
   python settle.py <route>--3--rlog.zst <route>--4--rlog.zst
 
@@ -35,12 +36,11 @@ def windows(events, t0):
     if w == 'carState':
       v = e.carState.vEgo
       continue
-    if w != 'modelDataV2SP':
+    if w not in fmlog.FM_PART_MSGS['settle'] or (m := fmlog.fm_part(e, 'settle')) is None:
       continue
     t = (e.logMonoTime - t0) / 1e9
-    m = e.modelDataV2SP
-    phase = str(m.fmTurnSettlePhase)
-    k = m.fmTurnSettle
+    phase = str(fmlog.settle_field(m, 'turnSettlePhase'))
+    k = fmlog.settle_field(m, 'turnSettle')
     busy = phase != 'idle' or k != 0.0
     if not busy:
       if cur is not None and last_busy is not None and t - last_busy > GAP:
@@ -52,14 +52,14 @@ def windows(events, t0):
     last_busy = cur.end = t
     if phase != 'idle' and (not cur.phases or cur.phases[-1] != phase):
       cur.phases.append(phase)
-    limit = str(m.fmTurnSettleLimit)
+    limit = str(fmlog.settle_field(m, 'turnSettleLimit'))
     cur.limit = limit
     if limit != 'none' and (not cur.limits or cur.limits[-1] != limit):
       cur.limits.append(limit)
-    cur.push = max(cur.push, m.fmTurnSettlePush)
+    cur.push = max(cur.push, fmlog.settle_field(m, 'turnSettlePush'))
     cur.peak, cur.least = max(cur.peak, k), min(cur.least, k)
     cur.peak_lat = max(cur.peak_lat, abs(k) * v * v)
-    cur.guard = min(cur.guard, m.fmTurnSettleGuard)
+    cur.guard = min(cur.guard, fmlog.settle_field(m, 'turnSettleGuard'))
   if cur is not None:
     out.append(cur)
   return out
@@ -82,7 +82,7 @@ def report(drive):
 
 def main():
   args = fmlog.log_args(__doc__).parse_args()
-  for drive in fmlog.load_drives(args.rlog, each=args.each, keep={'carState', 'modelDataV2SP'}):
+  for drive in fmlog.load_drives(args.rlog, each=args.each, keep={'carState', 'modelDataV2SP', 'fmModel'}):
     report(drive)
 
 

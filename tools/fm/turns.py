@@ -31,10 +31,10 @@ the end.
 Release line (only for turns where you pressed the wheel into the turn while openpilot steered): how long you pressed
 into it, the most and average torque openpilot sent against you meanwhile, and when you let go: what was still being
 sent out of the turn, how far the wheel then went past center (within RELEASE_LOOK_S) and how long openpilot's torque
-kept pushing it that way after it crossed center. With Release Guard on (logged as carControlSP.releaseGuard) also the
+kept pushing it that way after it crossed center. With Release Guard on (fmControls.releaseGuard; carControlSP.releaseGuard before fm-dev-sync) also the
 share of the pressing time it limited the push and the most it cut; "guard off" when it never ran in this log.
 
-Assist line (logs with carControlSP.turnAssist, from Nov 13, 2026): which Turn Assist part acted in the turn, from up to
+Assist line (fmControls.turnAssist; carControlSP.turnAssist from Nov 13, 2026 until fm-dev-sync): which Turn Assist part acted in the turn, from up to
 ONSET_LOOKBACK_S before it to RELEASE_LOOK_S after: where the turn came from (blinker, Carry-Through), each part that
 added more than ASSIST_MIN 1/m (Turn Lead, Hold Adds Your Steering, Hold Path Source, Turn Hold's floor, Turn Boost,
 Turn Nudge, a fading hold) with when it first and last acted and the most it added, Turn Hold's release (time, reason,
@@ -42,7 +42,7 @@ degrees turned), early corrections, what was asked at the truck's turn-in (model
 and "kept past the model": the time after the truck's tightest point that the request stayed more than ASSIST_MIN
 tighter than the model.
 
-The limit is the logged `carStateSP.fmSteerCap` frame by frame (so Max Torque, the 95% cap past 90 degrees and the
+The limit is the logged `fmCarState.steerCap` (`carStateSP.fmSteerCap` before fm-dev-sync) frame by frame (so Max Torque, the 95% cap past 90 degrees and the
 speed curve all count). Logs from before it existed fall back to the base speed curve, and logs without
 `carOutput.torqueOutputCan` use the logged torque times the same curve.
 
@@ -53,7 +53,7 @@ this sensor can't tell apart. While the driver steers alone, "into the turn" is 
 """
 import numpy as np
 
-from fmlog import MPH, load_drives, log_args, model_name, model_requests, pct, split_runs
+from fmlog import FM_PART_MSGS, MPH, fm_part, load_drives, log_args, model_name, model_requests, pct, split_runs
 
 TURN_RADIUS_M = 40.0
 HANDS_NM = 0.5     # column torque that counts as pushing
@@ -182,7 +182,8 @@ def series(drive):
   cs, ctl, cc, md, co, sp, rg = [], [], [], [], [], [], []
   for e in drive.evs:
     w = e.which()
-    if w not in ("carState", "controlsState", "carControl", "carOutput", "carStateSP", "carControlSP"):
+    if w not in ("carState", "controlsState", "carControl", "carOutput", "carStateSP", "carControlSP", "fmCarState",
+                 "fmControls"):
       continue
     t = drive.t(e)
     if w == "carState":
@@ -194,11 +195,11 @@ def series(drive):
       ctl.append((t, e.controlsState.curvature, e.controlsState.desiredCurvature, getattr(ts, "output", np.nan)))
     elif w == "carControl":
       cc.append((t, float(e.carControl.latActive), e.carControl.actuators.torque))
-    elif w == "carStateSP":
-      sp.append((t, e.carStateSP.fmSteerCap))
-    elif w == "carControlSP":
-      g = e.carControlSP.releaseGuard
-      rg.append((t, float(g.active), abs(g.cut), g.limit))
+    elif w in FM_PART_MSGS["steerCap"] or w in FM_PART_MSGS["releaseGuard"]:
+      if (cap := fm_part(e, "steerCap")) is not None:
+        sp.append((t, cap))
+      if (g := fm_part(e, "releaseGuard")) is not None:
+        rg.append((t, float(g.active), abs(g.cut), g.limit))
     else:
       out = e.carOutput.actuatorsOutput
       co.append((t, out.torque, out.torqueOutputCan))
@@ -273,14 +274,14 @@ def release_check(t, ang, hand, pressed, curv, sent, lat_active, turn_lp, guard_
 
 
 def assist_series(drive):
-  """carControlSP.turnAssist as {field: array} with 't', or None when this log doesn't have it."""
+  """Turn Assist (carControlSP.turnAssist, fmControls.turnAssist from fm-dev-sync) as {field: array} with 't', or None
+  when this log doesn't have it. Turn Boost's field is 0 in the new layout (dropped)."""
   rows = []
   for e in drive.evs:
-    if e.which() != "carControlSP":
+    if e.which() not in FM_PART_MSGS["turnAssist"] or (ta := fm_part(e, "turnAssist")) is None:
       continue
-    ta = e.carControlSP.turnAssist
     rows.append((drive.t(e), ta.sign, str(ta.source), ta.requestIn, ta.requestOut, ta.lead, ta.driverAdds, ta.holdPath,
-                 ta.holdFloor, ta.boost, ta.nudge, ta.exitFade, ta.holdActive, str(ta.releaseReason), ta.turned,
+                 ta.holdFloor, getattr(ta, "boost", 0.0), ta.nudge, ta.exitFade, ta.holdActive, str(ta.releaseReason), ta.turned,
                  ta.earlyCorrection, ta.leadYield, ta.restarts))
   if not rows or not any(r[3] != 0.0 or r[1] != 0 for r in rows):
     return None
