@@ -1,10 +1,12 @@
-"""FM Pilot: Turn Lead, Turn Hold, Smooth Turn Start and the Turn Assist log (fm_turn_assist.py).
+"""FM Pilot: Turn Lead, Turn Hold, Smooth Turn Start, Finish Turn After Signal Cancels and the Turn Assist log
+(fm_turn_assist.py).
 
 Ported from fm-dev-nav-settle ca08aac9 (test_fm_turn_assist.py). Turn Nudge, Hold Through Early Correction, Ignore Brief
 Hand Blips, Hold Starts at Turn-In, Hold Only Counts While Steering and Hold Ignores Crawl Spikes are folded into Turn
 Hold (always on with it), so the tests that drove them off are gone and the ones that relied on them being off now turn
-the truck past 10 degrees, press firmly or press long enough. Turn Lead and its options came with plan PR 11. Turn Boost
-(dropped) and Finish Turn After Signal Cancels (plan PR 12) tests are not here.
+the truck past 10 degrees, press firmly or press long enough. Turn Lead and its options came with plan PR 11, Finish
+Turn After Signal Cancels with plan PR 12 (Carry Only at Turn-In folded, so ca08aac9's test with it off now checks the
+folded behavior with the old key stored off). Turn Boost (dropped) tests are not here.
 """
 import math
 from pathlib import Path
@@ -25,11 +27,14 @@ from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_assist import (FmTurnAs
                                                                          PARAM_RESTART_AFTER_STOP, FOLDED_KEYS, turn_sign,
                                                                          PARAM_LEAD, PARAM_LEAD_MIN_SPEED, PARAM_LEAD_ADAPTIVE,
                                                                          PARAM_LEAD_GATE, PARAM_LEAD_GATE_DIST, PARAM_LEAD_YIELD,
-                                                                         plan_circle_curvature)
+                                                                         plan_circle_curvature, PARAM_CARRY, CARRY_MAX_TIME,
+                                                                         HOLD_AGAINST_TORQUE)
 
 LEFT, RIGHT, NONE = TurnDirection.turnLeft, TurnDirection.turnRight, TurnDirection.none
 FADE_STEPS = int(FADE_TIME / DT_CTRL) + 2
-SETTING_KEYS = (PARAM_HOLD, PARAM_HOLD_PATH, PARAM_HOLD_DRIVER, PARAM_HOLD_FOLLOW_EXIT, PARAM_RESTART_AFTER_STOP, PARAM_PHASE_IN)
+SETTING_KEYS = (PARAM_HOLD, PARAM_HOLD_PATH, PARAM_HOLD_DRIVER, PARAM_HOLD_FOLLOW_EXIT, PARAM_RESTART_AFTER_STOP, PARAM_PHASE_IN,
+                PARAM_CARRY)
+CARRY_TURN_IN_KEY = "FM_TurnCarryTurnInOnly"  # Carry Only at Turn-In, folded
 LEAD_TOGGLES = (PARAM_LEAD, PARAM_LEAD_ADAPTIVE, PARAM_LEAD_GATE, PARAM_LEAD_YIELD)
 
 
@@ -38,7 +43,7 @@ class FakeParams:
     self.values = {PARAM_HOLD: False, PARAM_HOLD_PATH: False, PARAM_HOLD_DRIVER: False, PARAM_HOLD_FOLLOW_EXIT: False,
                    PARAM_RESTART_AFTER_STOP: False, PARAM_PHASE_IN: False, PARAM_MIN_RADIUS: MIN_RADIUS_DEFAULT,
                    PARAM_LEAD: False, PARAM_LEAD_MIN_SPEED: 7.0, PARAM_LEAD_ADAPTIVE: False, PARAM_LEAD_GATE: False,
-                   PARAM_LEAD_GATE_DIST: 5.0, PARAM_LEAD_YIELD: False} | values
+                   PARAM_LEAD_GATE_DIST: 5.0, PARAM_LEAD_YIELD: False, PARAM_CARRY: False} | values
     self.reads = set()
 
   def get_bool(self, key):
@@ -118,8 +123,8 @@ class TestOff:
 
   @pytest.mark.parametrize("key", SETTING_KEYS[1:])
   def test_options_need_turn_hold(self, key):
-    """Hold Path Source, Hold Adds Your Steering, Follows the Model's Exit, Stop Before Turning Starts Over and Smooth
-    Turn Start do nothing without Turn Hold."""
+    """Hold Path Source, Hold Adds Your Steering, Follows the Model's Exit, Stop Before Turning Starts Over, Smooth
+    Turn Start and Finish Turn After Signal Cancels do nothing without Turn Hold (or Turn Lead)."""
     a = FmTurnAssist(FakeParams(**{key: True}))
     for k, d in [(0.0, RIGHT), (0.09, RIGHT), (0.02, RIGHT), (0.01, NONE)] * 30:
       assert run(a, k, d, mph=1, actual=0.06, pressed=True, torque=-1.5, model=path(10.0, start=0.0)) == k
@@ -931,13 +936,14 @@ class TestFolded:
 
   def test_folded_keys_are_the_ones_in_folded_defaults(self):
     assert set(FOLDED_KEYS) == {"FM_TurnNudgeEnabled", "FM_TurnHoldEarlyCorrection", "FM_TurnHoldReleaseDebounce",
-                                "FM_TurnHoldStartsAtTurnIn", "FM_TurnHoldSteeringOnly", "FM_TurnHoldSteadyPeak"}
+                                "FM_TurnHoldStartsAtTurnIn", "FM_TurnHoldSteeringOnly", "FM_TurnHoldSteadyPeak",
+                                CARRY_TURN_IN_KEY}
     doc = (Path(__file__).parents[6] / "docs" / "fm-dev-sync" / "FM_FOLDED_DEFAULTS.md").read_text()
     for key in FOLDED_KEYS:
       assert f"`{key}`" in doc
 
   def test_old_keys_never_read(self):
-    params = FakeParams(**({PARAM_HOLD: True, PARAM_HOLD_DRIVER: True, PARAM_HOLD_PATH: True} | self.OLD_OFF))
+    params = FakeParams(**({PARAM_HOLD: True, PARAM_HOLD_DRIVER: True, PARAM_HOLD_PATH: True, PARAM_CARRY: True} | self.OLD_OFF))
     a = FmTurnAssist(params)
     for i in range(500):
       run(a, 0.05 * math.sin(i / 40), RIGHT, mph=3, actual=0.03, pressed=i % 7 == 0, torque=1.0, model=path(10.0, start=0.0))
@@ -1079,7 +1085,7 @@ class TestSettings:
   def test_fresh_install_is_off(self):
     a = FmTurnAssist(FakeParams())
     assert not a.enabled and not a.hold_path and not a.hold_driver and not a.hold_follow_exit
-    assert not a.restart_after_stop and not a.phase_in
+    assert not a.restart_after_stop and not a.phase_in and not a.carry_enabled
     assert not a.lead_enabled and not a.lead_adaptive and not a.lead_gate and not a.lead_yield
     assert a.lead_min_speed == pytest.approx(7.0 * CV.MPH_TO_MS) and a.lead_gate_dist == 5.0
     assert a.max_curvature == pytest.approx(1 / MIN_RADIUS_DEFAULT)
@@ -1090,7 +1096,7 @@ class TestSettings:
     from openpilot.common.prefix import OpenpilotPrefix
     with OpenpilotPrefix():  # an empty params store, as on a fresh install
       a = FmTurnAssist(Params())
-    assert not a.lead_enabled and not a.lead_adaptive and not a.lead_gate and not a.lead_yield
+    assert not a.lead_enabled and not a.lead_adaptive and not a.lead_gate and not a.lead_yield and not a.carry_enabled
     assert a.lead_min_speed == pytest.approx(7.0 * CV.MPH_TO_MS) and a.lead_gate_dist == pytest.approx(5.0)
     assert a.max_curvature == pytest.approx(1 / MIN_RADIUS_DEFAULT)
 
@@ -1107,7 +1113,7 @@ class TestSettings:
 
   def test_turn_hold_settings_sub_page(self):
     turns = self._sections()["fm_turns"]
-    assert [item["key"] for item in turns["items"]] == [PARAM_HOLD, PARAM_LEAD]
+    assert [item["key"] for item in turns["items"]] == [PARAM_HOLD, PARAM_LEAD, PARAM_CARRY]
     sub = turns["sub_panels"][0]
     assert sub["label"] == "Turn Hold Settings" and sub["trigger_key"] == PARAM_HOLD
     assert [item["key"] for item in sub["items"]] == [PARAM_HOLD_PATH, PARAM_HOLD_DRIVER, PARAM_HOLD_FOLLOW_EXIT,
@@ -1143,6 +1149,20 @@ class TestSettings:
     params = Params()
     for key in SETTING_KEYS + LEAD_TOGGLES + (PARAM_LEAD_MIN_SPEED, PARAM_LEAD_GATE_DIST, PARAM_MIN_RADIUS):
       assert params.check_key(key), key
+
+  def test_finish_turn_after_signal_cancels_on_the_turns_section(self):
+    """A toggle on the Turns section itself (not a sub-page), enabled by Turn Hold or Turn Lead; Carry Only at Turn-In is
+    folded into its description, with no entry of its own."""
+    turns = self._sections()["fm_turns"]
+    (item,) = [i for i in turns["items"] if i["key"] == PARAM_CARRY]
+    assert item["widget"] == "toggle" and item["title"] == "Finish Turn After Signal Cancels"
+    (any_of,) = item["enablement"]
+    assert any_of["type"] == "any" and {c["key"] for c in any_of["conditions"]} == {PARAM_HOLD, PARAM_LEAD}
+    assert all(c["equals"] is True for c in any_of["conditions"])
+    assert "Boost" not in item["description"] and "On by default" not in item["description"]
+    assert "45 degrees" in item["description"]
+    assert all(PARAM_CARRY not in [i["key"] for i in sub["items"]] for sub in turns["sub_panels"])
+    assert self.STEERING_YAML.read_text().count(f"key: {PARAM_CARRY}\n") == 1
 
   def test_folded_keys_not_in_the_settings(self):
     text = self.STEERING_YAML.read_text()
@@ -1440,3 +1460,211 @@ class TestTurnHoldOnlyUnchanged:
       b.fill_log(mb)
       assert ma.to_dict() == mb.to_dict()
     assert not b.lead_off and not b.lead_paused and b.lead_prev == 0.0
+
+
+def carry(**values):
+  return FmTurnAssist(FakeParams(**({PARAM_HOLD: True, PARAM_CARRY: True} | values)))
+
+
+class TestCarryThrough:
+  """Finish Turn After Signal Cancels: the turn goes on for Turn Assist while the truck is still turning that way.
+  Ported from ca08aac9; there the class ran with Carry Only at Turn-In off, here it is folded on, which these turns (the
+  blinker off near turn-in, the truck still turning tighter) don't reach."""
+
+  @pytest.mark.parametrize("direction, sign", [(RIGHT, 1), (LEFT, -1)])
+  def test_hold_carries_while_turning(self, direction, sign):
+    a = carry()
+    run(a, sign * 0.09, direction, steps=FADE_STEPS, actual=sign * 0.001)
+    out = run(a, sign * 0.01, NONE, steps=50, actual=sign * 0.08)  # blinker off, truck still turning
+    assert a.carry_sign == sign
+    assert sign * out > 0.06
+
+  def test_off_fades_as_before(self):
+    a = carry(**{PARAM_CARRY: False})
+    run(a, 0.09, RIGHT, steps=FADE_STEPS, actual=0.001)
+    assert run(a, 0.01, NONE, steps=FADE_STEPS, actual=0.08) == 0.01
+
+  def test_not_turning_does_not_carry(self):
+    a = carry()
+    run(a, 0.09, RIGHT, steps=FADE_STEPS, actual=0.001)
+    run(a, 0.01, NONE, actual=0.005)
+    assert a.carry_sign == 0
+    run(a, 0.01, NONE, actual=0.08)  # turning later doesn't start it: needs a new turn desire
+    assert a.carry_sign == 0
+
+  def test_ends_when_straight_then_fades(self):
+    a = carry()
+    run(a, 0.09, RIGHT, steps=FADE_STEPS, actual=0.001)
+    run(a, 0.01, NONE, steps=20, actual=0.08)
+    first = run(a, 0.01, NONE, actual=0.005)
+    assert a.carry_sign == 0
+    assert 0.01 < first  # the usual cancel fade
+    assert run(a, 0.01, NONE, steps=FADE_STEPS, actual=0.005) == 0.01
+    run(a, 0.01, NONE, actual=0.08)
+    assert a.carry_sign == 0  # never restarts without a new turn desire
+
+  @pytest.mark.parametrize("opts", [{"lat": False}, {"lane_changing": True}, {"mph": 21},
+                                    {"pressed": True, "torque": HOLD_AGAINST_TORQUE + 0.1}])
+  def test_ends_at_once(self, opts):
+    a = carry()
+    run(a, 0.09, RIGHT, steps=FADE_STEPS, actual=0.001)
+    run(a, 0.01, NONE, steps=5, actual=0.08)
+    run(a, 0.01, NONE, actual=0.08, **opts)
+    assert a.carry_sign == 0
+
+  @pytest.mark.parametrize("direction, sign", [(RIGHT, 1), (LEFT, -1)])
+  def test_firm_press_against_ends_it_at_once(self, direction, sign):
+    """HOLD_AGAINST_TORQUE (0.5 Nm) against the carried turn ends it the same frame; into the turn it doesn't."""
+    assert HOLD_AGAINST_TORQUE == 0.5
+    a = carry()
+    run(a, sign * 0.09, direction, steps=FADE_STEPS, actual=sign * 0.001)
+    run(a, sign * 0.01, NONE, steps=5, actual=sign * 0.08)
+    run(a, sign * 0.01, NONE, actual=sign * 0.08, pressed=True, torque=-sign * 1.5)  # into the turn
+    assert a.carry_sign == sign
+    run(a, sign * 0.01, NONE, actual=sign * 0.08, pressed=True, torque=sign * 0.49)  # under 0.5 Nm: not yet
+    assert a.carry_sign == sign
+    run(a, sign * 0.01, NONE, actual=sign * 0.08, pressed=True, torque=sign * 0.5)
+    assert a.carry_sign == 0
+
+  def test_brief_blip_against_does_not_end_it(self):
+    a = carry()
+    run(a, 0.09, RIGHT, steps=FADE_STEPS, actual=0.001)
+    run(a, 0.01, NONE, steps=5, actual=0.08)
+    run(a, 0.01, NONE, pressed=True, torque=0.14, actual=0.08)
+    assert a.carry_sign == 1
+    run(a, 0.01, NONE, steps=int(HOLD_AGAINST_TIME / DT_CTRL) + 1, pressed=True, torque=0.14, actual=0.08)
+    assert a.carry_sign == 0
+
+  def test_max_time(self):
+    a = carry()
+    run(a, 0.09, RIGHT, steps=FADE_STEPS, actual=0.001)
+    run(a, 0.01, NONE, steps=int(CARRY_MAX_TIME / DT_CTRL) + 2, actual=0.08, mph=3)
+    assert a.carry_sign == 0
+
+  def test_lead_keeps_working(self):
+    """Turn Lead follows the carried turn's sign (Turn Lead alone, no Turn Hold)."""
+    a = FmTurnAssist(FakeParams(**{PARAM_LEAD: True, PARAM_LEAD_MIN_SPEED: 2.0, PARAM_CARRY: True}))
+    model = path(10, start=0.0)
+    run(a, 0.0, RIGHT, mph=5, steps=FADE_STEPS, actual=0.012, model=model)
+    assert run(a, 0.0, NONE, mph=5, steps=10, actual=0.015, model=model) > 0.05
+    assert a.carry_sign == 1 and a.log_source == fm_turn_assist.SOURCE_CARRY and a.log_lead > 0.0
+
+  def test_lead_off_without_carry(self):
+    a = FmTurnAssist(FakeParams(**{PARAM_LEAD: True, PARAM_LEAD_MIN_SPEED: 2.0}))
+    model = path(10, start=0.0)
+    run(a, 0.0, RIGHT, mph=5, steps=FADE_STEPS, actual=0.012, model=model)
+    assert run(a, 0.0, NONE, mph=5, steps=10, actual=0.015, model=model) == 0.0
+
+  def test_other_side_turn_is_a_new_turn(self):
+    a = carry()
+    run(a, 0.09, RIGHT, steps=FADE_STEPS, actual=0.001)
+    run(a, 0.01, NONE, steps=5, actual=0.08)
+    run(a, -0.01, LEFT, actual=0.08)
+    assert a.carry_sign == 0 and a.sign == -1
+
+  def test_inert_with_turn_hold_and_lead_off(self):
+    a = FmTurnAssist(FakeParams(**{PARAM_CARRY: True}))
+    assert not a.enabled and a.carry_enabled
+    for k, d, act in [(0.09, RIGHT, 0.001), (0.01, NONE, 0.08)] * 60:
+      assert run(a, k, d, steps=5, actual=act) == k
+      assert a.carry_sign == 0 and a.log_source == fm_turn_assist.SOURCE_NONE
+
+  def test_switching_turn_hold_off_mid_carry_ends_it(self):
+    params = FakeParams(**{PARAM_HOLD: True, PARAM_CARRY: True})
+    a = FmTurnAssist(params)
+    run(a, 0.09, RIGHT, steps=FADE_STEPS, actual=0.001)
+    run(a, 0.01, NONE, steps=5, actual=0.08)
+    assert a.carry_sign == 1
+    params.values[PARAM_HOLD] = False
+    a.read_params()
+    assert run(a, 0.01, NONE, actual=0.08) == 0.01 and a.carry_sign == 0
+
+
+class TestCarryTurnInOnly:
+  """Carry Only at Turn-In (folded, always on): a blinker cancel late in the turn, or once the truck is straightening out,
+  ends the turn. FM_TurnCarryTurnInOnly is not read."""
+
+  def test_cancel_at_turn_in_still_carries(self):
+    a = carry()
+    run(a, 0.09, RIGHT, steps=FADE_STEPS, actual=0.02)  # ~6 deg turned
+    run(a, 0.01, NONE, actual=0.08)
+    assert a.carry_sign == 1
+
+  @pytest.mark.parametrize("old", [None, True, False])
+  def test_cancel_late_in_turn_fades_instead(self, old):
+    """With the old key unset, on, or stored off (ca08aac9 then carried): the usual cancel fade."""
+    a = carry(**({} if old is None else {CARRY_TURN_IN_KEY: old}))
+    run(a, 0.09, RIGHT, steps=150, actual=0.1)  # 0.1 1/m at 10 mph: about 38 deg
+    run(a, 0.03, RIGHT, steps=50, actual=0.1)  # the model eases, Turn Hold's floor holds it: about 51 deg
+    assert 45 < math.degrees(a.turned) < 75
+    first = run(a, 0.01, NONE, actual=0.1)
+    assert a.carry_sign == 0
+    assert 0.01 < first < 0.09  # the usual cancel fade, not a carry
+    assert run(a, 0.01, NONE, steps=FADE_STEPS, actual=0.1) == 0.01
+    assert a.carry_sign == 0
+
+  @pytest.mark.parametrize("old", [None, False])
+  def test_cancel_while_straightening_fades_instead(self, old):
+    a = carry(**({} if old is None else {CARRY_TURN_IN_KEY: old}))
+    run(a, 0.09, RIGHT, steps=50, actual=0.1)  # tightest 0.1, ~13 deg turned
+    run(a, 0.05, RIGHT, steps=5, actual=0.05)  # unwinding to half
+    run(a, 0.01, NONE, actual=0.05)
+    assert a.carry_sign == 0
+
+  def test_old_off_does_not_carry_late(self):
+    """ca08aac9's test_off_carries_as_before: with the old key off it carried 51 deg in; folded, it doesn't."""
+    a = carry(**{CARRY_TURN_IN_KEY: False})
+    run(a, 0.09, RIGHT, steps=200, actual=0.1)
+    run(a, 0.01, NONE, actual=0.05)
+    assert a.carry_sign == 0
+
+  def test_just_under_the_limits_carries(self):
+    a = carry()
+    run(a, 0.09, RIGHT, steps=100, actual=0.1)  # ~26 deg
+    run(a, 0.075, RIGHT, steps=2, actual=0.075)
+    run(a, 0.01, NONE, actual=0.075)  # 75% of the tightest: still turning in
+    assert a.carry_sign == 1
+
+  def test_00000073_8_left_exit(self):
+    """--8 +35.2 s: blinker self-cancelled 51 deg into a left at 10 mph, truck at 16 m after 9 m at the tightest."""
+    a = carry()
+    run(a, -0.11, LEFT, mph=10, steps=200, actual=-0.11)  # ~56 deg
+    run(a, -0.04, LEFT, mph=10, steps=20, actual=-0.0625)
+    run(a, -0.016, NONE, mph=10, actual=-0.0625)
+    assert a.carry_sign == 0
+
+  def test_old_key_never_read(self):
+    params = FakeParams(**{PARAM_HOLD: True, PARAM_LEAD: True, PARAM_CARRY: True, CARRY_TURN_IN_KEY: False})
+    a = FmTurnAssist(params)
+    for i in range(300):
+      run(a, 0.09, RIGHT if i % 50 < 30 else NONE, actual=0.08, model=path(10.0, start=0.0))
+      if i % 100 == 0:
+        a.read_params()
+    assert PARAM_CARRY in params.reads and CARRY_TURN_IN_KEY not in params.reads
+
+
+class TestCarryLog:
+  @staticmethod
+  def logged(a):
+    m = turn_assist_msg()
+    a.fill_log(m)
+    return m
+
+  def test_carry_source_and_exit_fade(self):
+    a = carry()
+    run(a, 0.09, RIGHT, steps=FADE_STEPS, actual=0.001)
+    run(a, 0.01, NONE, actual=0.08)
+    m = self.logged(a)
+    assert str(m.source) == "carry" and m.sign == 1 and m.holdFloor > 0.0
+    run(a, 0.01, NONE, actual=0.005)  # carry ends: the usual cancel fade
+    m = self.logged(a)
+    assert str(m.source) == "none" and m.sign == 1 and m.exitFade > 0.0
+
+  def test_logging_changes_nothing(self):
+    opts = {PARAM_HOLD: True, PARAM_LEAD: True, PARAM_LEAD_MIN_SPEED: 2.0, PARAM_HOLD_DRIVER: True, PARAM_CARRY: True}
+    a, b = FmTurnAssist(FakeParams(**opts)), FmTurnAssist(FakeParams(**opts))
+    model = path(10, start=0.0)
+    for k, act, d in [(0.0, 0.0, RIGHT), (0.02, 0.05, RIGHT), (0.01, 0.09, RIGHT), (0.01, 0.05, NONE)] * 30:
+      x = run(a, k, d, mph=5, actual=act, model=model)
+      a.fill_log(turn_assist_msg())
+      assert x == run(b, k, d, mph=5, actual=act, model=model)

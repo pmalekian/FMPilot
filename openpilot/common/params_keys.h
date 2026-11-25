@@ -361,6 +361,9 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"FM_TurnLeadGate", {PERSISTENT | BACKUP, BOOL, "0"}},  // Wait for the Corner
     {"FM_TurnLeadGateDist", {PERSISTENT | BACKUP, FLOAT, "5.0"}},  // Turn Lead Start Distance, m, 3-10
     {"FM_TurnLeadYield", {PERSISTENT | BACKUP, BOOL, "0"}},  // Turn Lead Yields to Your Hands
+    // Finish Turn After Signal Cancels: same key and meaning as on fm-dev-nav-settle, so an existing value carries (on by
+    // default there; fresh installs start off here)
+    {"FM_TurnCarryThrough", {PERSISTENT | BACKUP, BOOL, "0"}},
     // old (fm-dev-nav-settle) Turn Hold options, folded (always on with Turn Hold): never read, never written
     {"FM_TurnNudgeEnabled", {PERSISTENT | BACKUP, BOOL}},
     {"FM_TurnHoldEarlyCorrection", {PERSISTENT | BACKUP, BOOL}},
@@ -368,6 +371,8 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"FM_TurnHoldStartsAtTurnIn", {PERSISTENT | BACKUP, BOOL}},
     {"FM_TurnHoldSteeringOnly", {PERSISTENT | BACKUP, BOOL}},
     {"FM_TurnHoldSteadyPeak", {PERSISTENT | BACKUP, BOOL}},
+    // old (fm-dev-nav-settle) Carry Only at Turn-In, folded (always on with Finish Turn After Signal Cancels): never read
+    {"FM_TurnCarryTurnInOnly", {PERSISTENT | BACKUP, BOOL}},
 
     // Rivian
     {"RivianResumeEnabled", {PERSISTENT | BACKUP, BOOL, "0"}},
