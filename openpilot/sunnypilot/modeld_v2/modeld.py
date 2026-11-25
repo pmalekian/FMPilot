@@ -44,6 +44,7 @@ from openpilot.sunnypilot.modeld_v2.blendful import Blendful
 from openpilot.sunnypilot.modeld_v2.fm_lateral_smoothing import (
   PARAM_BIG_MODEL, PARAM_SMALL_MODEL, smooth_big_model_action, smoothing_override,
 )
+from openpilot.sunnypilot.modeld_v2.fm_pull_away import ACTION_SPEED_FLOOR, StraightPullAway
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_lane_keep_mode import MODE_BLENDFUL, get_lane_keep_mode
 from openpilot.sunnypilot.modeld_v2.constants import ModelConstants, Plan
 from openpilot.sunnypilot.modeld_v2.meta_helper import load_meta_constants
@@ -242,7 +243,8 @@ class ModelState(ModelStateBase):
 
   def get_action_from_model(self, model_output: dict[str, np.ndarray], prev_action: log.ModelDataV2.Action,
                             lat_action_t: float, long_action_t: float, v_ego: float,
-                            blendful: Callable[[float], float] | None = None) -> log.ModelDataV2.Action:
+                            blendful: Callable[[float], float] | None = None,
+                            *, action_speed_floor: float = ACTION_SPEED_FLOOR) -> log.ModelDataV2.Action:
     if 'action' not in model_output:
       plan = model_output['plan'][0]
       desired_accel = get_accel_from_plan(plan[:, Plan.VELOCITY][:, 0], plan[:, Plan.ACCELERATION][:, 0], self.constants.T_IDXS,
@@ -253,7 +255,7 @@ class ModelState(ModelStateBase):
       desired_curvature = get_curvature_from_output(model_output, curvature_plan, v_ego, lat_action_t, self.mlsim)
     else:
       desired_accel = model_output['action'][0, 1]
-      desired_curvature = model_output['action'][0, 0] / (max(1.0, v_ego))**2
+      desired_curvature = model_output['action'][0, 0] / max(action_speed_floor, v_ego)**2
     if blendful is not None:
       desired_curvature += blendful(desired_curvature)
 
@@ -404,6 +406,8 @@ def main(demo=False):
   blendful = Blendful()
   blendful_enabled = False
   big_model_smoothing = smoothing_override(params, PARAM_BIG_MODEL)
+  pull_away = StraightPullAway()
+  pull_away.read_params(params)
   if small_model is not None:
     small_model.apply_lateral_smoothing(params)
   if isinstance(model, ModelState) and model.chestnut:
@@ -446,18 +450,21 @@ def main(demo=False):
     desire = DH.desire
     is_rhd = sm["driverMonitoringState"].isRHD
     frame_id = sm["narrowRoadCameraState"].frameId
-    v_ego = max(sm["carState"].vEgo, 0.)
+    car_state = sm["carState"]
+    v_ego = max(car_state.vEgo, 0.)
     if sm.frame % 60 == 0:
       model.lat_delay = get_lat_delay(params, sm["lateralDelay"].lateralDelay)
       model.PLANPLUS_CONTROL = params.get("PlanplusControl", return_default=True)
       camera_offset_helper.set_offset(params.get("CameraOffset", return_default=True))
       blendful_enabled = get_lane_keep_mode(params) == MODE_BLENDFUL  # FM Pilot: the Lane Keeping selector picks Blendful
       big_model_smoothing = smoothing_override(params, PARAM_BIG_MODEL)
+      pull_away.read_params(params)
       # Jetlink delegates reads to the active model, but writes stay on its wrapper.
       if small_model is not None:
         small_model.apply_lateral_smoothing(params)
       if isinstance(model, ModelState) and model.chestnut:
         model.big_model_smoothing = big_model_smoothing
+    action_speed_floor = pull_away.speed_floor(v_ego, car_state, desire != log.Desire.none)
     lat_delay = model.lat_delay + model.LAT_SMOOTH_SECONDS
     if sm.updated["extrinsicsCalibration"] and sm.seen['narrowRoadCameraState'] and sm.seen['deviceState']:
       device_from_calib_euler = np.array(sm["extrinsicsCalibration"].rpyCalib, dtype=np.float32)
@@ -536,7 +543,8 @@ def main(demo=False):
         prev_action.desiredCurvature = sm['controlsState'].curvature
       blendful_active = desire == log.Desire.none and DH.lane_change_state == log.LaneChangeState.off
       action = model.get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego,
-                                           partial(blendful.update, model_output, v_ego, blendful_active, enabled=blendful_enabled))
+                                           partial(blendful.update, model_output, v_ego, blendful_active, enabled=blendful_enabled),
+                                           action_speed_floor=action_speed_floor)
       # A Jetlink swap happens inside run(), so check which model produced this frame after inference.
       if not isinstance(model, ModelState):
         smooth_big_model_action(action, prev_action, model, big_model_smoothing)

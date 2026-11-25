@@ -71,8 +71,9 @@ ruff check .
 | PR 5 Release Guard | merged, PR #9 (`1653723`): `FM_ReleaseGuardLimit` Stock / 75 / 150, v0 + v1, migration `release_guard`; controlsd publishes `fmControls` |
 | PR 6 feedforward + correction strength | merged, PR #10 (`60c057b`): `FM_LowSpeedFFLeft/Right` (Off default), `FM_LowSpeedCorrectionStrength` (100 default), v0 + v1, migrations `low_speed_feedforward`, `low_speed_correction` |
 | PR 7 Lane Keeping | merged, PR #11 (`99a2b44`): `FM_LaneKeepMode` Off / Lane Centering / Lane Guard / Blendful (Off default), Lane Guard (gerrylum rx-wb `17ea338`) via `fm_lateral.py`, Blendful at 0.3 m/s with the blue line only; migration `lane_keep_mode` |
-| PR 8 Model Lateral Smoothing | Small and Big Model Default / 0.00 s / 0.10 s choices, both modelds; migration `model_lateral_smoothing` |
-| PRs 9-18 | not started |
+| PR 8 Model Lateral Smoothing | merged, PR #12 (`31be347ac`): Small and Big Model Default / 0.00 s / 0.10 s choices, both modelds; migration `model_lateral_smoothing` |
+| PR 9 Calmer Crawl-Speed Steering and Calmer Straight Pull-Away | Two Off-by-default toggles for the action-head curvature floor in both modelds and Jetlink. Existing settings retain their keys. |
+| PRs 10-18 | not started |
 
 ## Reference (unchanged from before)
 
