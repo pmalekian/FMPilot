@@ -379,7 +379,9 @@ class SelfdriveD:
 
       elif (mdv2sp.leftLaneChangeEdgeBlock and direction == LaneChangeDirection.left) or \
            (mdv2sp.rightLaneChangeEdgeBlock and direction == LaneChangeDirection.right):
-        self.events_sp.add(custom.OnroadEventSP.EventName.laneChangeRoadEdge)
+        # FM Pilot: always a small gray message with no sound instead of the orange alert and beep (folded, always on;
+        # see FM_FOLDED_DEFAULTS.md)
+        self.events_sp.add(custom.OnroadEventSP.EventName.fmLaneChangeRoadEdgeQuiet)
 
       else:
         if direction == LaneChangeDirection.left:
