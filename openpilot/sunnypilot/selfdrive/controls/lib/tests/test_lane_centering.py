@@ -703,3 +703,28 @@ def test_on_ramp_replay(single_line):
     assert np.median(on_ramp) < -1e-4, "should push away from the inside line on the ramp"
   else:
     assert max(abs(x) for x in on_ramp) < 1e-6, "without single-line mode the ramp gets nothing, as before"
+
+
+def test_carry_fades_existing_correction_quickly_and_resumes():
+  from openpilot.sunnypilot.selfdrive.controls.lib.lane_centering import CARRY_FADE_FRAMES
+
+  model = _model(left=-1.5, right=2.1)
+  controller = _controller()
+  # Build up an active correction, then a quick blinker cancel leaves nonzero correction when carry starts
+  for _ in range(150):
+    controller.update(0.0, model, 6.0, False, True, True)
+  for _ in range(5):
+    before_carry = controller.update(0.0, model, 6.0, True, True, True)
+  assert before_carry > 0.0005
+
+  carry_outs = [controller.update(0.0, model, 6.0, False, True, True, carry_active=True) for _ in range(60)]
+  # First carry frame fades smoothly (not a hard step to 0), then reaches exact 0 in ~0.2 s and stays 0 through last frame
+  assert 0.0 < carry_outs[0] < before_carry
+  assert all(a >= b for a, b in zip(carry_outs[:CARRY_FADE_FRAMES], carry_outs[1:CARRY_FADE_FRAMES], strict=False))
+  assert carry_outs[CARRY_FADE_FRAMES - 1] == 0.0
+  assert all(x == 0.0 for x in carry_outs[CARRY_FADE_FRAMES - 1:])
+  assert carry_outs[-1] == 0.0 and not controller.active
+
+  # Normal resumption after carry ends
+  resumed = [controller.update(0.0, model, 6.0, False, True, True, carry_active=False) for _ in range(100)]
+  assert controller.active and 0.0 < resumed[0] < resumed[-1]

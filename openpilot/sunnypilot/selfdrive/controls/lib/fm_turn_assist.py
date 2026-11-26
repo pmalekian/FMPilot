@@ -74,15 +74,15 @@ Options (Turn Hold Settings, off by default):
     full lock (Turn Path Tightest Radius doesn't apply: it is your curve), instead of releasing, so it keeps the help
     you gave once you let go and doesn't push back toward a wider turn while you hold the wheel in. Before 45 degrees
     steering into the turn never releases it, even before the truck has started turning; steering against the turn still
-    releases it as above. Once the truck has turned 45 degrees it stops latching new driver input (whatever was added
-    before 45 degrees stays frozen in the peak and exits normally) and driver pressure into the turn no longer blocks
-    exit or release. Hand torque toward the turn is the same direction openpilot steers, so the wheel's own reaction
-    (which reads against openpilot) can't trigger it. From StarPilot's Model Turn Assist curvature hold (driver-confirmed
-    wind).
-  - Hold Follows the Model's Exit: once the truck has turned 45 degrees, when the model asks for less than half of the
-    hold's peak (it is letting go of the turn), Turn Hold fades out over half a second instead of keeping its floor
-    until 75 degrees. In 00000073 (--8 +34.8 s, --8 +46.5 s, --2 +45.8 s) the floor kept the request 1 to 2.5 s tighter
-    than the model until he steered out.
+    releases it as above. Once the truck has passed 45 degrees (remembered for the rest of that turn, even if heading
+    later dips below 45 degrees), it stops latching new driver input (whatever was added before 45 degrees stays frozen
+    in the peak and exits normally) and driver pressure into the turn no longer blocks exit or release. Hand torque
+    toward the turn is the same direction openpilot steers, so the wheel's own reaction (which reads against openpilot)
+    can't trigger it. From StarPilot's Model Turn Assist curvature hold (driver-confirmed wind).
+  - Hold Follows the Model's Exit: once the truck has passed 45 degrees in the turn, when the model asks for less than
+    half of the hold's peak (it is letting go of the turn), Turn Hold fades out over half a second instead of keeping
+    its floor until 75 degrees. In 00000073 (--8 +34.8 s, --8 +46.5 s, --2 +45.8 s) the floor kept the request 1 to 2.5 s
+    tighter than the model until he steered out.
   - Stop Before Turning Starts Over: a stop before the truck has turned 10 degrees (a queue, a creep to the line) starts
     the turn over, so nothing learned on the way (the hold's peak, a release, Turn Lead paused or switched off by your
     hands) carries into the turn.
@@ -375,6 +375,7 @@ class FmTurnAssist:
     self.read_params()
 
   def read_params(self) -> None:
+    was_enabled = self.enabled
     self.hold_enabled = self.params.get_bool(PARAM_HOLD)
     self.hold_path = self.params.get_bool(PARAM_HOLD_PATH)
     self.hold_driver = self.params.get_bool(PARAM_HOLD_DRIVER)
@@ -395,6 +396,19 @@ class FmTurnAssist:
     self.lead_gate_dist = self._read_float(PARAM_LEAD_GATE_DIST, LEAD_GATE_DIST_DEFAULT, LEAD_GATE_DIST_LIMITS)
     self.lead_yield = self.params.get_bool(PARAM_LEAD_YIELD)
     self.carry_enabled = self.params.get_bool(PARAM_CARRY)
+    if was_enabled and not self.enabled:
+      self.reset()
+
+  def reset(self, desired_curvature: float = 0.0) -> None:
+    """Clear active turn, carry and published log state when the last Turn Assist feature is disabled."""
+    self.carry_sign = 0
+    self.carry_time = 0.0
+    self.carry_against = 0.0
+    self.carry_done = True
+    self.restarts = 0
+    self.amount = 0.0
+    self._reset_turn(0)
+    self._clear_log(desired_curvature)
 
   def _read_float(self, key: str, default: float, limits) -> float:
     """A number setting, clipped to its limits; unset, unreadable or not finite -> default (as fm-dev-nav-settle)."""
@@ -421,6 +435,7 @@ class FmTurnAssist:
     self.against_time = 0.0
     self.extra = 0.0  # Smooth Turn Start: what is applied on top of the model's request, toward the turn
     self.turned = 0.0  # rad the truck has turned toward the turn since it started (every turn, hold or not)
+    self.past_exit_turned = False  # once the truck passes HOLD_EXIT_TURNED (45 deg), it stays crossed for this turn
     self.peak_actual = 0.0  # 1/m: the truck's tightest curve toward the turn so far
     self.release_reason = RELEASE_NONE
     self.exit_fade = 0.0  # Hold Follows the Model's Exit: 1 -> 0 while the released hold fades out
@@ -538,7 +553,7 @@ class FmTurnAssist:
       # Only carry the last applied hold into the exit. Do not update its peak.
       self.amount = max(self.amount - step, 0.0)
       self.hold_exit_amount = max(self.hold_exit_amount - step, 0.0)
-      driver_opposes = steering_pressed and not (self.hold_driver and self.turned < HOLD_EXIT_TURNED
+      driver_opposes = steering_pressed and not (self.hold_driver and not self.past_exit_turned
                                                  and self.sign * steering_torque < 0.0)
       if (self.hold_enabled and lat_active and not driver_opposes and not lane_changing
           and v_ego < MAX_SPEED and self.hold_exit_amount > 0.0):
@@ -562,6 +577,8 @@ class FmTurnAssist:
       self.restarts = min(self.restarts + 1, 255)
     if sign != 0:
       self.turned += sign * actual_curvature * v_ego * DT_CTRL
+      if self.turned >= HOLD_EXIT_TURNED:
+        self.past_exit_turned = True
       self.peak_actual = max(self.peak_actual, sign * actual_curvature)
       if not settle_active:
         self.settle_armed = True
@@ -597,9 +614,10 @@ class FmTurnAssist:
       self.heading += sign * actual_curvature * v_ego * DT_CTRL
       # Hand torque is positive to the LEFT and curvature positive to the RIGHT, so torque into the turn is sign * torque < 0
       # Before 45 deg, steering into the turn never releases the hold (you often start turning the wheel before the truck
-      # turns) and adopts the truck's curve once turning that way. Past 45 deg, Hold Adds Your Steering stops latching
-      # new input and driver pressure into the turn no longer blocks exit or release.
-      into_turn = steering_pressed and self.hold_driver and self.turned < HOLD_EXIT_TURNED and sign * steering_torque < 0.0
+      # turns) and adopts the truck's curve once turning that way. Once 45 deg is passed (remembered for the rest of the
+      # turn), Hold Adds Your Steering stops latching new input and driver pressure into the turn no longer blocks exit
+      # or release.
+      into_turn = steering_pressed and self.hold_driver and not self.past_exit_turned and sign * steering_torque < 0.0
       driver_adds = into_turn and sign * actual_curvature > HOLD_DRIVER_MIN_CURVATURE
       against = steering_pressed and not into_turn
       self.against_time = self.against_time + DT_CTRL if against else 0.0
@@ -624,7 +642,7 @@ class FmTurnAssist:
         self.release_reason = RELEASE_MODEL_EXIT
         if self.peak > 0.0:
           self.exit_fade, self.exit_fade_curvature = 1.0, self.applied
-      elif (self.hold_follow_exit and self.turned >= HOLD_EXIT_TURNED and not into_turn and self.peak > 0.0
+      elif (self.hold_follow_exit and self.past_exit_turned and not into_turn and self.peak > 0.0
             and model_toward < HOLD_EXIT_FRAC * self.peak):
         # the model is letting go of the turn: fade the hold out from what was applied, instead of keeping the floor
         self.hold_released = True

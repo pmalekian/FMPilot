@@ -161,15 +161,16 @@ class TestBlendful(OpenpilotTestCase):
     from openpilot.cereal import custom, log
     from openpilot.selfdrive.modeld import modeld as stock_modeld
     from openpilot.sunnypilot.modeld_v2.fm_jetlink_action import with_blendful
-    from openpilot.sunnypilot.modeld_v2.modeld import ModelState, is_blendful_active
+    from openpilot.sunnypilot.modeld_v2.modeld import BlendfulCarryGate, ModelState
 
     class FakeSM(dict):
-      def __init__(self, source='none', sign=0, seen=True):
+      def __init__(self, source='none', sign=0, seen=True, mono_time=0):
         ta = custom.FmControls.new_message().turnAssist
         ta.source = source
         ta.sign = sign
         super().__init__(fmControls=SimpleNamespace(turnAssist=ta))
         self.seen = {'fmControls': seen}
+        self.logMonoTime = {'fmControls': mono_time}
 
     small = ModelState.__new__(ModelState)
     small.generation = None
@@ -184,22 +185,26 @@ class TestBlendful(OpenpilotTestCase):
 
     def run_sequence(action_fn, steps):
       bf = Blendful()
+      gate = BlendfulCarryGate()
       prev = log.ModelDataV2.Action()
       curvs, trusts = [], []
-      for desire, sm in steps:
-        active = is_blendful_active(desire, lc_off, sm)
-        lane_keep = partial(bf.update, model_output, v_ego, active, enabled=True)
+      for i, (desire, source, sign) in enumerate(steps):
+        t_ns = (i + 1) * 50_000_000
+        sm = FakeSM(source, sign, mono_time=t_ns)
+        active, carry = gate.update(desire, lc_off, sm)
+        lane_keep = partial(bf.update, model_output, v_ego, active, enabled=True, carry=carry)
         prev = action_fn(model_output, prev, 0.0, 0.0, v_ego, lane_keep)
         curvs.append(prev.desiredCurvature)
         trusts.append(bf.trust)
+        next_desire = steps[i + 1][0] if i + 1 < len(steps) else desire
+        gate.note_published_desire(next_desire, now_ns=t_ns + 20_000_000)
       return curvs, trusts
 
-    no_carry = FakeSM('none', 0)
     for runner in runners:
       for sign, turn_desire in ((-1, log.Desire.turnLeft), (1, log.Desire.turnRight)):
-        carry_sm = FakeSM('carry', sign)
-        carry_seq = [(turn_desire, no_carry)] * 30 + [(log.Desire.none, carry_sm)] * 40 + [(log.Desire.none, no_carry)] * 60
-        blinker_seq = [(turn_desire, no_carry)] * 70 + [(log.Desire.none, no_carry)] * 60
+        carry_seq = ([(turn_desire, 'desire', sign)] * 30 + [(log.Desire.none, 'carry', sign)] * 40
+                     + [(log.Desire.none, 'none', 0)] * 60)
+        blinker_seq = [(turn_desire, 'desire', sign)] * 70 + [(log.Desire.none, 'none', 0)] * 60
 
         carry_curvs, carry_trusts = run_sequence(runner, carry_seq)
         blinker_curvs, blinker_trusts = run_sequence(runner, blinker_seq)
@@ -212,6 +217,119 @@ class TestBlendful(OpenpilotTestCase):
         assert carry_trusts[70:] == blinker_trusts[70:]
         assert carry_curvs[-1] > 0.0 and carry_trusts[-1] > 0.5
 
+  def test_fades_already_applied_correction_during_carry_and_resumes(self):
+    from functools import partial
+    from openpilot.cereal import log
+    from openpilot.selfdrive.modeld import modeld as stock_modeld
+    from openpilot.sunnypilot.modeld_v2.blendful import CARRY_FADE_FRAMES
+    from openpilot.sunnypilot.modeld_v2.fm_jetlink_action import with_blendful
+    from openpilot.sunnypilot.modeld_v2.modeld import ModelState
+
+    small = ModelState.__new__(ModelState)
+    small.generation = None
+    small.LONG_SMOOTH_SECONDS = stock_modeld.LONG_SMOOTH_SECONDS
+    small.MIN_LAT_CONTROL_SPEED = stock_modeld.MIN_LAT_CONTROL_SPEED
+    jetlink_big = with_blendful(stock_modeld.get_action_from_model, stock_modeld.MIN_LAT_CONTROL_SPEED)
+    model_output = frame(center=0.5) | {'action': np.array([[0.0, 0.0]], dtype=np.float32)}
+    v_ego = 5.0
+
+    for runner in (small.get_action_from_model, jetlink_big):
+      bf = Blendful()
+      prev = log.ModelDataV2.Action()
+      # 1. Straight driving builds a real Blendful correction
+      for _ in range(100):
+        prev = runner(model_output, prev, 0.0, 0.0, v_ego, partial(bf.update, model_output, v_ego, True, enabled=True))
+      assert prev.desiredCurvature > 0.004
+      # 2. Quick 1-frame blinker leaves a sizable residual curvature when carry begins
+      prev = runner(model_output, prev, 0.0, 0.0, v_ego, partial(bf.update, model_output, v_ego, False, enabled=True))
+      before_carry = prev.desiredCurvature
+      assert before_carry > 0.003
+
+      # 3. Carry starts: fades smoothly over ~0.2 s (CARRY_FADE_FRAMES) to exact 0 and stays 0 through last carry frame
+      carry_curvs = []
+      for _ in range(30):
+        prev = runner(model_output, prev, 0.0, 0.0, v_ego,
+                      partial(bf.update, model_output, v_ego, False, enabled=True, carry=True))
+        carry_curvs.append(prev.desiredCurvature)
+      assert 0.0 < carry_curvs[0] < before_carry
+      assert all(a >= b for a, b in zip(carry_curvs[:CARRY_FADE_FRAMES], carry_curvs[1:CARRY_FADE_FRAMES], strict=False))
+      assert carry_curvs[CARRY_FADE_FRAMES - 1] == 0.0
+      assert all(c == 0.0 for c in carry_curvs[CARRY_FADE_FRAMES - 1:])
+      assert carry_curvs[-1] == 0.0 and bf.smooth == 0.0 and bf.trust == 0.0
+
+      # 4. Carry ends: resumes normally from zero
+      resumed = []
+      for _ in range(60):
+        prev = runner(model_output, prev, 0.0, 0.0, v_ego,
+                      partial(bf.update, model_output, v_ego, True, enabled=True, carry=False))
+        resumed.append(prev.desiredCurvature)
+      assert 0.0 < resumed[0] < resumed[-1] and bf.trust > 0.5
+
+  def test_handoff_waits_for_fresh_carry_status_on_late_start_and_end(self):
+    from functools import partial
+    from types import SimpleNamespace
+
+    from openpilot.cereal import custom, log
+    from openpilot.selfdrive.modeld import modeld as stock_modeld
+    from openpilot.sunnypilot.modeld_v2.fm_jetlink_action import with_blendful
+    from openpilot.sunnypilot.modeld_v2.modeld import BlendfulCarryGate, ModelState
+
+    class FakeSM(dict):
+      def __init__(self, source='none', sign=0, seen=True, mono_time=0):
+        ta = custom.FmControls.new_message().turnAssist
+        ta.source = source
+        ta.sign = sign
+        super().__init__(fmControls=SimpleNamespace(turnAssist=ta))
+        self.seen = {'fmControls': seen}
+        self.logMonoTime = {'fmControls': mono_time}
+
+    small = ModelState.__new__(ModelState)
+    small.generation = None
+    small.LONG_SMOOTH_SECONDS = stock_modeld.LONG_SMOOTH_SECONDS
+    small.MIN_LAT_CONTROL_SPEED = stock_modeld.MIN_LAT_CONTROL_SPEED
+    jetlink_big = with_blendful(stock_modeld.get_action_from_model, stock_modeld.MIN_LAT_CONTROL_SPEED)
+    model_output = frame(center=0.5) | {'action': np.array([[0.0, 0.0]], dtype=np.float32)}
+    v_ego = 5.0
+    lc_off = log.LaneChangeState.off
+
+    for runner in (small.get_action_from_model, jetlink_big):
+      bf = Blendful()
+      gate = BlendfulCarryGate()
+      prev = log.ModelDataV2.Action()
+
+      # Turn desire active at t=100; desire clears and modelDataV2SP is published at t=120
+      active, carry = gate.update(log.Desire.turnRight, lc_off, FakeSM('desire', 1, mono_time=100))
+      assert not active and not carry
+      prev = runner(model_output, prev, 0.0, 0.0, v_ego, partial(bf.update, model_output, v_ego, active, enabled=True, carry=carry))
+      gate.note_published_desire(log.Desire.none, now_ns=120)
+
+      # Late start (stale pre-clear 'none', stale pre-clear 'desire', and post-clear overlap still reporting 'desire'):
+      # Blendful must stay out and add exact 0.0 on every frame until a fresh post-clear carry decision arrives
+      for stale_sm in (FakeSM('none', 0, mono_time=110), FakeSM('desire', 1, mono_time=120), FakeSM('desire', 1, mono_time=125)):
+        active, carry = gate.update(log.Desire.none, lc_off, stale_sm)
+        assert not active and not carry
+        prev = runner(model_output, prev, 0.0, 0.0, v_ego, partial(bf.update, model_output, v_ego, active, enabled=True, carry=carry))
+        assert prev.desiredCurvature == 0.0 and bf.trust == 0.0
+
+      # Late carry start message arrives at t=160 -> enters carry, still adds exact 0.0
+      active, carry = gate.update(log.Desire.none, lc_off, FakeSM('carry', 1, mono_time=160))
+      assert not active and carry
+      prev = runner(model_output, prev, 0.0, 0.0, v_ego, partial(bf.update, model_output, v_ego, active, enabled=True, carry=carry))
+      assert prev.desiredCurvature == 0.0 and bf.trust == 0.0
+
+      # Late end: controlsd hasn't delivered a fresh post-carry status yet (still holding t=160 'carry', or older 'none')
+      for late_end_sm in (FakeSM('carry', 1, mono_time=160), FakeSM('none', 0, mono_time=150)):
+        active, carry = gate.update(log.Desire.none, lc_off, late_end_sm)
+        assert not active and carry
+        prev = runner(model_output, prev, 0.0, 0.0, v_ego, partial(bf.update, model_output, v_ego, active, enabled=True, carry=carry))
+        assert prev.desiredCurvature == 0.0
+
+      # First fresh not-carrying status arrives at t=210 -> Blendful is let back in immediately on this frame
+      active, carry = gate.update(log.Desire.none, lc_off, FakeSM('none', 0, mono_time=210))
+      assert active and not carry
+      prev = runner(model_output, prev, 0.0, 0.0, v_ego, partial(bf.update, model_output, v_ego, active, enabled=True, carry=carry))
+      assert prev.desiredCurvature > 0.0 and bf.trust > 0.0
+
   def test_no_carry_behavior_unchanged_and_modeld_wired(self):
     from pathlib import Path
     from types import SimpleNamespace
@@ -220,23 +338,31 @@ class TestBlendful(OpenpilotTestCase):
     from openpilot.sunnypilot.modeld_v2 import modeld as modeld_v2
 
     class FakeSM(dict):
-      def __init__(self, source='none', sign=0, seen=True):
+      def __init__(self, source='none', sign=0, seen=True, mono_time=100):
         ta = custom.FmControls.new_message().turnAssist
         ta.source = source
         ta.sign = sign
         super().__init__(fmControls=SimpleNamespace(turnAssist=ta))
         self.seen = {'fmControls': seen}
+        self.logMonoTime = {'fmControls': mono_time}
 
     lc_off = log.LaneChangeState.off
-    assert modeld_v2.is_blendful_active(log.Desire.none, lc_off, FakeSM(seen=False))
-    assert modeld_v2.is_blendful_active(log.Desire.none, lc_off, FakeSM('none', 0))
-    assert modeld_v2.is_blendful_active(log.Desire.none, lc_off, FakeSM('desire', 1))
-    assert not modeld_v2.is_blendful_active(log.Desire.none, lc_off, FakeSM('carry', 1))
-    assert not modeld_v2.is_blendful_active(log.Desire.none, lc_off, FakeSM('carry', -1))
-    assert not modeld_v2.is_blendful_active(log.Desire.turnRight, lc_off, FakeSM('none', 0))
-    assert not modeld_v2.is_blendful_active(log.Desire.none, log.LaneChangeState.laneChangeStarting, FakeSM('none', 0))
+    assert modeld_v2.BlendfulCarryGate().update(log.Desire.none, lc_off, FakeSM(seen=False)) == (True, False)
+    assert modeld_v2.BlendfulCarryGate().update(log.Desire.none, lc_off, FakeSM('none', 0)) == (True, False)
+    assert modeld_v2.BlendfulCarryGate().update(log.Desire.none, lc_off, FakeSM('carry', 1)) == (False, True)
+    assert modeld_v2.BlendfulCarryGate().update(log.Desire.none, lc_off, FakeSM('carry', -1)) == (False, True)
+    assert modeld_v2.BlendfulCarryGate().update(log.Desire.turnRight, lc_off, FakeSM('none', 0)) == (False, False)
+    assert modeld_v2.BlendfulCarryGate().update(log.Desire.none, log.LaneChangeState.laneChangeStarting,
+                                                FakeSM('none', 0)) == (False, False)
+
+    # Fresh post-clear not-carrying status admits Blendful on the very next frame (no extra delay when no carry happens)
+    gate = modeld_v2.BlendfulCarryGate()
+    assert gate.update(log.Desire.turnRight, lc_off, FakeSM('desire', 1, mono_time=100)) == (False, False)
+    gate.note_published_desire(log.Desire.none, now_ns=120)
+    assert gate.update(log.Desire.none, lc_off, FakeSM('none', 0, mono_time=130)) == (True, False)
 
     src = Path(modeld_v2.__file__).read_text()
-    assert "blendful_active = is_blendful_active(desire, DH.lane_change_state, sm)" in src
-    assert "carry_from_sm(sm) == 0" in src
+    assert "blendful_gate = BlendfulCarryGate()" in src
+    assert "blendful_active, blendful_carry = blendful_gate.update(desire, DH.lane_change_state, sm)" in src
+    assert "blendful_gate.note_published_desire(DH.desire)" in src
     assert "model.get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego, lane_keep," in src

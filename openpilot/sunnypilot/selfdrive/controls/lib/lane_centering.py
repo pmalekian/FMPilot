@@ -32,6 +32,8 @@ MAX_GAIN = 1.0                 # hard ceiling on that fraction, so the nudge can
 MAX_CENTER_ERROR_DEADBAND = 0.15  # m, ceiling on the deadband below
 SMOOTH_TAU = 0.4               # s, how fast the correction is allowed to build
 RELEASE_TAU = 0.2              # s, how fast it fades when we stop centering
+CARRY_FADE_TIME = 0.2          # s, FM Pilot: quick fade to exact zero when a turn carry starts
+CARRY_FADE_FRAMES = max(int(round(CARRY_FADE_TIME / DT_CTRL)), 1)
 CENTER_ERROR_DEADBAND = 0.02   # m, default for the deadband param: errors smaller produce nothing at all
 LOOKAHEAD_MIN = 8.0            # m
 LOOKAHEAD_MAX = 35.0           # m
@@ -85,6 +87,9 @@ class LaneCenteringController:
     self.correction = 0.0
     self.curved = False  # both lines trusted and the lane bends tighter than CURVE_MIN_CURVATURE
     self.steer_hold_frames = 0  # frames left before centering may act again after the driver steered
+    self._carrying = False
+    self._carry_fade_frames = 0
+    self._carry_fade_start = 0.0
     # Reported to the on-screen indicator. Nothing here feeds back into the control path.
     self.active = False
     self.holding = False
@@ -115,6 +120,9 @@ class LaneCenteringController:
   def reset(self) -> None:
     self.correction = 0.0
     self.steer_hold_frames = 0
+    self._carrying = False
+    self._carry_fade_frames = 0
+    self._carry_fade_start = 0.0
     self._clear_telemetry()
 
   def _clear_telemetry(self) -> None:
@@ -131,13 +139,28 @@ class LaneCenteringController:
     return self.correction
 
   def update(self, desired_curvature: float, model_v2, v_ego: float, blinker_on: bool,
-             lat_active: bool, model_valid: bool, steering_pressed: bool = False) -> float:
+             lat_active: bool, model_valid: bool, steering_pressed: bool = False,
+             carry_active: bool = False) -> float:
     # Nothing is being applied when lateral is off or the model is bad, so there is nothing to fade
     if not lat_active or not model_valid or not math.isfinite(v_ego):
       self.reset()
       return desired_curvature
 
     self._clear_telemetry()
+
+    if carry_active:
+      # FM Pilot: fade any already-applied correction to zero quickly (~0.2 s) and hold at zero for the rest of the carry
+      if not self._carrying:
+        self._carrying = True
+        self._carry_fade_frames = CARRY_FADE_FRAMES
+        self._carry_fade_start = self.correction
+      self._carry_fade_frames = max(self._carry_fade_frames - 1, 0)
+      self.correction = (self._carry_fade_start * (self._carry_fade_frames / CARRY_FADE_FRAMES)
+                         if self._carry_fade_frames > 0 else 0.0)
+      return desired_curvature + self.correction
+    self._carrying = False
+    self._carry_fade_frames = 0
+    self._carry_fade_start = 0.0
 
     if not self.enabled or v_ego < MIN_V_EGO:
       return desired_curvature + self._release()

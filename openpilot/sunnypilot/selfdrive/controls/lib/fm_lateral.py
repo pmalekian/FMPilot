@@ -16,9 +16,11 @@ import math
 from openpilot.common.realtime import DT_CTRL
 from openpilot.selfdrive.controls.lib.lane_guard import LANE_CHANGE_COOLDOWN, STOCK, TUNES, LaneGuard
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_lane_keep_mode import MODE_GUARD, get_lane_keep_mode
-from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_assist import FmTurnAssist
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_assist import SOURCE_NONE, FmTurnAssist
 
 PARAMS_PERIOD = 1.0  # s
+CARRY_FADE_TIME = 0.2  # s, quick fade to exact zero for already-applied Lane Guard correction during a carry
+CARRY_FADE_FRAMES = max(int(round(CARRY_FADE_TIME / DT_CTRL)), 1)
 
 
 def settle_active_from_sm(sm) -> bool:
@@ -51,8 +53,12 @@ class FmLateral:
     self.lane_guard = LaneGuard(TUNES.get(CP.brand, STOCK))
     self.lane_guard_enabled = False
     self.lane_guard_resting = False  # Lane Guard is off and has faded out: its update is skipped
+    self.lane_guard_carrying = False
+    self.lane_guard_carry_frames = 0
+    self.lane_guard_carry_start = 0.0
     self.left_hand_traffic = False
     self.frame = 0
+    self._step_refreshed = False
     self.read_params()
 
   def read_params(self) -> None:
@@ -61,9 +67,20 @@ class FmLateral:
     if hasattr(self, 'turn_assist'):
       self.turn_assist.read_params()
 
+  def _refresh_for_step(self) -> None:
+    """Advance the frame counter and refresh params at most once per control step, so carry_active() and update()
+    in the same frame share one settings snapshot."""
+    if self._step_refreshed:
+      return
+    self.frame += 1
+    if self.frame % int(PARAMS_PERIOD / DT_CTRL) == 0:
+      self.read_params()
+    self._step_refreshed = True
+
   def carry_active(self, model_v2, CS, lat_active: bool, actual_curvature: float = 0.0, sm=None) -> bool:
     """Read-only check: True while Finish Turn After Signal Cancels is carrying a turn this control step.
-    Used by controlsd before lane_centering.update so AP Lane Centering treats a carry like a blinker."""
+    Used by controlsd before lane_centering.update so AP Lane Centering stays out during a carry."""
+    self._refresh_for_step()
     if not self.turn_assist.enabled:
       return False
     turn_direction, lane_changing, queue_hold = _turn_inputs(model_v2, sm)
@@ -73,9 +90,8 @@ class FmLateral:
 
   def update(self, desired_curvature: float, model_v2, CS, lat_active: bool, lane_centering_enabled: bool,
              actual_curvature: float = 0.0, sm=None) -> float:
-    self.frame += 1
-    if self.frame % int(PARAMS_PERIOD / DT_CTRL) == 0:
-      self.read_params()
+    self._refresh_for_step()
+    self._step_refreshed = False
 
     # Turn Assist reads the active turn desire (modelDataV2SP.laneTurnDirection, from modeld) from controlsd's own
     # SubMaster, already updated this step: a SubMaster polled here would sleep inside the control step whenever no new
@@ -89,10 +105,19 @@ class FmLateral:
                                                   steering_torque=float(getattr(CS, 'steeringTorque', 0.0)),
                                                   queue_hold=queue_hold,
                                                   settle_active=settle_active_from_sm(sm))
+    elif (self.turn_assist.sign != 0 or self.turn_assist.carry_sign != 0
+          or self.turn_assist.log_source != SOURCE_NONE or self.turn_assist.amount != 0.0
+          or self.turn_assist.log_exit != 0.0):
+      self.turn_assist.reset()
 
     # Lane Guard and lane centering are exclusive: lane centering wins if both are on.
     # While Lane Guard isn't the selected mode and has nothing left to fade out, it isn't run at all: its update reads
     # the model's lane lines and edges on every control step only to return 0 (15 us a step on a PC).
+    carrying = self.turn_assist.enabled and self.turn_assist.carry_sign != 0
+    if not carrying:
+      self.lane_guard_carrying = False
+      self.lane_guard_carry_frames = 0
+      self.lane_guard_carry_start = 0.0
     guard = 0.0
     if self.lane_guard_enabled or self.lane_guard.curvature != 0.0 or self.lane_guard.target != 0.0:
       if self.lane_guard_resting:
@@ -101,13 +126,25 @@ class FmLateral:
         self.lane_guard.lane_change_timer = LANE_CHANGE_COOLDOWN
         self.lane_guard.line_valid = [False, False]
         self.lane_guard_resting = False
-      # FM Pilot: keep Lane Guard out during a Turn Assist carry (lines and road edges) and keep its cooldown armed so
-      # it comes back the same way it does after a blinker turn once the carry ends.
-      carrying = self.turn_assist.enabled and self.turn_assist.carry_sign != 0
-      guard_active = (self.lane_guard_enabled and not lane_centering_enabled and lat_active
-                      and not CS.steeringPressed and not carrying)
-      guard = self.lane_guard.update(CS.vEgo, model_v2, guard_active, bool(CS.leftBlinker or CS.rightBlinker or carrying),
-                                     self.left_hand_traffic)
+      if carrying:
+        # FM Pilot: fade any already-applied Lane Guard correction (including a live road-edge push) to zero over ~0.2 s
+        # and keep the 1 s lane-line cooldown armed so it comes back the same way it does after a blinker turn.
+        self.lane_guard.lane_change_timer = LANE_CHANGE_COOLDOWN
+        self.lane_guard.line_valid = [False, False]
+        if not self.lane_guard_carrying:
+          self.lane_guard_carrying = True
+          self.lane_guard_carry_frames = CARRY_FADE_FRAMES
+          self.lane_guard_carry_start = self.lane_guard.curvature
+        self.lane_guard_carry_frames = max(self.lane_guard_carry_frames - 1, 0)
+        guard = (self.lane_guard_carry_start * (self.lane_guard_carry_frames / CARRY_FADE_FRAMES)
+                 if self.lane_guard_carry_frames > 0 else 0.0)
+        self.lane_guard.curvature = guard
+        self.lane_guard.target = guard
+      else:
+        guard_active = (self.lane_guard_enabled and not lane_centering_enabled and lat_active
+                        and not CS.steeringPressed)
+        guard = self.lane_guard.update(CS.vEgo, model_v2, guard_active, bool(CS.leftBlinker or CS.rightBlinker),
+                                       self.left_hand_traffic)
     else:
       self.lane_guard_resting = True
     if not lat_active:

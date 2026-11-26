@@ -84,8 +84,8 @@ class TestLaneKeepWaitsForTurnCarry(OpenpilotTestCase):
         sm = _FakeSM(direction)
         # Exact controlsd.py call order: carry_active -> lane_centering.update -> fm_lateral.update
         carry = lat.carry_active(md, car_state, True, actual_k, sm)
-        lc_out = lc.update(0.0, md, v_ego, bool(car_state.leftBlinker or car_state.rightBlinker or carry),
-                           True, True, car_state.steeringPressed)
+        lc_out = lc.update(0.0, md, v_ego, bool(car_state.leftBlinker or car_state.rightBlinker),
+                           True, True, car_state.steeringPressed, carry_active=carry)
         lat.update(lc_out, md, car_state, True, lc.enabled, actual_k, sm)
         lc_deltas.append(lc_out)
         active_flags.append(carry)
@@ -112,6 +112,77 @@ class TestLaneKeepWaitsForTurnCarry(OpenpilotTestCase):
       assert not any(no_carry_flags)
       assert all(s != SOURCE_CARRY for s in no_carry_sources)
       assert no_carry_deltas[119] > 0.0
+
+  def test_lane_centering_fades_already_applied_correction_during_carry_and_resumes(self):
+    from openpilot.cereal import custom
+    from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_assist import PARAM_CARRY, PARAM_HOLD, SOURCE_CARRY
+    from openpilot.sunnypilot.selfdrive.controls.lib.lane_centering import CARRY_FADE_FRAMES, LaneCenteringController
+    from openpilot.sunnypilot.selfdrive.controls.lib.tests.test_lane_centering import _model
+
+    TurnDirection = custom.ModelDataV2SP.TurnDirection
+    md = _model(left=-1.5, right=2.1)
+    v_ego = 6.0
+
+    params = Params()
+    params.put("FM_LaneKeepMode", MODE_CENTERING, block=True)
+    params.put_bool(PARAM_HOLD, True, block=True)
+    params.put_bool(PARAM_CARRY, True, block=True)
+    lc = LaneCenteringController(params)
+    lc.get_params()
+    lat = FmLateral(CP, params)
+
+    # 1. Straight driving builds up a real AP Lane Centering correction
+    for _ in range(150):
+      car_state = SimpleNamespace(vEgo=v_ego, steeringPressed=False, steeringTorque=0.0, aEgo=0.0,
+                                  leftBlinker=False, rightBlinker=False)
+      sm = _FakeSM(TurnDirection.none)
+      carry = lat.carry_active(md, car_state, True, 0.0, sm)
+      out = lc.update(0.0, md, v_ego, False, True, True, False, carry_active=carry)
+      lat.update(out, md, car_state, True, lc.enabled, 0.0, sm)
+    assert out > 0.001
+
+    # 2. Quick blinker turn (5 frames): release filter still leaves nonzero correction when blinker cancels
+    for _ in range(5):
+      car_state = SimpleNamespace(vEgo=v_ego, steeringPressed=False, steeringTorque=0.0, aEgo=0.0,
+                                  leftBlinker=False, rightBlinker=True)
+      sm = _FakeSM(TurnDirection.turnRight)
+      carry = lat.carry_active(md, car_state, True, 0.05, sm)
+      before_carry = lc.update(0.0, md, v_ego, True, True, True, False, carry_active=carry)
+      lat.update(before_carry, md, car_state, True, lc.enabled, 0.05, sm)
+    assert before_carry > 0.0005
+
+    # 3. Blinker cancels -> carry runs for 80 frames (0.8 s)
+    carry_outs = []
+    for _ in range(80):
+      car_state = SimpleNamespace(vEgo=v_ego, steeringPressed=False, steeringTorque=0.0, aEgo=0.0,
+                                  leftBlinker=False, rightBlinker=False)
+      sm = _FakeSM(TurnDirection.none)
+      carry = lat.carry_active(md, car_state, True, 0.05, sm)
+      assert carry
+      out = lc.update(0.0, md, v_ego, False, True, True, False, carry_active=carry)
+      lat.update(out, md, car_state, True, lc.enabled, 0.05, sm)
+      assert lat.turn_assist.log_source == SOURCE_CARRY
+      carry_outs.append(out)
+
+    # First carry frame fades smoothly (not a hard step), reaches exact 0 in ~0.2 s, stays 0 on last carry frame
+    assert 0.0 < carry_outs[0] < before_carry
+    assert all(a >= b for a, b in zip(carry_outs[:CARRY_FADE_FRAMES], carry_outs[1:CARRY_FADE_FRAMES], strict=False))
+    assert carry_outs[CARRY_FADE_FRAMES - 1] == 0.0
+    assert all(x == 0.0 for x in carry_outs[CARRY_FADE_FRAMES - 1:])
+    assert carry_outs[-1] == 0.0
+
+    # 4. Carry ends -> normal resumption from zero
+    resumed = []
+    for _ in range(100):
+      car_state = SimpleNamespace(vEgo=v_ego, steeringPressed=False, steeringTorque=0.0, aEgo=0.0,
+                                  leftBlinker=False, rightBlinker=False)
+      sm = _FakeSM(TurnDirection.none)
+      carry = lat.carry_active(md, car_state, True, 0.0, sm)
+      assert not carry
+      out = lc.update(0.0, md, v_ego, False, True, True, False, carry_active=carry)
+      lat.update(out, md, car_state, True, lc.enabled, 0.0, sm)
+      resumed.append(out)
+    assert lc.active and 0.0 < resumed[0] < resumed[-1]
 
   def test_lane_guard_waits_for_carry_and_keeps_cooldown(self):
     from openpilot.cereal import custom
@@ -171,6 +242,58 @@ class TestLaneKeepWaitsForTurnCarry(OpenpilotTestCase):
       assert edge_carry_g[-1] > 0.0  # resumes after carry ends
       assert edge_no_carry_g[40] > 0.0  # unchanged when no carry
 
+  def test_lane_guard_fades_already_applied_road_edge_during_carry_and_keeps_cooldown(self):
+    from openpilot.cereal import custom
+    from openpilot.selfdrive.controls.lib.lane_guard import LANE_CHANGE_COOLDOWN
+    from openpilot.sunnypilot.selfdrive.controls.lib.fm_lateral import CARRY_FADE_FRAMES
+    from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_assist import PARAM_CARRY, PARAM_HOLD, SOURCE_CARRY
+
+    TurnDirection = custom.ModelDataV2SP.TurnDirection
+    v_ego = 8.5
+    close_edge = make_model(-(1.3 + 0.1 - TUNES["rivian"].half_width + 0.05), lane_width=2.6, curve=0.0, edge=0.1)
+
+    params = Params()
+    params.put("FM_LaneKeepMode", MODE_GUARD, block=True)
+    params.put_bool(PARAM_HOLD, True, block=True)
+    params.put_bool(PARAM_CARRY, True, block=True)
+    lat = FmLateral(CP, params)
+
+    # 1. Blinker on next to a road edge: stock Lane Guard builds a live road-edge correction during the blinker
+    for _ in range(30):
+      car_state = SimpleNamespace(vEgo=v_ego, steeringPressed=False, steeringTorque=0.0, aEgo=0.0,
+                                  leftBlinker=False, rightBlinker=True)
+      lat.update(0.0, close_edge, car_state, True, False, 0.05, _FakeSM(TurnDirection.turnRight))
+    before_carry = lat.lane_guard.curvature
+    assert before_carry > 0.0005
+
+    # 2. Blinker cancels -> carry runs for 60 frames with close_edge still present
+    carry_guards, carry_timers = [], []
+    for _ in range(60):
+      car_state = SimpleNamespace(vEgo=v_ego, steeringPressed=False, steeringTorque=0.0, aEgo=0.0,
+                                  leftBlinker=False, rightBlinker=False)
+      lat.update(0.0, close_edge, car_state, True, False, 0.05, _FakeSM(TurnDirection.none))
+      assert lat.turn_assist.log_source == SOURCE_CARRY
+      carry_guards.append(lat.lane_guard.curvature)
+      carry_timers.append(lat.lane_guard.lane_change_timer)
+
+    # First carry frame fades smoothly (not a hard step), reaches exact 0 in ~0.2 s, stays 0 through last carry frame
+    assert 0.0 < carry_guards[0] < before_carry
+    assert all(a >= b for a, b in zip(carry_guards[:CARRY_FADE_FRAMES], carry_guards[1:CARRY_FADE_FRAMES], strict=False))
+    assert carry_guards[CARRY_FADE_FRAMES - 1] == 0.0
+    assert all(g == 0.0 for g in carry_guards[CARRY_FADE_FRAMES - 1:])
+    assert carry_guards[-1] == 0.0 and lat.lane_guard.target == 0.0
+    assert all(t == LANE_CHANGE_COOLDOWN for t in carry_timers)
+
+    # 3. After carry ends: line cooldown is still armed for 1.0 s before lane-line guard resumes
+    line_guards = []
+    for _ in range(200):
+      car_state = SimpleNamespace(vEgo=v_ego, steeringPressed=False, steeringTorque=0.0, aEgo=0.0,
+                                  leftBlinker=False, rightBlinker=False)
+      lat.update(0.0, CLOSE_LEFT, car_state, True, False, 0.0, _FakeSM(TurnDirection.none))
+      line_guards.append(lat.lane_guard.curvature)
+    assert all(g == 0.0 for g in line_guards[:99])
+    assert line_guards[-1] > 0.0
+
   def test_will_carry_matches_update_and_is_read_only(self):
     import numpy as np
     from openpilot.cereal import custom
@@ -206,6 +329,127 @@ class TestLaneKeepWaitsForTurnCarry(OpenpilotTestCase):
       saw_carry = saw_carry or actual
     assert saw_carry
 
+  def test_disabling_last_turn_assist_mid_carry_clears_published_state_and_unblocks_blendful(self):
+    from openpilot.cereal import custom, log, messaging
+    from openpilot.sunnypilot.modeld_v2.modeld import BlendfulCarryGate
+    from openpilot.sunnypilot.selfdrive.controls.controlsd_ext import ControlsExt
+    from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_assist import PARAM_CARRY, PARAM_HOLD, PARAM_LEAD
+
+    TurnDirection = custom.ModelDataV2SP.TurnDirection
+    v_ego = 5.0
+    params = Params()
+    params.put("FM_LaneKeepMode", MODE_OFF, block=True)
+    params.put_bool(PARAM_HOLD, True, block=True)
+    params.put_bool(PARAM_LEAD, True, block=True)
+    params.put_bool(PARAM_CARRY, True, block=True)
+    lat = FmLateral(CP, params)
+    host = SimpleNamespace(LaC=SimpleNamespace(), fm_lateral=lat)
+    gate = BlendfulCarryGate()
+    lc_off = log.LaneChangeState.off
+
+    def publish_fm_controls(mono_time):
+      cs_msg = messaging.new_message('carState').carState
+      cs_msg.vEgo = v_ego
+      cs_msg.canValid = True
+      msg = ControlsExt.fm_controls_ext(host, {'carState': cs_msg})
+      sm = {'fmControls': msg.fmControls}
+      sm_ns = type("SM", (dict,), {"seen": {"fmControls": True}, "logMonoTime": {"fmControls": mono_time}})(sm)
+      return msg.fmControls.turnAssist, sm_ns
+
+    # 1. Start a right turn (30 frames), then cancel blinker to enter carry
+    car_state = SimpleNamespace(vEgo=v_ego, steeringPressed=False, steeringTorque=0.0, aEgo=0.0,
+                                leftBlinker=False, rightBlinker=True)
+    for _ in range(30):
+      lat.update(0.05, SimpleNamespace(), car_state, True, False, 0.05, _FakeSM(TurnDirection.turnRight))
+    car_state.rightBlinker = False
+    for _ in range(10):
+      lat.update(0.01, SimpleNamespace(), car_state, True, False, 0.05, _FakeSM(TurnDirection.none))
+    ta, fm_sm = publish_fm_controls(100)
+    assert str(ta.source) == 'carry' and ta.sign == 1
+    assert gate.update(log.Desire.none, lc_off, fm_sm) == (False, True)
+
+    # 2. Disable Turn Hold while Turn Lead is still on: NOT the last feature, so carry continues
+    params.put_bool(PARAM_HOLD, False, block=True)
+    for _ in range(60):  # reaches frame 100 refresh tick
+      lat.update(0.01, SimpleNamespace(), car_state, True, False, 0.05, _FakeSM(TurnDirection.none))
+    ta, fm_sm = publish_fm_controls(200)
+    assert lat.turn_assist.enabled and str(ta.source) == 'carry' and ta.sign == 1
+    assert gate.update(log.Desire.none, lc_off, fm_sm) == (False, True)
+
+    # 3. Disable Turn Lead (the last Turn Assist feature) during the carry and step past the next 1 s refresh tick
+    params.put_bool(PARAM_LEAD, False, block=True)
+    for _ in range(100):  # reaches frame 200 refresh tick
+      lat.update(0.01, SimpleNamespace(), car_state, True, False, 0.05, _FakeSM(TurnDirection.none))
+    ta, fm_sm = publish_fm_controls(300)
+    assert not lat.turn_assist.enabled
+    assert lat.turn_assist.carry_sign == 0 and lat.turn_assist.sign == 0
+    assert str(ta.source) == 'none' and ta.sign == 0 and not ta.holdActive and ta.exitFade == 0.0
+    assert gate.update(log.Desire.none, lc_off, fm_sm) == (True, False)
+
+    # 4. Subsequent straight frames stay clear and never resurrect stale carry
+    for i in range(20):
+      lat.update(0.0, SimpleNamespace(), car_state, True, False, 0.0, _FakeSM(TurnDirection.none))
+      ta, fm_sm = publish_fm_controls(400 + i)
+      assert str(ta.source) == 'none' and ta.sign == 0
+      assert gate.update(log.Desire.none, lc_off, fm_sm) == (True, False)
+
+  def test_carry_prediction_and_step_share_one_settings_snapshot_on_cancel_frame(self):
+    from openpilot.cereal import custom
+    from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_assist import PARAM_CARRY, PARAM_HOLD, SOURCE_CARRY
+    from openpilot.sunnypilot.selfdrive.controls.lib.lane_centering import LaneCenteringController
+    from openpilot.sunnypilot.selfdrive.controls.lib.tests.test_lane_centering import _model
+
+    TurnDirection = custom.ModelDataV2SP.TurnDirection
+    md = _model(left=-1.5, right=2.1)
+    v_ego = 6.0
+
+    for initial_carry, new_carry in ((False, True), (True, False)):
+      params = Params()
+      params.put("FM_LaneKeepMode", MODE_CENTERING, block=True)
+      params.put_bool(PARAM_HOLD, True, block=True)
+      params.put_bool(PARAM_CARRY, initial_carry, block=True)
+      lc = LaneCenteringController(params)
+      lc.get_params()
+      lat = FmLateral(CP, params)
+
+      refreshes = 0
+      orig_read = lat.read_params
+      def counted_read(orig=orig_read):
+        nonlocal refreshes
+        refreshes += 1
+        orig()
+      lat.read_params = counted_read
+
+      # Frames 1..99: straight for 70 frames, then right turn (< 45 deg) for 29 frames with blinker on
+      for i in range(99):
+        turning = i >= 70
+        car_state = SimpleNamespace(vEgo=v_ego, steeringPressed=False, steeringTorque=0.0, aEgo=0.0,
+                                    leftBlinker=False, rightBlinker=turning)
+        sm = _FakeSM(TurnDirection.turnRight if turning else TurnDirection.none)
+        actual_k = 0.05 if turning else 0.0
+        carry = lat.carry_active(md, car_state, True, actual_k, sm)
+        lc_out = lc.update(0.0, md, v_ego, turning, True, True, False, carry_active=carry)
+        lat.update(lc_out, md, car_state, True, lc.enabled, actual_k, sm)
+        assert carry == (lat.turn_assist.log_source == SOURCE_CARRY)
+      assert refreshes == 0
+
+      # Toggle Finish Turn After Signal Cancels just before frame 100 (the 1 s settings-refresh tick) and cancel blinker
+      params.put_bool(PARAM_CARRY, new_carry, block=True)
+      cancel_cs = SimpleNamespace(vEgo=v_ego, steeringPressed=False, steeringTorque=0.0, aEgo=0.0,
+                                  leftBlinker=False, rightBlinker=False)
+      cancel_sm = _FakeSM(TurnDirection.none)
+      predicted = lat.carry_active(md, cancel_cs, True, 0.05, cancel_sm)
+      assert refreshes == 1
+      # Even if params flip again mid-frame before update(), the same snapshot stands for the rest of frame 100
+      params.put_bool(PARAM_CARRY, initial_carry, block=True)
+      lc_out = lc.update(0.0, md, v_ego, False, True, True, False, carry_active=predicted)
+      lat.update(lc_out, md, cancel_cs, True, lc.enabled, 0.05, cancel_sm)
+      actual = lat.turn_assist.log_source == SOURCE_CARRY
+      assert refreshes == 1
+      assert predicted == new_carry
+      assert actual == new_carry
+      assert lc.active is (not new_carry)
+
   def test_controlsd_passes_carry_active_to_lane_centering(self):
     import ast
     from pathlib import Path
@@ -216,4 +460,5 @@ class TestLaneKeepWaitsForTurnCarry(OpenpilotTestCase):
     lc_calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and ast.unparse(n.func) == "self.lane_centering.update"]
     assert len(carry_calls) == 1 and len(lc_calls) == 1
     assert carry_calls[0].lineno < lc_calls[0].lineno
-    assert "carry_active" in ast.unparse(lc_calls[0].args[3])
+    kw = {k.arg: ast.unparse(k.value) for k in lc_calls[0].keywords}
+    assert kw.get("carry_active") == "carry_active"
