@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from openpilot.common.prefix import OpenpilotPrefix
 from openpilot.common.realtime import DT_CTRL
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_low_speed_ff import (BASE_COUNTS, BLEND_S, PARAM_LEFT, PARAM_RIGHT, SPEEDS,
                                                                          STEPS, FmLowSpeedFF)
@@ -53,8 +54,9 @@ def counts(ff, wheel_deg, v):
 
 def test_off_by_default_values():
   from openpilot.common.params import Params
-  assert int(Params().get(PARAM_LEFT, return_default=True)) == 0  # Off
-  assert int(Params().get(PARAM_RIGHT, return_default=True)) == 0
+  with OpenpilotPrefix():
+    assert int(Params().get(PARAM_LEFT, return_default=True)) == 0  # Off
+    assert int(Params().get(PARAM_RIGHT, return_default=True)) == 0
 
 
 @pytest.mark.parametrize("step,frac", sorted(STEPS.items()))
@@ -153,17 +155,18 @@ def _first_output(version, enabled, v, wheel_deg):
   """Output with the truck already at the asked angle (no error), after the controller's 0.2 s request delay has passed."""
   from opendbc.car.structs import car
   from openpilot.sunnypilot.selfdrive.controls.lib.fm_low_speed_gain import FmLowSpeedGain
-  CP, CP_SP, CI = _rivian()
-  lac = _controllers()[version](CP, CP_SP, CI, DT_CTRL)
-  lac.fm_low_speed = FmLowSpeedGain(SimpleNamespace(brand="toyota"))  # keep the correction at openpilot's
-  lac.fm_low_speed_ff = FmLowSpeedFF(SimpleNamespace(brand="rivian"), FakeParams(enabled, 4))
-  CS = car.CarState(vEgo=v, steeringAngleDeg=wheel_deg)
-  lp = SimpleNamespace(angleOffsetDeg=0.0, roll=0.0)
-  k = curvature_for(wheel_deg, v)
-  out = 0.0
-  for _ in range(40):
-    out, _, _ = lac.update(True, CS, VM, lp, False, k, None, False, 0.2)
-  return out
+  with OpenpilotPrefix():
+    CP, CP_SP, CI = _rivian()
+    lac = _controllers()[version](CP, CP_SP, CI, DT_CTRL)
+    lac.fm_low_speed = FmLowSpeedGain(SimpleNamespace(brand="toyota"))  # keep the correction at openpilot's
+    lac.fm_low_speed_ff = FmLowSpeedFF(SimpleNamespace(brand="rivian"), FakeParams(enabled, 4))
+    CS = car.CarState(vEgo=v, steeringAngleDeg=wheel_deg)
+    lp = SimpleNamespace(angleOffsetDeg=0.0, roll=0.0)
+    k = curvature_for(wheel_deg, v)
+    out = 0.0
+    for _ in range(40):
+      out, _, _ = lac.update(True, CS, VM, lp, False, k, None, False, 0.2)
+    return out
 
 
 @pytest.mark.parametrize("version", ["v0", "v1"])
@@ -181,13 +184,14 @@ def test_controllers_unchanged_above_16_mph(version):
 @pytest.mark.parametrize("enforce,tune", [(False, 0.0), (True, 0.0), (True, 1.0)])
 def test_every_selectable_torque_controller_has_the_hook(enforce, tune):
   from openpilot.sunnypilot.selfdrive.controls.controlsd_ext import ControlsExt
-  CP, CP_SP, CI = _rivian()
-  vals = {"EnforceTorqueControl": enforce, "TorqueControlTune": tune}
-  host = SimpleNamespace(CP=CP, CP_SP=CP_SP,
-                         params=SimpleNamespace(get_bool=lambda k: bool(vals[k]), get=lambda k, **kw: vals[k]))
-  chosen = ControlsExt.initialize_lateral_control(host, _controllers()["v1"](CP, CP_SP, CI, DT_CTRL), CI, DT_CTRL)
-  assert isinstance(getattr(chosen, "fm_low_speed_ff", None), FmLowSpeedFF), type(chosen).__module__
-  assert chosen.fm_low_speed_ff.available
+  with OpenpilotPrefix():
+    CP, CP_SP, CI = _rivian()
+    vals = {"EnforceTorqueControl": enforce, "TorqueControlTune": tune}
+    host = SimpleNamespace(CP=CP, CP_SP=CP_SP,
+                           params=SimpleNamespace(get_bool=lambda k: bool(vals[k]), get=lambda k, **kw: vals[k]))
+    chosen = ControlsExt.initialize_lateral_control(host, _controllers()["v1"](CP, CP_SP, CI, DT_CTRL), CI, DT_CTRL)
+    assert isinstance(getattr(chosen, "fm_low_speed_ff", None), FmLowSpeedFF), type(chosen).__module__
+    assert chosen.fm_low_speed_ff.available
 
 
 def test_logged_in_fm_controls():
