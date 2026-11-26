@@ -24,9 +24,10 @@ Plan PR numbers (BUILD_PLAN.md) differ from GitHub PR numbers. Status as of Nov 
 | 17 | Jetlink extras | #22 | `8e737bb` |
 | 18 | hardwared stall diagnostics | #23 | `3674674` |
 | — | Audit fixes (H-1, M-1, L-1..L-6; PR title rule) | #25 | `4324841` |
+| — | Turn exit fixes (Hold Adds Your Steering 45° cutoff + M-3 Settle coordination) | #26 | `2aa8757` |
 
 ## Owners and next PR
-- **Antigravity (post-audit fixes):** Audit fixes merged (#25, `4324841`): H-1 (`UIStateSP` Accel Boost defaults), M-1 (Headroom torque-unit PID limits with Lateral Jerk / NNLC), L-1 (`max_torque_grid` non-finite fallback), L-2 (`FmTorqueMode` non-finite `v_ego`), L-3 (`FM_ReleaseGuardLimit` grey-out with Lateral Jerk / NNLC), L-4 (`fmRadarLead`/`fmJetlinkStatus` in `fmlog.NEW_FM_MSGS`), L-5 (`FM_LaneKeepMode` title `"Lane Keeping"`, `BUILD_PLAN.md` feedforward note), L-6 (`OpenpilotPrefix` isolation in controller tests), plus PR title rule in `AGENT_RULES.md` and retitling merged PRs #5–#13, #16–#24. Next: Turn exit fixes (`fm-sync/turn-exit`, Problem A + M-3), then Lane keeping waits for the turn carry (`fm-sync/lane-keep-carry`, M-2).
+- **Antigravity (post-audit fixes):** Audit fixes merged (#25, `4324841`). Turn exit fixes merged (#26, `2aa8757`): Hold Adds Your Steering stops latching and no longer blocks exit/release past 45° turned (pre-45° additions stay frozen until normal exit); Turn Hold ends its floor with a 0.5 s fade and does not restart once `fmModel` shows Settle After Turn / Early Right Push active for the current turn (M-3). `FM_FOLDED_DEFAULTS.md` (both copies) and `FM_PILOT.md` updated. Next: Lane keeping waits for the turn carry (`fm-sync/lane-keep-carry`, M-2).
 - **ChatGPT:** plan PRs 8, 9, 16, 17, 18. PRs 16, 17 and 18 are merged. PR 16 Top Readout is merged (#24, checks run by Claude): card publishes
   `fmCarState` and the HUD uses it for Torque and `fmRadarLead` for Lead. `FM_TopReadout` preserves stored choices and
   defaults to Off on fresh installs. Retain the Top Readout status row when updating the pending PR 18 branch.
