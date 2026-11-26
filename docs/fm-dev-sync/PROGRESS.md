@@ -23,9 +23,10 @@ Plan PR numbers (BUILD_PLAN.md) differ from GitHub PR numbers. Status as of Nov 
 
 ## Owners and next PR
 - **ChatGPT:** plan PRs 8, 9, 16, 17, 18. Next assigned: **PR 16** Top Readout after its dependencies merge.
-  **For PR 17 (Jetlink):** on ca08aac9, Settle After Turn and Blendful also ran on the Jetlink large model through
-  `fm_jetlink_action.py`. On fm-dev-sync, AP's Jetlink adapter skips that hook, so Settle acts only with local models.
-  Restoring it is Jetlink scope; flag it to Frankie if PR 17 doesn't cover it.
+  **PR 17 Jetlink extras** is `needs-checks` on `fm-sync/pr17-jetlink-extras` (GitHub #22). The Jetlink big model
+  runs the Blendful and Settle After Turn callback again. The port also adds the status publisher and comma 4 icon states.
+  Portable unit tests, synthetic action equivalence and Ruff passed. The Linux build and native adapter tests are pending.
+  Merge in plan order after PR 16.
 - **Claude:** plan PRs 10-15. Done with 10-15. Next (Claude): **end of M3** once 16, 17 and 18 are merged: full suites, then the final docs pass.
   PR 15 for PR 16 (Top Readout): radard publishes `fmRadarLead` in `RadarD.publish` right after radarState whenever
   the model has 2+ leads (fields: source, leadProb, liveLeadProb, earlyLead, lowSpeedLead, earlyRadarMatches,
