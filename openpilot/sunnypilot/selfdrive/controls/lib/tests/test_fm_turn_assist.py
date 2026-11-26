@@ -60,11 +60,11 @@ def hold(**values):
 
 
 def run(assist, k, direction, mph=10, steps=1, actual=None, pressed=False, lat=True, model=None, a_ego=0.0, lane_changing=False,
-        torque=0.0):
+        torque=0.0, settle_active=False):
   out = k
   for _ in range(steps):
     out = assist.update(k, direction, mph * CV.MPH_TO_MS, k if actual is None else actual, pressed, lat, model_v2=model,
-                        a_ego=a_ego, lane_changing=lane_changing, steering_torque=torque)
+                        a_ego=a_ego, lane_changing=lane_changing, steering_torque=torque, settle_active=settle_active)
   return out
 
 
@@ -567,6 +567,75 @@ class TestHoldFollowsModelExit:
     m = turn_assist_msg()
     a.fill_log(m)
     assert str(m.releaseReason) == "modelExit" and m.exitFade > 0.0 and not m.holdActive
+
+
+class TestSettleStepsAside:
+  """M-3: once fmModel shows Settle After Turn / Early Right Push active for the current turn, Turn Hold ends its floor
+  with a 0.5 s fade and does not restart for that turn, even while the blinker stays on and Hold Follows the Model's Exit
+  is off."""
+
+  @pytest.mark.parametrize("direction, sign, post_k", [(LEFT, -1, 0.005), (RIGHT, 1, 0.02)])
+  def test_early_right_push_with_blinker_on_fades_and_never_restarts(self, direction, sign, post_k):
+    a = hold(**{PARAM_HOLD_FOLLOW_EXIT: False})
+    steps = int(math.radians(50) / (0.1 * 10 * CV.MPH_TO_MS * DT_CTRL))
+    run(a, sign * 0.1, direction, steps=steps, actual=sign * 0.1)
+    assert not a.hold_released and a.peak == pytest.approx(0.1)
+    # Early Right Push activates while the blinker is still on (left turn: +0.005 push right; right turn: +0.02)
+    first = run(a, post_k, direction, actual=sign * 0.01, settle_active=True)
+    assert a.hold_released and a.release_reason == fm_turn_assist.RELEASE_MODEL_EXIT
+    assert sign * first > sign * post_k  # 0.5 s fade starts from applied hold
+    outs = [first] + [run(a, post_k, direction, actual=sign * 0.01, settle_active=True) for _ in range(FADE_STEPS)]
+    assert all(sign * x >= sign * y - 1e-12 for x, y in zip(outs, outs[1:], strict=False))
+    assert outs[-1] == pytest.approx(post_k)
+    # Settle finishes while blinker is still on: Turn Hold must NOT restart for this turn
+    assert run(a, post_k, direction, steps=20, actual=sign * 0.01, settle_active=False) == pytest.approx(post_k)
+    assert a.hold_released
+    # A new turn starts clean
+    run(a, 0.0, NONE, steps=FADE_STEPS)
+    run(a, sign * 0.09, direction, steps=FADE_STEPS, actual=sign * 0.01)
+    assert not a.hold_released and sign * run(a, sign * 0.02, direction, actual=sign * 0.01) > 0.06
+
+  def test_stale_settle_from_previous_turn_does_not_release_new_turn(self):
+    a = hold()
+    # Leftover settle from Turn 1 on the first 5 frames of Turn 2 must not kill Turn 2's hold
+    run(a, 0.09, RIGHT, steps=5, actual=0.01, settle_active=True)
+    assert not a.hold_released and not a.settle_armed
+    run(a, 0.09, RIGHT, steps=FADE_STEPS, actual=0.01, settle_active=False)
+    assert not a.hold_released and a.settle_armed
+    # Later in Turn 2, Turn 2's own Settle activates -> now Turn Hold steps aside
+    run(a, 0.02, RIGHT, actual=0.01, settle_active=True)
+    assert a.hold_released and a.release_reason == fm_turn_assist.RELEASE_MODEL_EXIT
+
+  @pytest.mark.parametrize("direction, sign, post_k", [(LEFT, -1, 0.005), (RIGHT, 1, 0.02)])
+  @pytest.mark.parametrize("phase, settle_k", [("push", 0.005), ("centering", 0.003), ("idle", 0.003)])
+  def test_fm_lateral_reads_settle_from_fm_model(self, direction, sign, post_k, phase, settle_k):
+    from openpilot.sunnypilot.selfdrive.controls.lib.fm_lateral import FmLateral
+
+    class SM(dict):
+      def __init__(self, turn_dir, fm_model):
+        super().__init__(modelDataV2SP=SimpleNamespace(laneTurnDirection=turn_dir), fmModel=fm_model)
+        self.seen = {'modelDataV2SP': True, 'fmModel': True}
+
+    params = FakeParams(**{PARAM_HOLD: True})
+    params.values.update({"FM_LaneKeepMode": 0, "IsRhdDetected": False})
+    lat = FmLateral(SimpleNamespace(brand='rivian'), params)
+    lat.lane_guard.update = lambda *a, **k: 0.0
+    CS = SimpleNamespace(vEgo=10 * CV.MPH_TO_MS, steeringPressed=False,
+                         leftBlinker=(sign < 0), rightBlinker=(sign > 0), steeringTorque=0.0, aEgo=0.0)
+    idle_fm = custom.FmModel.new_message()
+    active_fm = custom.FmModel.new_message()
+    active_fm.turnSettlePhase = phase
+    active_fm.turnSettle = settle_k
+
+    steps = int(math.radians(50) / (0.1 * 10 * CV.MPH_TO_MS * DT_CTRL))
+    for _ in range(steps):
+      lat.update(sign * 0.1, SimpleNamespace(), CS, True, False, sign * 0.1, SM(direction, idle_fm))
+    assert not lat.turn_assist.hold_released
+    out = post_k
+    for _ in range(FADE_STEPS + 1):
+      out = lat.update(post_k, SimpleNamespace(), CS, True, False, sign * 0.01, SM(direction, active_fm))
+    assert lat.turn_assist.hold_released and lat.turn_assist.release_reason == fm_turn_assist.RELEASE_MODEL_EXIT
+    assert out == pytest.approx(post_k)
 
 
 class TestHoldStartsAtTurnIn:

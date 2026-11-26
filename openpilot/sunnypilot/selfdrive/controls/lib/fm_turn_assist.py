@@ -432,6 +432,7 @@ class FmTurnAssist:
     self.lead_paused = False
     self.lead_resume = 0.0
     self.lead_off = False
+    self.settle_armed = False  # Settle After Turn / Early Right Push: must be seen idle during this turn first
 
   def _clear_log(self, desired_curvature: float) -> None:
     """Per-frame record of what Turn Assist did, for fmControls.turnAssist. Nothing here feeds back into control."""
@@ -520,8 +521,11 @@ class FmTurnAssist:
 
   def update(self, desired_curvature: float, turn_direction, v_ego: float, actual_curvature: float,
              steering_pressed: bool, lat_active: bool, model_v2=None, a_ego: float = 0.0,
-             lane_changing: bool = False, steering_torque: float = 0.0, queue_hold: bool = False) -> float:
-    """queue_hold: Queue Guard (fmModel.queueGuard) is holding the turn back, its desire hidden: never a carry."""
+             lane_changing: bool = False, steering_torque: float = 0.0, queue_hold: bool = False,
+             settle_active: bool = False) -> float:
+    """queue_hold: Queue Guard (fmModel.queueGuard) is holding the turn back, its desire hidden: never a carry.
+    settle_active: Settle After Turn / Early Right Push (fmModel) is active; once active for the current turn, Turn
+    Hold ends its floor with a 0.5 s fade and does not restart for that turn."""
     self._clear_log(desired_curvature)
     desire_sign = turn_sign(turn_direction) if self.enabled else 0
     # Finish Turn After Signal Cancels: once the desire ends, the carried turn's sign while it lasts
@@ -559,6 +563,8 @@ class FmTurnAssist:
     if sign != 0:
       self.turned += sign * actual_curvature * v_ego * DT_CTRL
       self.peak_actual = max(self.peak_actual, sign * actual_curvature)
+      if not settle_active:
+        self.settle_armed = True
 
     # the speed fade is only worked out during a turn: this line runs on every control step of every drive
     target = float(np.interp(v_ego, [FULL_SPEED, MAX_SPEED], [1.0, 0.0])) if (sign != 0 and lat_active) else 0.0
@@ -612,6 +618,12 @@ class FmTurnAssist:
         self.hold_released = True
         self.release_reason = (RELEASE_DRIVER if against else
                                RELEASE_TURNED if self.heading >= HOLD_MAX_HEADING else RELEASE_TIME)
+      elif settle_active and self.settle_armed:
+        # Settle After Turn / Early Right Push is active for this turn: end the hold with a 0.5 s fade and stay out
+        self.hold_released = True
+        self.release_reason = RELEASE_MODEL_EXIT
+        if self.peak > 0.0:
+          self.exit_fade, self.exit_fade_curvature = 1.0, self.applied
       elif (self.hold_follow_exit and self.turned >= HOLD_EXIT_TURNED and not into_turn and self.peak > 0.0
             and model_toward < HOLD_EXIT_FRAC * self.peak):
         # the model is letting go of the turn: fade the hold out from what was applied, instead of keeping the floor
