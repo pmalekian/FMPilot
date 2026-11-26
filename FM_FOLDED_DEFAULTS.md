@@ -33,10 +33,12 @@ Max Torque 580 -> 580). Fresh installs start at stock/off.
 - **Hold Only Counts While Steering:** always on. Was `FM_TurnHoldSteeringOnly`.
 - **Hold Ignores Crawl Spikes:** always on (below 5 mph the hold's peak only learns a request kept up for 0.3 s). Was
   `FM_TurnHoldSteadyPeak`.
-- **Hold Adds Your Steering stops at 45°:** fixed behavior (not a setting). Once the truck has turned 45° from the start
-  of the turn, Hold Adds Your Steering stops latching new driver input into the hold (anything added before 45° stays
-  frozen in the peak and exits only through normal exit logic), and driver pressure into the turn no longer blocks the
-  0.5 s model-exit fade or release (`fm_turn_assist.py`). Before 45° and Ordinary Turn Hold are unchanged.
+- **Hold Adds Your Steering stops at 45°:** fixed behavior (not a setting). Once the truck first passes 45° from the
+  start of the turn, that crossing stays remembered for the rest of the turn (even if heading briefly dips back below
+  45°): Hold Adds Your Steering stops latching new driver input into the hold (anything added before 45° stays frozen in
+  the peak and exits only through normal exit logic), driver pressure into the turn no longer blocks the 0.5 s
+  model-exit fade or release (active hold or signal-cancel fade), and Hold Follows the Model's Exit stays eligible using
+  that remembered crossing (`fm_turn_assist.py`). Before 45° and Ordinary Turn Hold are unchanged.
 - **Turn Hold steps aside for Settle After Turn / Early Right Push:** fixed behavior (not a setting). Once `fmModel`
   shows Settle After Turn / Early Right Push active for the current turn, Turn Hold ends its floor with a 0.5 s fade and
   does not restart for that turn (`fm_turn_assist.py`, `fm_lateral.py`).
@@ -48,8 +50,13 @@ Max Torque 580 -> 580). Fresh installs start at stock/off.
   curve under 70% of the turn's tightest). Was `FM_TurnCarryTurnInOnly`.
 - **Lane keeping waits for the turn carry:** fixed behavior (not a setting). While Finish Turn After Signal Cancels is
   carrying a turn (`fmControls.turnAssist.source == carry`), Blendful (both small-model and Jetlink big-model paths),
-  AP Lane Centering and Lane Guard add no steering; when the carry ends, each resumes normally as after a blinker turn
-  (`modeld_v2/modeld.py`, `controlsd.py`, `fm_lateral.py`, `fm_turn_assist.py`). Settle After Turn's carry handling is
+  AP Lane Centering and Lane Guard add no new steering: any already-applied correction fades smoothly to zero over about
+  0.2 s and stays at zero for the rest of the carry, with internal state reset/advanced so each resumes normally once
+  the carry ends (Lane Guard keeps its 1 s lane-line cooldown armed). When the turn desire clears in `modeld_v2`,
+  Blendful stays out until a fresh `fmControls` carry status published after that change arrives, and resumes on the
+  first fresh not-carrying status when a carry ends (`BlendfulCarryGate`). Disabling the last Turn Assist feature clears
+  the published carry and turn state so Blendful is never left suppressed (`modeld_v2/modeld.py`, `modeld_v2/blendful.py`,
+  `lane_centering.py`, `controlsd.py`, `fm_lateral.py`, `fm_turn_assist.py`). Settle After Turn's carry handling is
   unchanged.
 
 ## Alerts
