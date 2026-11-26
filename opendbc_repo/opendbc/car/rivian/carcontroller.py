@@ -38,8 +38,9 @@ TOI_CLEAR_BLIP_GAP_FRAMES = 30
 TOI_DROPOUT_FRAMES = 30          # rack not taking torque this long, after it had taken it on this torque stint
 TOI_START_FRAMES = 150           # the EPAS takes up to 1.1 s to start after a fresh request (route data): wait longer
 TOI_DROPOUT_WARN_FRAMES = 70     # still not taking torque this long after the release point: warn the driver
-TOI_DROPOUT_WARN_HOLD_FRAMES = 300  # keep the warning up at least this long: it turns lateral off, which ends the torque
-                                    # stint and would clear it the next frame (route 4440a486580ed7c6/00000038, 20 ms)
+# Keep the warning up after it turns lateral off, which would otherwise clear it on the next frame.
+# Route 4440a486580ed7c6/00000038, 20 ms.
+TOI_DROPOUT_WARN_HOLD_FRAMES = 300
 # The stock ACM answers an ACC stalk press within ~30 ms when it takes it. If it hasn't after this long, it declined.
 ACM_ENGAGE_TIMEOUT_FRAMES = 50  # 0.5 s
 # The stock ACM refuses ACC below this speed unless it has a lead
@@ -82,6 +83,8 @@ class CarController(CarControllerBase, MadsCarController):
     # below behaves exactly as AP's.
     self.high_torque = bool(CP_SP.flags & RivianFlagsSP.HIGH_TORQUE_PANDA)
     self.high_torque_lookup = CarControllerParams.steer_max_lookup_high(high_torque_cap(CP_SP.safetyParam))
+    self.fm_steer_cap = 0
+    self.fm_max_torque = self.high_torque_lookup[1][0] if self.high_torque else CarControllerParams.STEER_MAX
     self.fast_ramp_params = type("FastRampParams", (CarControllerParams,), {"STEER_DELTA_UP": CarControllerParams.STEER_DELTA_UP_FAST})
 
   def _update_toi_dropout(self, CS) -> bool:
@@ -108,7 +111,8 @@ class CarController(CarControllerBase, MadsCarController):
 
   def _toi_clear_release(self, CS, lka_act_toi: bool) -> bool:
     """True on the frames where the TOI request must be released to clear a latched EPAS ToiFlt, or to re-arm an EPAS
-    that stopped taking torque without one. The release goes out as a blip (torque 0, request low), which the panda accepts at any time: it is not a steer_req mismatch."""
+    that stopped taking torque without one. The release goes out as a blip (torque 0, request low), which the panda
+    accepts at any time as a matching steer request."""
     if not self.mads.lat_active:
       self.toi_fault_frames = 0
       self.toi_clear_frames = 0
@@ -154,6 +158,9 @@ class CarController(CarControllerBase, MadsCarController):
     steer_cap = steer_max
     if self.high_torque:
       steer_cap = max(steer_max, round(float(np.interp(CS.out.vEgoRaw, *self.high_torque_lookup))))
+    # FM Pilot Top Readout: card logs the cap alongside this frame's actuator output.
+    high_angle_cap = abs(CS.out.steeringAngleDeg) > HIGH_ANGLE_THRESHOLD_DEG and not self.high_torque
+    self.fm_steer_cap = int(round(steer_cap * HIGH_ANGLE_CAP_FRAC)) if high_angle_cap else steer_cap
     if self.mads.lat_active:
       new_torque = int(round(CC.actuators.torque * steer_max))
       limits = CarControllerParams

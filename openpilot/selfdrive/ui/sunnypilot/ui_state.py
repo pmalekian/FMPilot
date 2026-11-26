@@ -11,6 +11,7 @@ from opendbc.car.structs import car
 from opendbc.sunnypilot.car.interfaces import has_bsm
 from openpilot.common.params import Params
 from openpilot.selfdrive.ui.sunnypilot.layouts.settings.display import OnroadBrightness
+from openpilot.selfdrive.ui.sunnypilot.onroad.fm_torque_readout import PARAM_TOP_READOUT, READOUT_OFF, parse_readout_mode
 from openpilot.sunnypilot.models.helpers import ACTIVE_BUNDLE_KEYS, get_active_source
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_accel_boost_mode import PARAM_MODE as ACCEL_BOOST_MODE, parse_mode as parse_boost_mode
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_lane_keep_mode import MODE_BLENDFUL, MODE_CENTERING, get_lane_keep_mode
@@ -39,7 +40,7 @@ class UIStateSP:
     self.sm_services_ext = [
       "modelManagerSP", "selfdriveStateSP", "longitudinalPlanSP", "backupManagerSP",
       "lateralTorqueParameters", "carStateSP", "liveMapDataSP", "carParamsSP", "lateralDelay",
-      "carControlSP", "modelDataV2SP"
+      "carControlSP", "modelDataV2SP", "fmCarState", "fmRadarLead"
     ]
 
     self.sunnylink_state = SunnylinkState()
@@ -72,6 +73,7 @@ class UIStateSP:
     self.custom_torque_params: bool = False
     self.torque_override_enabled: bool = False
     self._sp_initialized: bool = False
+    self.fm_top_readout = READOUT_OFF
 
   def update(self) -> None:
     if self.sunnylink_enabled:
@@ -188,6 +190,7 @@ class UIStateSP:
     self.blendful_enabled = lane_keep_mode == MODE_BLENDFUL
     self.fm_accel_boost_indicator = self.params.get_bool("FM_AccelBoostIndicator")  # FM Pilot: the Boost bar
     self.fm_accel_boost_mode = parse_boost_mode(self.params.get(ACCEL_BOOST_MODE, return_default=True))
+    self.fm_top_readout = parse_readout_mode(self.params.get(PARAM_TOP_READOUT, return_default=True))
     self.onroad_brightness = int(float(self.params.get("OnroadScreenOffBrightness", return_default=True)))
     self.onroad_brightness_timer_param = self.params.get("OnroadScreenOffTimer", return_default=True)
     self.rainbow_path = self.params.get_bool("RainbowMode")

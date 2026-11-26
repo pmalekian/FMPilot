@@ -383,6 +383,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     // decides: sunnypilot's AccelBoostSP and AP's AccelerationControl toggles are hidden and not read by the planner.
     {"FM_AccelBoostMode", {PERSISTENT | BACKUP, INT, "0"}},
     {"FM_AccelBoostIndicator", {PERSISTENT | BACKUP, BOOL, "0"}},  // Boost bar on the comma 4 side panel (same key)
+    {"FM_TopReadout", {PERSISTENT | BACKUP, INT, "0"}},  // 0 Off, 1 Torque, 2 CPU Avg, 3 CPU Busiest, 4 Lead
     // Lead (Cruise): same keys and meanings as fm-dev-nav-settle (stock/off there too), so stored values carry over.
     // Confidence in percent, 25-50; 50 = openpilot's fixed cutoff
     {"FM_RadarStationaryGuard", {PERSISTENT | BACKUP, BOOL, "0"}},  // Ignore Stationary Radar Ghosts

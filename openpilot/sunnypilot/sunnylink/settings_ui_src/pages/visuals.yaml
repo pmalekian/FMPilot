@@ -46,6 +46,25 @@ sections:
       This displays what the car is currently doing, not what the planner is requesting.
     visibility:
     - $ref: '#/macros/hide_on_mici'
+  - key: FM_TopReadout
+    widget: option
+    title: Top Readout
+    description: >-
+      Show a line at the top center of the comma 4 road view. Torque shows the sent torque, current limit,
+      Max Torque and whether the steering rack accepts the request. CPU shows core 4 usage, the average or
+      busiest other core, and the hottest CPU temperature. Lead shows live confidence, the source (R for radar,
+      C for camera, X for an ignored radar ghost), early radar matches (E) and ghost drops (G).
+    options:
+    - value: 0
+      label: 'Off'
+    - value: 1
+      label: Torque
+    - value: 2
+      label: CPU (Avg)
+    - value: 3
+      label: CPU (Busiest)
+    - value: 4
+      label: Lead
   - key: ChevronInfo
     widget: option
     title: Display Metrics Below Chevron
