@@ -91,7 +91,7 @@ sections:
   items:
   - key: FM_LaneKeepMode
     widget: option
-    title: Lane Centering
+    title: Lane Keeping
     description: 'FM Pilot - pick one way of keeping the car in its lane, or Off for the driving model alone. Lane
       Centering (AdventurePilot): keeps the car in the middle of the painted lane instead of wherever the driving model
       chooses to sit; only acts when both lane lines are clearly visible (unless One-Line Mode is on), and steps aside for
@@ -490,6 +490,10 @@ sections:
       label: '150'
     enablement:
     - {type: capability, field: brand, equals: rivian}
+    - type: not
+      condition: {type: param, key: LateralJerkTorqueController, equals: true}
+    - type: not
+      condition: {type: param, key: NeuralNetworkLateralControl, equals: true}
 - id: fm_feedforward
   title: Feedforward Settings
   description: FM Pilot - extra steering torque for the wheel angle a slow turn needs, per side

@@ -33,7 +33,7 @@ log_new = capnp.SchemaParser().load(os.path.join(REPO, "openpilot", "cereal", "l
 log = log_old  # the tests write synthetic logs in the old layout with this
 
 # FM-owned messages that only the fm-dev-sync layout has; one of them in a log means the new schema
-NEW_FM_MSGS = frozenset(("fmControls", "fmModel", "fmPlan", "fmCarState"))
+NEW_FM_MSGS = frozenset(("fmControls", "fmModel", "fmPlan", "fmCarState", "fmRadarLead", "fmJetlinkStatus"))
 NEW_BRANCH_PREFIXES = ("fm-dev-sync", "fm-sync/")
 SCHEMA_SCAN = 3000  # events looked at for an FM-owned message when initData's branch doesn't say
 

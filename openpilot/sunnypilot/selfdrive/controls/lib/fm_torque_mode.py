@@ -9,6 +9,7 @@ further. At 385, or on other cars, it is always (1.0), AP's behavior.
 Headroom is the only mode (folded: fm-dev-nav-settle's FM_TorqueMode Off / Headroom / Full is gone). As there, the
 extra blends in over BLEND_S at the start of the drive.
 """
+import math
 import numpy as np
 
 from openpilot.common.realtime import DT_CTRL
@@ -56,7 +57,7 @@ class FmTorqueMode:
 
   def update(self, v_ego: float) -> float:
     """The most the torque controller may request this frame (1.0 = AP's curve)."""
-    if not self.available:
+    if not self.available or not math.isfinite(v_ego):
       return 1.0
     self.w_headroom = step_toward(self.w_headroom, 1.0, DT_CTRL / BLEND_S)
     return 1.0 + (_ratio(v_ego, *self.lookups) - 1.0) * self.w_headroom

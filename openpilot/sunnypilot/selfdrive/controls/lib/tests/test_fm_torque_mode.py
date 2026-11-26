@@ -63,3 +63,10 @@ def test_blends_in_over_a_second():
   half = run(fm, steps=int(0.5 / DT_CTRL) - 1)
   assert half == pytest.approx(1.0 + (580 / 385 - 1.0) * 0.5, abs=1e-6)
   assert run(fm, steps=BLEND_STEPS) == pytest.approx(580 / 385)
+
+
+@pytest.mark.parametrize("v_ego", [float("nan"), float("inf"), float("-inf")])
+def test_non_finite_v_ego_returns_one(v_ego):
+  fm = make(580)
+  run(fm, v=4.0, steps=BLEND_STEPS)
+  assert fm.update(v_ego) == 1.0

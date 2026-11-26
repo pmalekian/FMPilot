@@ -14,7 +14,8 @@ def _init(brand, value):
 
 
 def test_385_or_unset_sets_nothing():
-  for value in (385, "385", None, 300, "junk", float("nan")):
+  for value in (385, "385", None, 300, "junk", float("nan"), "nan", float("inf"), float("-inf"), "inf", "-inf"):
+    assert max_torque_grid(value) == 385, value
     CP_SP = _init('rivian', value)
     assert CP_SP.flags == 0 and CP_SP.safetyParam == 0, value
 

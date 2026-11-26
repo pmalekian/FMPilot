@@ -5,6 +5,7 @@ This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 """
 from enum import IntFlag
+import math
 
 
 class RivianFlagsSP(IntFlag):
@@ -39,7 +40,7 @@ def max_torque_grid(value) -> int:
     v = float(value)
   except (TypeError, ValueError):
     v = MAX_TORQUE_DEFAULT
-  if v != v:  # NaN
+  if not math.isfinite(v):
     v = MAX_TORQUE_DEFAULT
   v = min(max(v, MAX_TORQUE_MIN), MAX_TORQUE_MAX)
   return MAX_TORQUE_MIN + MAX_TORQUE_STEP * int(round((v - MAX_TORQUE_MIN) / MAX_TORQUE_STEP))

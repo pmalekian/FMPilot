@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from openpilot.common.prefix import OpenpilotPrefix
 from openpilot.common.realtime import DT_CTRL
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_release_guard import (BASE_COUNTS, BLEND_S, PARAM_LIMIT, RELEASE_S,
                                                                           SPEEDS, STOCK, FmReleaseGuard)
@@ -42,7 +43,8 @@ def step(g, P, v=3.5, pressed=True, hand=HANDS_INTO_LEFT, k=LEFT_TURN):
 
 def test_off_by_default_and_rivian_only():
   from openpilot.common.params import Params
-  assert Params().get(PARAM_LIMIT, return_default=True) == STOCK == 0
+  with OpenpilotPrefix():
+    assert Params().get(PARAM_LIMIT, return_default=True) == STOCK == 0
   g = FmReleaseGuard(RIVIAN, FakeParams(enabled=False))
   P = pid(10.0)
   assert step(g, P) == pytest.approx(P.control) and P.p == 10.0 and not g.active
@@ -223,18 +225,19 @@ def _vm(CP):
 def _output(version, enabled, pressed=True, hand=HANDS_INTO_LEFT, frames=40):
   """Left turn at 8 mph, the wheel held at 340 deg while openpilot asks for 30% less (Rebel Legion, 00000067--0)."""
   from opendbc.car.structs import car
-  CP, CP_SP, CI = _rivian()
-  VM = _vm(CP)
-  lac = _controllers()[version](CP, CP_SP, CI, DT_CTRL)
-  lac.fm_release_guard = FmReleaseGuard(RIVIAN, FakeParams(enabled=enabled))
-  v, wheel = 8 * MPH, 340.0
-  CS = car.CarState(vEgo=v, steeringAngleDeg=wheel, steeringTorque=hand, steeringPressed=pressed)
-  lp = SimpleNamespace(angleOffsetDeg=0.0, roll=0.0)
-  k = -VM.calc_curvature(math.radians(wheel), v, 0.0) * 0.7
-  out, log = 0.0, None
-  for _ in range(frames):
-    out, _, log = lac.update(True, CS, VM, lp, False, k, None, False, 0.2)
-  return out, log, lac
+  with OpenpilotPrefix():
+    CP, CP_SP, CI = _rivian()
+    VM = _vm(CP)
+    lac = _controllers()[version](CP, CP_SP, CI, DT_CTRL)
+    lac.fm_release_guard = FmReleaseGuard(RIVIAN, FakeParams(enabled=enabled))
+    v, wheel = 8 * MPH, 340.0
+    CS = car.CarState(vEgo=v, steeringAngleDeg=wheel, steeringTorque=hand, steeringPressed=pressed)
+    lp = SimpleNamespace(angleOffsetDeg=0.0, roll=0.0)
+    k = -VM.calc_curvature(math.radians(wheel), v, 0.0) * 0.7
+    out, log = 0.0, None
+    for _ in range(frames):
+      out, _, log = lac.update(True, CS, VM, lp, False, k, None, False, 0.2)
+    return out, log, lac
 
 
 @pytest.mark.parametrize("version", ["v0", "v1"])
@@ -256,13 +259,14 @@ def test_controllers_limit_the_push_against_you(version):
 @pytest.mark.parametrize("enforce,tune", [(False, 0.0), (True, 0.0), (True, 1.0)])
 def test_every_selectable_torque_controller_has_the_hook(enforce, tune):
   from openpilot.sunnypilot.selfdrive.controls.controlsd_ext import ControlsExt
-  CP, CP_SP, CI = _rivian()
-  vals = {"EnforceTorqueControl": enforce, "TorqueControlTune": tune}
-  host = SimpleNamespace(CP=CP, CP_SP=CP_SP,
-                         params=SimpleNamespace(get_bool=lambda k: bool(vals[k]), get=lambda k, **kw: vals[k]))
-  chosen = ControlsExt.initialize_lateral_control(host, _controllers()["v1"](CP, CP_SP, CI, DT_CTRL), CI, DT_CTRL)
-  assert isinstance(getattr(chosen, "fm_release_guard", None), FmReleaseGuard), type(chosen).__module__
-  assert chosen.fm_release_guard.available
+  with OpenpilotPrefix():
+    CP, CP_SP, CI = _rivian()
+    vals = {"EnforceTorqueControl": enforce, "TorqueControlTune": tune}
+    host = SimpleNamespace(CP=CP, CP_SP=CP_SP,
+                           params=SimpleNamespace(get_bool=lambda k: bool(vals[k]), get=lambda k, **kw: vals[k]))
+    chosen = ControlsExt.initialize_lateral_control(host, _controllers()["v1"](CP, CP_SP, CI, DT_CTRL), CI, DT_CTRL)
+    assert isinstance(getattr(chosen, "fm_release_guard", None), FmReleaseGuard), type(chosen).__module__
+    assert chosen.fm_release_guard.available
 
 
 def test_logged_in_fm_controls():

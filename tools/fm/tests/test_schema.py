@@ -103,6 +103,11 @@ class TestPickSchema:
     assert fmlog.pick_schema(raw(new_layout(branch="my-fork", with_init=True))) == "new"
     assert fmlog.pick_schema(raw(new_layout(with_init=False))) == "new"
 
+  @pytest.mark.parametrize("kind", ["fmRadarLead", "fmJetlinkStatus"])
+  def test_fm_radar_lead_and_jetlink_status_are_new(self, kind):
+    e, _ = event(fmlog.log_new, 0.0, kind)
+    assert fmlog.pick_schema(raw([e])) == "new"
+
   def test_old_branches_are_old(self):
     assert fmlog.pick_schema(raw(old_layout())) == "old"
     assert fmlog.pick_schema(raw(old_layout(branch="fm-dev-max"))) == "old"

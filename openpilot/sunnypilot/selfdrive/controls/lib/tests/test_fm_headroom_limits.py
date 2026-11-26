@@ -38,14 +38,16 @@ def make(cls, max_torque, jerk):
   return cls(CP.as_reader(), CP_SP.as_reader(), CI, DT_CTRL), VehicleModel(CP)
 
 
-def step(controller, VM, v):
+def step(controller, VM, v, active=True, update_ext_limits=True):
   CS = car.CarState.new_message()
   CS.vEgo = v
+  CS.vEgoRaw = v
   pose = Pose.from_device_motion(generate_deviceMotion().deviceMotion)
-  controller.extension.update_limits()  # as controlsd does each frame with learned torque params
+  if update_ext_limits:
+    controller.extension.update_limits()  # as controlsd does each frame with learned torque params
   controller.extension.update_model_v2(_make_model_v2().modelV2)
   controller.extension.update_lateral_lag(0.2)
-  controller.update(True, CS, VM, log.VehicleParameters.new_message(), False, 0.02, pose, False, 0.2)
+  controller.update(active, CS, VM, log.VehicleParameters.new_message(), False, 0.02, pose, False, 0.2)
 
 
 CONTROLLERS = (LatControlTorque, LatControlTorqueV0)  # v1, v0
@@ -58,11 +60,34 @@ class TestHeadroomLimits(OpenpilotTestCase):
       assert controller.fm_torque.available and controller.extension._jerk_aware_enabled
       for i in range(200):  # through the 1 s blend at 5 m/s, then 15 m/s
         step(controller, VM, 5.0 if i < 150 else 15.0)
-        if i == 0:
-          continue  # the extension only gets the controller's PID in its first update (sunnypilot's own, with or without FM)
         assert controller.steer_max > 1.0, (cls, i)
         assert controller.pid.pos_limit == pytest.approx(controller.steer_max), (cls, i)
         assert controller.pid.neg_limit == pytest.approx(-controller.steer_max), (cls, i)
+
+  def test_disengaged_startup_then_engage_keeps_torque_units(self):
+    for cls in CONTROLLERS:
+      controller, VM = make(cls, 580, jerk=True)
+      assert controller.fm_torque.available and controller.extension._jerk_aware_enabled
+      for _ in range(120):  # startup blend finishes while disengaged, without controlsd updating limits
+        step(controller, VM, 0.0, active=False, update_ext_limits=False)
+      assert controller.steer_max == pytest.approx(580 / 385)
+      assert controller.pid.pos_limit == pytest.approx(controller.steer_max), cls
+      assert controller.pid.neg_limit == pytest.approx(-controller.steer_max), cls
+      for i in range(10):  # engage at 5 m/s: limits stay in torque units from frame 0
+        step(controller, VM, 5.0, active=True, update_ext_limits=False)
+        assert controller.pid.pos_limit == pytest.approx(controller.steer_max), (cls, i)
+        assert controller.pid.neg_limit == pytest.approx(-controller.steer_max), (cls, i)
+
+  def test_override_torque_params_keeps_torque_units(self):
+    for cls in CONTROLLERS:
+      controller, VM = make(cls, 580, jerk=True)
+      params = Params()
+      params.put_bool("TorqueParamsOverrideEnabled", True, block=True)
+      params.put("TorqueParamsOverrideLatAccelFactor", 2.8, block=True)
+      params.put("TorqueParamsOverrideFriction", 0.1, block=True)
+      step(controller, VM, 5.0, active=True, update_ext_limits=False)
+      assert controller.pid.pos_limit == pytest.approx(controller.steer_max), cls
+      assert controller.pid.neg_limit == pytest.approx(-controller.steer_max), cls
 
   def test_accel_limits_without_jerk(self):
     for cls in CONTROLLERS:

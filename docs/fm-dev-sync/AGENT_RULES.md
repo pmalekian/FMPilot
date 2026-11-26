@@ -6,6 +6,7 @@ Read first: PROGRESS.md (incl. Conventions), BUILD_PLAN.md, INVENTORY.md, FM_FOL
 - In the PR, update FM_PILOT.md (feature, settings, migration row), FM_PILOT_HANDOFF.md's status table, and docs/fm-dev-sync/FM_FOLDED_DEFAULTS.md if a folded behavior changes.
 - Checks: build; unit tests for the files you touch, plus new tests for reshaped settings and the migration; ruff on changed files; Sunnylink settings recompile + validator if YAML changed. Only the 2 known base failures are acceptable. No drive-log replays.
 - Never weaken driver monitoring. Don't touch panda safety code or torque limits.
+- PR titles are 'FM Pilot: <feature name>' with no plan PR numbers.
 - Open the PR into fm-dev-sync with a short description: what it does, the checks run and their results, what couldn't be checked.
 - Merge only if you actually ran the checks and they passed. If your environment can't run the build or tests, don't merge: label the PR "needs-checks" and say so in PROGRESS.md; Claude will run the checks and merge it.
 - After merging, update PROGRESS.md in a separate commit: merged, its GitHub # and merge commit, anything the next PR needs to know.
