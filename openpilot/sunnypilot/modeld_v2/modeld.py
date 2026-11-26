@@ -559,7 +559,8 @@ def main(demo=False):
         prev_action.desiredCurvature = sm['controlsState'].curvature
       # FM Pilot: Blendful waits for Finish Turn After Signal Cancels carry on both small-model and Jetlink big-model paths
       blendful_active = is_blendful_active(desire, DH.lane_change_state, sm)
-      blend = partial(blendful.update, model_output, v_ego, blendful_active, enabled=blendful_enabled)
+      blend = partial(blendful.update, model_output, v_ego, blendful_active, enabled=blendful_enabled,
+                      carry=carry_from_sm(sm) != 0)
 
       def lane_keep(curvature, blend=blend, model_output=model_output, v_ego=v_ego, desire=desire, turn_settle=turn_settle,
                     turn_settle_early=turn_settle_early):

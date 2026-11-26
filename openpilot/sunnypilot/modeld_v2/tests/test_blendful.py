@@ -188,12 +188,14 @@ class TestBlendful(OpenpilotTestCase):
       curvs, trusts = [], []
       for desire, sm in steps:
         active = is_blendful_active(desire, lc_off, sm)
-        lane_keep = partial(bf.update, model_output, v_ego, active, enabled=True)
+        carry = modeld_v2_carry(sm) != 0
+        lane_keep = partial(bf.update, model_output, v_ego, active, enabled=True, carry=carry)
         prev = action_fn(model_output, prev, 0.0, 0.0, v_ego, lane_keep)
         curvs.append(prev.desiredCurvature)
         trusts.append(bf.trust)
       return curvs, trusts
 
+    from openpilot.sunnypilot.modeld_v2.fm_turn_settle import carry_from_sm as modeld_v2_carry
     no_carry = FakeSM('none', 0)
     for runner in runners:
       for sign, turn_desire in ((-1, log.Desire.turnLeft), (1, log.Desire.turnRight)):
@@ -211,6 +213,54 @@ class TestBlendful(OpenpilotTestCase):
         assert carry_curvs[70:] == blinker_curvs[70:]
         assert carry_trusts[70:] == blinker_trusts[70:]
         assert carry_curvs[-1] > 0.0 and carry_trusts[-1] > 0.5
+
+  def test_fades_already_applied_correction_during_carry_and_resumes(self):
+    from functools import partial
+    from openpilot.cereal import log
+    from openpilot.selfdrive.modeld import modeld as stock_modeld
+    from openpilot.sunnypilot.modeld_v2.blendful import CARRY_FADE_FRAMES
+    from openpilot.sunnypilot.modeld_v2.fm_jetlink_action import with_blendful
+    from openpilot.sunnypilot.modeld_v2.modeld import ModelState
+
+    small = ModelState.__new__(ModelState)
+    small.generation = None
+    small.LONG_SMOOTH_SECONDS = stock_modeld.LONG_SMOOTH_SECONDS
+    small.MIN_LAT_CONTROL_SPEED = stock_modeld.MIN_LAT_CONTROL_SPEED
+    jetlink_big = with_blendful(stock_modeld.get_action_from_model, stock_modeld.MIN_LAT_CONTROL_SPEED)
+    model_output = frame(center=0.5) | {'action': np.array([[0.0, 0.0]], dtype=np.float32)}
+    v_ego = 5.0
+
+    for runner in (small.get_action_from_model, jetlink_big):
+      bf = Blendful()
+      prev = log.ModelDataV2.Action()
+      # 1. Straight driving builds a real Blendful correction
+      for _ in range(100):
+        prev = runner(model_output, prev, 0.0, 0.0, v_ego, partial(bf.update, model_output, v_ego, True, enabled=True))
+      assert prev.desiredCurvature > 0.004
+      # 2. Quick 1-frame blinker leaves a sizable residual curvature when carry begins
+      prev = runner(model_output, prev, 0.0, 0.0, v_ego, partial(bf.update, model_output, v_ego, False, enabled=True))
+      before_carry = prev.desiredCurvature
+      assert before_carry > 0.003
+
+      # 3. Carry starts: fades smoothly over ~0.2 s (CARRY_FADE_FRAMES) to exact 0 and stays 0 through last carry frame
+      carry_curvs = []
+      for _ in range(30):
+        prev = runner(model_output, prev, 0.0, 0.0, v_ego,
+                      partial(bf.update, model_output, v_ego, False, enabled=True, carry=True))
+        carry_curvs.append(prev.desiredCurvature)
+      assert 0.0 < carry_curvs[0] < before_carry
+      assert all(a >= b for a, b in zip(carry_curvs[:CARRY_FADE_FRAMES], carry_curvs[1:CARRY_FADE_FRAMES], strict=False))
+      assert carry_curvs[CARRY_FADE_FRAMES - 1] == 0.0
+      assert all(c == 0.0 for c in carry_curvs[CARRY_FADE_FRAMES - 1:])
+      assert carry_curvs[-1] == 0.0 and bf.smooth == 0.0 and bf.trust == 0.0
+
+      # 4. Carry ends: resumes normally from zero
+      resumed = []
+      for _ in range(60):
+        prev = runner(model_output, prev, 0.0, 0.0, v_ego,
+                      partial(bf.update, model_output, v_ego, True, enabled=True, carry=False))
+        resumed.append(prev.desiredCurvature)
+      assert 0.0 < resumed[0] < resumed[-1] and bf.trust > 0.5
 
   def test_no_carry_behavior_unchanged_and_modeld_wired(self):
     from pathlib import Path

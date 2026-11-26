@@ -23,6 +23,8 @@ MIN_SPEED = 0.3  # m/s; FM Pilot: was 5.0 (~11 mph). 0.3 is what Blendful's auth
 LINE_STD = (0.2, 0.6)
 POINT_STD = 0.1
 YIELD = (0.2, 0.45)
+CARRY_FADE_TIME = 0.2  # s; FM Pilot: quick fade of any leftover correction when a turn carry starts
+CARRY_FADE_FRAMES = max(int(round(CARRY_FADE_TIME / DT_MDL)), 1)
 X_IDXS = np.array(ModelConstants.X_IDXS)
 
 
@@ -43,14 +45,36 @@ class Blendful:
     self.model_curvature = 0.0
     self.smooth = 0.0 # smooths the correction target below .53 lat accel
     self.curvature = 0.0
+    self._carrying = False
+    self._carry_fade_frames = 0
+    self._carry_fade_start = 0.0
 
-  def update(self, model_output: dict[str, np.ndarray], v_ego: float, active: bool, model_curvature: float, enabled: bool = True) -> float:
+  def update(self, model_output: dict[str, np.ndarray], v_ego: float, active: bool, model_curvature: float,
+             enabled: bool = True, carry: bool = False) -> float:
     self.l_prob = self.r_prob = 0.0
     self.model_curvature = model_curvature
     if not enabled:
-      if self.curvature or self.trust:
+      if self.curvature or self.trust or self._carrying:
         self.__init__()
       return 0.0
+    if carry:
+      # FM Pilot: fade any leftover correction to zero quickly (~0.2 s) and hold at zero for the rest of the carry
+      self.trust = self.line_trust = 0.0
+      self.usual_offset.initialized = False
+      self.lane_width.initialized = False
+      self.going_around = False
+      if not self._carrying:
+        self._carrying = True
+        self._carry_fade_frames = CARRY_FADE_FRAMES
+        self._carry_fade_start = self.curvature
+      self._carry_fade_frames = max(self._carry_fade_frames - 1, 0)
+      self.curvature = (self._carry_fade_start * (self._carry_fade_frames / CARRY_FADE_FRAMES)
+                        if self._carry_fade_frames > 0 else 0.0)
+      self.smooth = self.curvature
+      return self.curvature
+    self._carrying = False
+    self._carry_fade_frames = 0
+    self._carry_fade_start = 0.0
     fading = not active or v_ego < MIN_SPEED
     if fading:
       self.trust = self.line_trust = 0.0
