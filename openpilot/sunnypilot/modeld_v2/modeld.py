@@ -46,7 +46,7 @@ from openpilot.sunnypilot.modeld_v2.fm_lateral_smoothing import (
 )
 from openpilot.sunnypilot.modeld_v2.fm_pull_away import ACTION_SPEED_FLOOR, StraightPullAway
 from openpilot.sunnypilot.modeld_v2.fm_turn_settle import PARAM as PARAM_TURN_SETTLE, PARAM_EARLY as PARAM_TURN_SETTLE_EARLY, \
-  TurnSettle, settle_from_model
+  TurnSettle, carry_from_sm, settle_from_model
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_lane_keep_mode import MODE_BLENDFUL, get_lane_keep_mode
 from openpilot.sunnypilot.modeld_v2.constants import ModelConstants, Plan
 from openpilot.sunnypilot.modeld_v2.meta_helper import load_meta_constants
@@ -277,6 +277,11 @@ class ModelState(ModelStateBase):
     return log.ModelDataV2.Action(desiredCurvature=float(desired_curvature), desiredAcceleration=float(desired_accel), shouldStop=bool(stop))
 
 
+def is_blendful_active(desire, lane_change_state, sm) -> bool:
+  """FM Pilot: Blendful waits for Finish Turn After Signal Cancels carry (small-model and Jetlink big-model paths)."""
+  return desire == log.Desire.none and lane_change_state == log.LaneChangeState.off and carry_from_sm(sm) == 0
+
+
 def main(demo=False):
   cloudlog.warning("modeld init")
 
@@ -375,7 +380,7 @@ def main(demo=False):
                   "carControl", "controlsState", "lateralDelay", "radarState", "fmControls"],
                  ignore_alive=["radarState", "fmControls"], ignore_avg_freq=["radarState", "fmControls"],
                  ignore_valid=["radarState", "fmControls"])  # FM Pilot: radarState for Queue Guard, fmControls'
-  # Turn Assist carry for Settle After Turn
+  # Turn Assist carry for Blendful and Settle After Turn
 
   publish_state = PublishState()
   chestnut_state = ChestnutGpuState(pm, model.chestnut) if CHESTNUT else None
@@ -552,7 +557,8 @@ def main(demo=False):
 
       if not sm['carControl'].latActive:
         prev_action.desiredCurvature = sm['controlsState'].curvature
-      blendful_active = desire == log.Desire.none and DH.lane_change_state == log.LaneChangeState.off
+      # FM Pilot: Blendful waits for Finish Turn After Signal Cancels carry on both small-model and Jetlink big-model paths
+      blendful_active = is_blendful_active(desire, DH.lane_change_state, sm)
       blend = partial(blendful.update, model_output, v_ego, blendful_active, enabled=blendful_enabled)
 
       def lane_keep(curvature, blend=blend, model_output=model_output, v_ego=v_ego, desire=desire, turn_settle=turn_settle,

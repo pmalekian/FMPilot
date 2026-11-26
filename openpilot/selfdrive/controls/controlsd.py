@@ -145,8 +145,10 @@ class Controls(ControlsExt):
       new_desired_curvature = self.sm['lateralManeuverPlan'].desiredCurvature if CC.latActive else self.curvature
     else:
       new_desired_curvature = model_v2.action.desiredCurvature if CC.latActive else self.curvature
+    # FM Pilot: treat an active Finish Turn After Signal Cancels carry like a blinker for AP Lane Centering
+    carry_active = self.fm_lateral.carry_active(model_v2, CS, CC.latActive, self.curvature, self.sm)
     new_desired_curvature = self.lane_centering.update(new_desired_curvature, model_v2, CS.vEgo,
-                                                       bool(CS.leftBlinker or CS.rightBlinker), CC.latActive,
+                                                       bool(CS.leftBlinker or CS.rightBlinker or carry_active), CC.latActive,
                                                        bool(self.sm.all_checks(['modelV2'])), CS.steeringPressed)
     # FM Pilot: Turn Assist and Lane Guard (fm_lateral.py), before AP's off-tracking as on fm-dev-nav-settle
     new_desired_curvature = self.fm_lateral.update(new_desired_curvature, model_v2, CS, CC.latActive, self.lane_centering.enabled,

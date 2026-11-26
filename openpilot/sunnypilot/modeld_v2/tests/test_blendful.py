@@ -150,3 +150,93 @@ class TestBlendful(OpenpilotTestCase):
     assert self.bf.trust < 0.1  # trust ramps back up (1.5 s), no jump on pull-away
     drive(self.bf, 5.0, v=1.0, center=0.5)
     assert self.bf.trust > 0.9
+
+  def test_waits_for_turn_carry_on_small_and_jetlink_paths(self):
+    # FM Pilot: while Finish Turn After Signal Cancels carries a turn (fmControls.turnAssist.source == carry),
+    # Blendful adds nothing on either the small-model path or the Jetlink big-model path, then resumes
+    # bit-for-bit like after a normal blinker turn.
+    from functools import partial
+    from types import SimpleNamespace
+
+    from openpilot.cereal import custom, log
+    from openpilot.selfdrive.modeld import modeld as stock_modeld
+    from openpilot.sunnypilot.modeld_v2.fm_jetlink_action import with_blendful
+    from openpilot.sunnypilot.modeld_v2.modeld import ModelState, is_blendful_active
+
+    class FakeSM(dict):
+      def __init__(self, source='none', sign=0, seen=True):
+        ta = custom.FmControls.new_message().turnAssist
+        ta.source = source
+        ta.sign = sign
+        super().__init__(fmControls=SimpleNamespace(turnAssist=ta))
+        self.seen = {'fmControls': seen}
+
+    small = ModelState.__new__(ModelState)
+    small.generation = None
+    small.LONG_SMOOTH_SECONDS = stock_modeld.LONG_SMOOTH_SECONDS
+    small.MIN_LAT_CONTROL_SPEED = stock_modeld.MIN_LAT_CONTROL_SPEED
+    jetlink_big = with_blendful(stock_modeld.get_action_from_model, stock_modeld.MIN_LAT_CONTROL_SPEED)
+    runners = [small.get_action_from_model, jetlink_big]
+
+    model_output = frame(center=0.5) | {'action': np.array([[0.0, 0.0]], dtype=np.float32)}
+    v_ego = 5.0  # ~11 mph: inside both Turn Assist carry and Blendful speed ranges
+    lc_off = log.LaneChangeState.off
+
+    def run_sequence(action_fn, steps):
+      bf = Blendful()
+      prev = log.ModelDataV2.Action()
+      curvs, trusts = [], []
+      for desire, sm in steps:
+        active = is_blendful_active(desire, lc_off, sm)
+        lane_keep = partial(bf.update, model_output, v_ego, active, enabled=True)
+        prev = action_fn(model_output, prev, 0.0, 0.0, v_ego, lane_keep)
+        curvs.append(prev.desiredCurvature)
+        trusts.append(bf.trust)
+      return curvs, trusts
+
+    no_carry = FakeSM('none', 0)
+    for runner in runners:
+      for sign, turn_desire in ((-1, log.Desire.turnLeft), (1, log.Desire.turnRight)):
+        carry_sm = FakeSM('carry', sign)
+        carry_seq = [(turn_desire, no_carry)] * 30 + [(log.Desire.none, carry_sm)] * 40 + [(log.Desire.none, no_carry)] * 60
+        blinker_seq = [(turn_desire, no_carry)] * 70 + [(log.Desire.none, no_carry)] * 60
+
+        carry_curvs, carry_trusts = run_sequence(runner, carry_seq)
+        blinker_curvs, blinker_trusts = run_sequence(runner, blinker_seq)
+
+        # During the carry, Blendful adds nothing and holds zero trust
+        assert all(c == 0.0 for c in carry_curvs[30:70])
+        assert all(t == 0.0 for t in carry_trusts[30:70])
+        # After the carry ends, Blendful resumes identically to after a normal blinker turn
+        assert carry_curvs[70:] == blinker_curvs[70:]
+        assert carry_trusts[70:] == blinker_trusts[70:]
+        assert carry_curvs[-1] > 0.0 and carry_trusts[-1] > 0.5
+
+  def test_no_carry_behavior_unchanged_and_modeld_wired(self):
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from openpilot.cereal import custom, log
+    from openpilot.sunnypilot.modeld_v2 import modeld as modeld_v2
+
+    class FakeSM(dict):
+      def __init__(self, source='none', sign=0, seen=True):
+        ta = custom.FmControls.new_message().turnAssist
+        ta.source = source
+        ta.sign = sign
+        super().__init__(fmControls=SimpleNamespace(turnAssist=ta))
+        self.seen = {'fmControls': seen}
+
+    lc_off = log.LaneChangeState.off
+    assert modeld_v2.is_blendful_active(log.Desire.none, lc_off, FakeSM(seen=False))
+    assert modeld_v2.is_blendful_active(log.Desire.none, lc_off, FakeSM('none', 0))
+    assert modeld_v2.is_blendful_active(log.Desire.none, lc_off, FakeSM('desire', 1))
+    assert not modeld_v2.is_blendful_active(log.Desire.none, lc_off, FakeSM('carry', 1))
+    assert not modeld_v2.is_blendful_active(log.Desire.none, lc_off, FakeSM('carry', -1))
+    assert not modeld_v2.is_blendful_active(log.Desire.turnRight, lc_off, FakeSM('none', 0))
+    assert not modeld_v2.is_blendful_active(log.Desire.none, log.LaneChangeState.laneChangeStarting, FakeSM('none', 0))
+
+    src = Path(modeld_v2.__file__).read_text()
+    assert "blendful_active = is_blendful_active(desire, DH.lane_change_state, sm)" in src
+    assert "carry_from_sm(sm) == 0" in src
+    assert "model.get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego, lane_keep," in src
