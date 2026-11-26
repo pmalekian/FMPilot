@@ -24,7 +24,7 @@ Rivian R1S Launch Edition (Gen 1) with a comma 4 on the torque harness. Every FM
 
 ## Features
 
-Added PR by PR; each row names its settings (Sunnylink page), code and default.
+Built PR by PR (plan PRs 1-18, all merged); each row names its settings (Sunnylink page), code and default.
 
 | Feature | Settings | Code | Default |
 |---|---|---|---|
@@ -58,13 +58,13 @@ Added PR by PR; each row names its settings (Sunnylink page), code and default.
 | Lead confidence (from FrogPilot's Lead Detection Sensitivity, split in two): **Radar-matched Lead Confidence** and **Camera-only Lead Confidence**, 25-50 % in steps of 5. Radar matching starts above the lower of the two; a radar-matched lead below its own cutoff is admitted only when the camera cutoff is lower and the camera clears it. A camera-only lead needs the camera cutoff, also after a ghost drop. Both lead slots use the same rule; leadOne keeps its low-speed radar override. 50 / 50 = openpilot's fixed 50 % (identical leads) | `FM_RadarLeadConfidence`, `FM_CameraLeadConfidence` (Cruise > Smart Cruise Control) | `selfdrive/controls/radard.py`, `sunnypilot/selfdrive/controls/lib/fm_radar.py` | 50 % each (stock) |
 | Smooth Lead Handoffs: prefers the radar point already followed when it still matches the same car (within 1.5 m sideways, 4 m/s and 4-10 m of the camera's car, so a closer cut-in at long range still wins). When radar and camera switch on the same car, closer or slower readings apply at once and farther or faster ones ease in over 0.75 s; a camera-supported in-path lead bridges a radar loss for at most 0.5 s; same-car release cutoffs are 5 points below admission. A new car gets a fresh estimate. Any change of the Lead settings starts it over. Logged in `fmRadarLead.decisions` (`phase` blend / hold, `admission` hold, `hysteresis`) | `FM_SmoothLeadHandoffs` (Cruise > Smart Cruise Control) | `selfdrive/controls/radard.py`, `sunnypilot/selfdrive/controls/lib/fm_lead_handoff.py` | Off |
 | Radar Lead Status log: `fmRadarLead`, sent by radard with every radarState that has model leads: leadOne's source (radar / camera / none), the camera's filtered confidence (`leadProb` with a lead, `liveLeadProb` every frame), early lead (a lead under 50 %), the low-speed radar path, early radar matches and ghost drops this drive, the ghost guard and both cutoffs in force, Smooth Lead Handoffs, and a decision for each lead slot (source, confidence, radar track, distance, relative speed, ghost drop, low-speed path, admission, handoff phase, hysteresis). Feeds the Lead readout (plan PR 16) and `tools/fm/lead.py`. Logging only | none | `selfdrive/controls/radard.py`, `sunnypilot/selfdrive/controls/lib/fm_radar.py` | always |
-| Jetlink runs comma's large model on a Mac, Jetson, Linux PC or phone over USB-C. It starts with the small model and waits for a full disengagement to switch. AP's JetPilot base already pins Jetlink v0.9.0 (API 4). FM restores modeld_v2's Blendful and Settle After Turn callback on the remote big model, ahead of optional big-model smoothing. The comma 4 model icon pulses while preparing or joining, shows green when ready or active, dimmed green when waiting to switch, and orange on a problem | `JetlinkLink` (Models > Jetlink: Off / USB / iOS, offroad) | `sunnypilot/jetlink_adapter/`, `modeld_v2/fm_jetlink_action.py`, `selfdrive/ui/sunnypilot/onroad/fm_jetlink_icon.py` | Off |
+| Jetlink runs comma's large model on a Mac, Jetson, Linux PC or phone over USB-C. It starts with the small model and waits for a full disengagement to switch. AP's JetPilot base already pins Jetlink v0.9.0 (API 4). FM restores modeld_v2's Blendful and Settle After Turn callback on the remote big model, ahead of optional big-model smoothing. The comma 4 model icon pulses while preparing or joining, shows green when ready or active, dimmed green when waiting to switch, and orange on a problem | `JetlinkLink` (Sunnylink Device; device Models > Jetlink: Off / USB / iOS, offroad) | `sunnypilot/jetlink_adapter/`, `modeld_v2/fm_jetlink_action.py`, `selfdrive/ui/sunnypilot/onroad/fm_jetlink_icon.py` | Off |
 | Jetlink Status records which model drove and when it changed. `fm_jetlinkstatusd` reads the live records and params at low priority while driving with Jetlink on. `tools/fm/jetlink.py` reads the timeline and can align a host `server.log` with `--mac-log` | none | `sunnypilot/fm_jetlink/`, `system/manager/process_config.py`, `tools/fm/jetlink.py` | while driving with Jetlink enabled |
 
 ## Log messages
 
 FM's log data is in FM's own messages (`cereal/custom.capnp`, the free `CustomReserved` slots taken from the top, each
-keeping its struct ID), not in fields added to sunnypilot's structs. Filled in by the feature PRs that publish them.
+keeping its struct ID), not in fields added to sunnypilot's structs.
 
 | Message (Event field) | From | What |
 |---|---|---|
@@ -129,6 +129,9 @@ the comma 4, toggles > accel boost replaces acceleration control. Smart Cruise C
 Ignore Stationary Radar Ghosts, Radar-matched Lead Confidence, Camera-only Lead Confidence, Smooth Lead Handoffs
 (Sunnylink only, as on `fm-dev-nav-settle`).
 
+Sunnylink Visuals page: Top Readout (HUD Elements) is the Off / Torque / CPU (Avg) / CPU (Busiest) / Lead picker. Jetlink is
+in Sunnylink Device (and on the device under Models): `JetlinkLink`, offroad.
+
 ## Credits
 
 - **openpilot** (comma.ai), **sunnypilot** (sunnypilot contributors) and **AdventurePilot** (AdventurePilotDev,
@@ -180,5 +183,5 @@ Ignore Stationary Radar Ghosts, Radar-matched Lead Confidence, Camera-only Lead 
 - **Jetlink**: `zoompilot/jetlink` v0.9.0 (`9cfde98`, Zeph Leggett and contributors, MIT), through AdventurePilot PR #12
   (Nimijneb, MIT). The API 4 adapter delta, action wrapper and icon mapping come from zoompilot develop `92e1ecb`
   via `fm-dev-nav-settle` `ca08aac9`. Jetlink Status is FM Pilot's own and uses Jetlink's runtime records.
-- Credits for each borrowed feature are added with the PR that ports it.
+- **hardwared stall diagnostics**: FM Pilot's own, ported from `fm-dev-nav-settle` `eb7550ff`; keeps sunnypilot #2109's params-lock fix (sunnypilot contributors, MIT).
 - Everything else here is FM Pilot's own, built on AdventurePilot, sunnypilot and openpilot (MIT).
