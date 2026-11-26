@@ -82,6 +82,7 @@ ruff check .
 | PR 16 Top Readout | merged, PR #24 (`97121bc`): Sunnylink `FM_TopReadout` selects Off, Torque, CPU (Avg), CPU (Busiest) or Lead on comma 4. Fresh installs default to Off and stored settings carry forward. Card publishes `fmCarState` and the Lead mode reads `fmRadarLead` |
 | PR 17 Jetlink extras | merged, PR #22 (`8e737bb`): zoompilot API 4 / v0.9.0 adapter delta on AP JetPilot, Blendful and Settle After Turn restored on the Jetlink big model, `fmJetlinkStatus` published onroad with Jetlink on, comma 4 model icon states. Existing settings carry forward |
 | PR 18 hardwared stall diagnostics | merged, PR #23 (`3674674`): `hardwared_slow_loop` reports untimed work, thermal reads and watchdog data. Keeps sunnypilot #2109's params-lock fix |
+| Audit fixes | `fm-sync/audit-fixes`: H-1 (`UIStateSP` Accel Boost defaults), M-1 (Headroom torque-unit PID limits with Lateral Jerk / NNLC), L-1 (`max_torque_grid` non-finite fallback to 385), L-2 (`FmTorqueMode.update` returns 1.0 on non-finite `v_ego`), L-3 (grey out `FM_ReleaseGuardLimit` with Lateral Jerk / NNLC), L-4 (`fmRadarLead`/`fmJetlinkStatus` in `fmlog.NEW_FM_MSGS`), L-5 (`FM_LaneKeepMode` titled "Lane Keeping", `BUILD_PLAN.md` feedforward note), L-6 (`OpenpilotPrefix` isolation in controller tests). No change to driving behavior |
 
 ## Reference (unchanged from before)
 

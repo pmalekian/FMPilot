@@ -53,8 +53,8 @@ folded into defaults). Code reference for every port: `fm-dev-nav-settle` `ca08a
    off-road only, next drive), Headroom, faster ramp, full cap past 90°, steerLimitTimer 0.8 + near-zero curvature fix
    (EVPilot). Rivian panda safety tests. **Fresh-Opus code review before merge.**
 5. Release Guard drop-down (Stock / 75 / 150), v0 and v1 controllers.
-6. Feedforward Settings (Left / Right drop-downs) + Low-Speed Correction Strength (40–100 %, 100 = stock); v0 and v1;
-   stand down with Lateral Jerk / NNLC.
+6. Feedforward Settings (Left / Right drop-downs; stands down with Lateral Jerk / NNLC) + Low-Speed Correction Strength
+   (40–100 %, 100 = stock); v0 and v1.
 7. Lane Keeping selector (Off / Lane Centering / Lane Guard / Blendful), Lane Guard, Blendful 0.3 m/s + blue line only.
 8. Model Lateral Smoothing (Small / Big drop-downs: Model Default / 0.00 / 0.10, notes on the difference), both modelds.
 9. Calmer Crawl-Speed Steering + Calmer Straight Pull-Away (on AP's 1.0 floor).
