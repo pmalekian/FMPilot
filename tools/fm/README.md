@@ -52,18 +52,19 @@ path has no route name (e.g. a bare `rlog.zst`) are taken as one drive.
 | `events.py rlog.zst ...` | Version, model, FM-related settings, on-screen alerts, onroad events, fault and model-load log messages |
 | `turns.py rlog.zst ...` | Every sharp turn: tightest radius asked vs driven, whether the model or the steering was late and how far the model's request lagged its own planned path (see below; median over the drive at the end), where torque was held back (at the limit, still climbing, held, unwinding; see below), hand force: with or against openpilot's torque while it steers, into the turn while you steer |
 | `jetlink.py rlog.zst ... [--mac-log server.log] [--mac-tz Zone]` | Which Jetlink big model drove and when it changed (from the logged `fmJetlinkStatus`), pick/slot/engine changes, link info, big-frame timing; optionally the Jetlink Mac app's log lined up by wall clock. Older logs: big-frame counts only |
-| `lead.py rlog.zst ... [--csv decisions.csv] [--replay]` | Build B active and shadow decisions for both lead slots, radar/camera switches, dropouts, and planner source/target acceleration. Replay runs all eight lead configurations with the recorded model and radar inputs. |
+| `lead.py rlog.zst ... [--csv decisions.csv] [--replay]` | Recorded lead decisions (`fmRadarLead`) for both lead slots (plus the Lead Shadow Log's alternates on old drives), radar/camera switches, dropouts, and planner source/target acceleration. Replay runs all eight lead configurations with the recorded model and radar inputs. |
 | `sway.py rlog.zst ...` | Straight-road sway: wheel, model, lane centering's share, dominant period |
 | `dm.py rlog.zst ...` | Driver monitoring: % distracted and why (pose / eyes / phone), alert levels |
 
 ### Lead decisions and replay
 
 ```sh
-python tools/fm/lead.py --csv lead-shadow.csv path/to/rlog.zst
+python tools/fm/lead.py --csv lead-decisions.csv path/to/rlog.zst
 python tools/fm/lead.py --replay --guard --braking-window 13 15 --csv lead-replay.csv path/to/rlog.zst
 ```
 
-Run these commands from the repository root. Shadow reporting uses the recorded planner. Replay needs the native
+Run these commands from the repository root. The report uses the recorded planner; the shadow decisions exist only on
+`fm-dev-nav-lead`/`fm-dev-nav-settle` drives with the Lead Shadow Log on (dropped on `fm-dev-sync`). Replay needs the native
 radard and longitudinal MPC build plus a full rlog. Each segment starts with fresh radar and planner state. Replay
 uses the recorded model timestamps and the latest logged radar and car inputs available at each publication. The
 recorded vehicle motion is held fixed. The CSV gives per-frame decisions and the replayed and recorded planner

@@ -291,6 +291,43 @@ sections:
       field: has_icbm
       equals: true
   items:
+  - key: FM_RadarStationaryGuard
+    widget: toggle
+    title: Ignore Stationary Radar Ghosts
+    description: Never treat a standing-still radar point as the car ahead while the camera sees that car clearly moving
+      (over 11 mph) and not braking hard. Stops guardrails and barriers on ramps and curves from causing sudden braking;
+      the car ahead is then followed from the camera. A car the camera sees braking hard, and anything straight ahead
+      below about 9 mph, still comes from the radar.
+    enablement:
+    - $ref: '#/macros/longitudinal'
+  - key: FM_RadarLeadConfidence
+    widget: option
+    title: Radar-matched Lead Confidence
+    description: >-
+      Camera confidence in percent for radar-backed leads. Radar matching starts above the lower of the two lead
+      confidence settings. Lower values can pick up cars earlier and can admit false leads. Default 50% (stock). From
+      FrogPilot.
+    min: 25
+    max: 50
+    step: 5
+    enablement:
+    - $ref: '#/macros/longitudinal'
+  - key: FM_CameraLeadConfidence
+    widget: option
+    title: Camera-only Lead Confidence
+    description: Minimum camera confidence in percent to follow without a radar match. Default 50% (stock).
+    min: 25
+    max: 50
+    step: 5
+    enablement:
+    - $ref: '#/macros/longitudinal'
+  - key: FM_SmoothLeadHandoffs
+    widget: toggle
+    title: Smooth Lead Handoffs
+    description: Ease brake release when radar and camera switch on the same car, and briefly keep tracking it when radar
+      drops.
+    enablement:
+    - $ref: '#/macros/longitudinal'
   - key: SmartCruiseControlVision
     widget: toggle
     title: Vision
