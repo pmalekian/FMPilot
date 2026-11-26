@@ -27,6 +27,9 @@ Plan PR numbers (BUILD_PLAN.md) differ from GitHub PR numbers. Status as of Nov 
   runs the Blendful and Settle After Turn callback again. The port also adds the status publisher and comma 4 icon states.
   Portable unit tests, synthetic action equivalence and Ruff passed. The Linux build and native adapter tests are pending.
   Merge in plan order after PR 16.
+  **PR 18 hardwared stall diagnostics** is `needs-checks` on `fm-sync/pr18-hardwared-stall-diagnostics` (GitHub #23).
+  LoopTimer tests, isolated ThermalConfig tests, synthetic report equivalence and Ruff passed. The Linux build and
+  native hardware tests are pending. Merge after PR 17 and resolve the shared `FM_PILOT_HANDOFF.md` status rows then.
 - **Claude:** plan PRs 10-15. Done with 10-15. Next (Claude): **end of M3** once 16, 17 and 18 are merged: full suites, then the final docs pass.
   PR 15 for PR 16 (Top Readout): radard publishes `fmRadarLead` in `RadarD.publish` right after radarState whenever
   the model has 2+ leads (fields: source, leadProb, liveLeadProb, earlyLead, lowSpeedLead, earlyRadarMatches,
