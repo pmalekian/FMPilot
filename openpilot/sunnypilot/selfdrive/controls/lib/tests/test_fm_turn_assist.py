@@ -471,13 +471,79 @@ class TestHoldFollowsModelExit:
     out = run(a, 0.06, RIGHT, actual=0.1)  # 60% of the peak: not letting go yet
     assert not a.hold_released and out > 0.06
 
-  def test_waits_while_you_press_into_the_turn(self):
+  def test_press_into_turn_past_45_does_not_block_model_exit(self):
     a = self.assist(**{PARAM_HOLD_DRIVER: True})
     self.turn(a, 50)
-    out = run(a, 0.03, RIGHT, steps=20, actual=0.1, pressed=True, torque=-1.5)  # into a right turn is negative torque
-    assert not a.hold_released and out == pytest.approx(0.1, rel=1e-3)  # your curve, held
-    run(a, 0.03, RIGHT, actual=0.1)  # you ease off
+    peak_before = a.peak
+    first = run(a, 0.03, RIGHT, actual=0.14, pressed=True, torque=-1.5)  # into a right turn is negative torque
     assert a.hold_released and a.release_reason == fm_turn_assist.RELEASE_MODEL_EXIT
+    assert a.log_driver == 0.0 and a.peak == pytest.approx(peak_before)
+    assert first <= peak_before + 1e-6  # never latches 0.14
+    outs = [first] + [run(a, 0.03, RIGHT, actual=0.14, pressed=True, torque=-1.5) for _ in range(FADE_STEPS)]
+    assert all(x >= y for x, y in zip(outs, outs[1:], strict=False))
+    assert outs[-1] == pytest.approx(0.03)
+
+  def test_drive_case_right_turn_press_at_53_deg_does_not_latch_and_fades(self):
+    """Real drive case: right turn ran wide, model straightens at 50-55 deg, driver presses right at 53 deg."""
+    a = self.assist(**{PARAM_HOLD_DRIVER: True})
+    self.turn(a, 50)
+    assert math.degrees(a.turned) >= 49.0
+    peak_at_50 = a.peak
+    # 50 -> 53 deg: model still easing toward exit (0.06 >= 0.5 * peak), then straightens to 0.02 at 53 deg
+    while math.degrees(a.turned) < 53.0:
+      run(a, 0.06, RIGHT, actual=0.08)
+    assert not a.hold_released
+    # At 53 deg: model asks to straighten (0.02), driver nudges right (torque=-1.5, actual=0.15)
+    outs = []
+    for _ in range(FADE_STEPS):
+      out = run(a, 0.02, RIGHT, actual=0.15, pressed=True, torque=-1.5)
+      assert a.log_driver == 0.0
+      assert a.peak == pytest.approx(peak_at_50)
+      outs.append(out)
+    assert a.hold_released and a.release_reason == fm_turn_assist.RELEASE_MODEL_EXIT
+    assert outs[0] < peak_at_50  # fades from pre-press applied hold, never jumps to 0.15
+    assert all(x >= y for x, y in zip(outs, outs[1:], strict=False))
+    assert outs[-1] == pytest.approx(0.02)
+
+  def test_driver_adds_before_45_freezes_at_45_and_holds_until_normal_exit(self):
+    """Adds Your Steering before 45 deg latches and stays frozen at 45 deg (not faded there) until normal exit."""
+    a = self.assist(**{PARAM_HOLD_DRIVER: True})
+    self.turn(a, 25)
+    # Before 45 deg: driver winds tighter to 0.14 -> latched
+    assert run(a, 0.06, RIGHT, steps=15, actual=0.14, pressed=True, torque=-1.5) == pytest.approx(0.14)
+    assert not a.hold_released and a.peak == pytest.approx(0.14)
+    # Cross 45 deg with model still turning (0.08 >= 0.5 * 0.14): peak stays frozen at 0.14, not faded at 45 deg
+    while math.degrees(a.turned) < 48.0:
+      out = run(a, 0.08, RIGHT, actual=0.10)
+    assert not a.hold_released and a.peak == pytest.approx(0.14) and out > 0.08
+    # Brief nudge tighter past 45 deg (< 0.25 s): doesn't raise peak and doesn't release
+    run(a, 0.08, RIGHT, steps=10, actual=0.19, pressed=True, torque=-1.5)
+    assert not a.hold_released and a.peak == pytest.approx(0.14) and a.log_driver == 0.0
+    # Model straightens (< 0.5 * 0.14): normal model-exit fade ends it
+    run(a, 0.03, RIGHT, actual=0.08)
+    assert a.hold_released and a.release_reason == fm_turn_assist.RELEASE_MODEL_EXIT
+    assert run(a, 0.03, RIGHT, steps=FADE_STEPS, actual=0.08) == pytest.approx(0.03)
+
+  def test_pressure_into_turn_before_45_still_blocks_release_and_past_45_releases(self):
+    press_steps = int(round(HOLD_AGAINST_TIME / DT_CTRL)) + 5
+    # Before 45 deg: sustained press into the turn still blocks release
+    a = self.assist(**{PARAM_HOLD_DRIVER: True})
+    self.turn(a, 20)
+    run(a, 0.06, RIGHT, steps=press_steps, actual=0.12, pressed=True, torque=-1.5)
+    assert math.degrees(a.turned) < 45.0
+    assert not a.hold_released and a.peak == pytest.approx(0.12)
+    # Past 45 deg: sustained press into the turn (while model isn't exiting) no longer has the "never releases" rule
+    b = self.assist(on=False, **{PARAM_HOLD_DRIVER: True})
+    self.turn(b, 50)
+    peak = b.peak
+    run(b, 0.08, RIGHT, steps=press_steps, actual=0.15, pressed=True, torque=-1.5)
+    assert b.hold_released and b.release_reason == fm_turn_assist.RELEASE_DRIVER
+    assert b.peak == pytest.approx(peak)  # never raised past 45 deg
+    # Ordinary Turn Hold (Adds Your Steering off): brief correction past 45 deg keeps the assist alive
+    c = self.assist(on=False, **{PARAM_HOLD_DRIVER: False})
+    self.turn(c, 50)
+    run(c, 0.06, RIGHT, steps=10, actual=0.10, pressed=True, torque=-1.5)
+    assert not c.hold_released
 
   def test_off_holds_to_75_deg(self):
     a = self.assist(on=False)

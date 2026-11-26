@@ -69,17 +69,20 @@ Options (Turn Hold Settings, off by default):
     (none past 5 m: the corner must be right there) and reaches at least 12 m ahead (none under 7 m), and never tighter
     than Turn Path Tightest Radius (FM_TurnPathMinRadius, 8 to 20 m, default 12; Turn Nudge's path uses it too). Turn
     Hold then holds that as usual. From StarPilot's Model Turn Assist curvature hold (plan source), same thresholds.
-  - Hold Adds Your Steering: when you steer into the turn (hand torque toward the turn while the truck is turning that
-    way), Turn Hold takes the truck's current curve as the turn to hold, up to full lock (Turn Path Tightest Radius
-    doesn't apply: it is your curve), instead of releasing, so it keeps the help you gave once you let go and doesn't
-    push back toward a wider turn while you hold the wheel in. Steering into the turn never releases it, even before the
-    truck has started turning; steering against the turn still releases it as above. Hand torque toward the turn is the
-    same direction openpilot steers, so the wheel's own reaction (which reads against openpilot) can't trigger it. From
-    StarPilot's Model Turn Assist curvature hold (driver-confirmed wind).
+  - Hold Adds Your Steering: before the truck has turned 45 degrees, when you steer into the turn (hand torque toward
+    the turn while the truck is turning that way), Turn Hold takes the truck's current curve as the turn to hold, up to
+    full lock (Turn Path Tightest Radius doesn't apply: it is your curve), instead of releasing, so it keeps the help
+    you gave once you let go and doesn't push back toward a wider turn while you hold the wheel in. Before 45 degrees
+    steering into the turn never releases it, even before the truck has started turning; steering against the turn still
+    releases it as above. Once the truck has turned 45 degrees it stops latching new driver input (whatever was added
+    before 45 degrees stays frozen in the peak and exits normally) and driver pressure into the turn no longer blocks
+    exit or release. Hand torque toward the turn is the same direction openpilot steers, so the wheel's own reaction
+    (which reads against openpilot) can't trigger it. From StarPilot's Model Turn Assist curvature hold (driver-confirmed
+    wind).
   - Hold Follows the Model's Exit: once the truck has turned 45 degrees, when the model asks for less than half of the
-    hold's peak (it is letting go of the turn) and you aren't pressing into the turn, Turn Hold fades out over half a
-    second instead of keeping its floor until 75 degrees. In 00000073 (--8 +34.8 s, --8 +46.5 s, --2 +45.8 s) the floor
-    kept the request 1 to 2.5 s tighter than the model until he steered out.
+    hold's peak (it is letting go of the turn), Turn Hold fades out over half a second instead of keeping its floor
+    until 75 degrees. In 00000073 (--8 +34.8 s, --8 +46.5 s, --2 +45.8 s) the floor kept the request 1 to 2.5 s tighter
+    than the model until he steered out.
   - Stop Before Turning Starts Over: a stop before the truck has turned 10 degrees (a queue, a creep to the line) starts
     the turn over, so nothing learned on the way (the hold's peak, a release, Turn Lead paused or switched off by your
     hands) carries into the turn.
@@ -531,7 +534,8 @@ class FmTurnAssist:
       # Only carry the last applied hold into the exit. Do not update its peak.
       self.amount = max(self.amount - step, 0.0)
       self.hold_exit_amount = max(self.hold_exit_amount - step, 0.0)
-      driver_opposes = steering_pressed and not (self.hold_driver and self.sign * steering_torque < 0.0)
+      driver_opposes = steering_pressed and not (self.hold_driver and self.turned < HOLD_EXIT_TURNED
+                                                 and self.sign * steering_torque < 0.0)
       if (self.hold_enabled and lat_active and not driver_opposes and not lane_changing
           and v_ego < MAX_SPEED and self.hold_exit_amount > 0.0):
         toward = self.sign * desired_curvature
@@ -586,9 +590,10 @@ class FmTurnAssist:
         self.turn_time += DT_CTRL  # time stopped (waiting to turn) and before turn-in doesn't count toward the 8 s
       self.heading += sign * actual_curvature * v_ego * DT_CTRL
       # Hand torque is positive to the LEFT and curvature positive to the RIGHT, so torque into the turn is sign * torque < 0
-      # Steering into the turn never releases the hold (you often start turning the wheel before the truck turns);
-      # the truck's curve is only adopted once it is actually turning that way.
-      into_turn = steering_pressed and self.hold_driver and sign * steering_torque < 0.0
+      # Before 45 deg, steering into the turn never releases the hold (you often start turning the wheel before the truck
+      # turns) and adopts the truck's curve once turning that way. Past 45 deg, Hold Adds Your Steering stops latching
+      # new input and driver pressure into the turn no longer blocks exit or release.
+      into_turn = steering_pressed and self.hold_driver and self.turned < HOLD_EXIT_TURNED and sign * steering_torque < 0.0
       driver_adds = into_turn and sign * actual_curvature > HOLD_DRIVER_MIN_CURVATURE
       against = steering_pressed and not into_turn
       self.against_time = self.against_time + DT_CTRL if against else 0.0
