@@ -25,9 +25,10 @@ Plan PR numbers (BUILD_PLAN.md) differ from GitHub PR numbers. Status as of Nov 
 | 18 | hardwared stall diagnostics | #23 | `3674674` |
 | — | Audit fixes (H-1, M-1, L-1..L-6; PR title rule) | #25 | `4324841` |
 | — | Turn exit fixes (Hold Adds Your Steering 45° cutoff + M-3 Settle coordination) | #26 | `2aa8757` |
+| — | Lane keeping waits for the turn carry (M-2: Blendful small/Jetlink, AP Lane Centering, Lane Guard) | #27 | `8eb0613` |
 
 ## Owners and next PR
-- **Antigravity (post-audit fixes):** Audit fixes merged (#25, `4324841`). Turn exit fixes merged (#26, `2aa8757`): Hold Adds Your Steering stops latching and no longer blocks exit/release past 45° turned (pre-45° additions stay frozen until normal exit); Turn Hold ends its floor with a 0.5 s fade and does not restart once `fmModel` shows Settle After Turn / Early Right Push active for the current turn (M-3). `FM_FOLDED_DEFAULTS.md` (both copies) and `FM_PILOT.md` updated. Next: Lane keeping waits for the turn carry (`fm-sync/lane-keep-carry`, M-2).
+- **Antigravity (post-audit fixes):** All three post-audit fix PRs merged: Audit fixes (#25, `4324841`), Turn exit fixes (#26, `2aa8757`), and Lane keeping waits for the turn carry (#27, `8eb0613`). `FM_FOLDED_DEFAULTS.md` (both copies), `FM_PILOT.md`, `FM_PILOT_HANDOFF.md`, and `AGENT_RULES.md` updated; all merged `fm-dev-sync` PR titles cleaned up to drop plan PR numbers. Nothing pending.
 - **ChatGPT:** plan PRs 8, 9, 16, 17, 18. PRs 16, 17 and 18 are merged. PR 16 Top Readout is merged (#24, checks run by Claude): card publishes
   `fmCarState` and the HUD uses it for Torque and `fmRadarLead` for Lead. `FM_TopReadout` preserves stored choices and
   defaults to Off on fresh installs. Retain the Top Readout status row when updating the pending PR 18 branch.
