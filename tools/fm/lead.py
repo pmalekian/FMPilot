@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Report Build B shadow logs, or replay lead admission and the real longitudinal planner on an rlog."""
+"""Report the recorded lead decisions (fmRadarLead) next to the planner, or replay lead admission and the real longitudinal
+planner on an rlog under the Lead settings (Radar-matched / Camera-only Lead Confidence, Smooth Lead Handoffs).
+
+Reads both log layouts: fm-dev-nav-lead / fm-dev-nav-settle drives (fmRadarLead with the Lead Shadow Log's alternate
+decisions, when it was on) and fm-dev-sync drives (fmRadarLead without shadow decisions; the Lead Shadow Log was dropped).
+--replay reruns the current radard and planner, so it needs this branch's native build."""
 import argparse
 import csv
 from collections import Counter, defaultdict
@@ -44,6 +49,7 @@ def display(decision):
 
 
 def shadow_report(events, start):
+  """The recorded fmRadarLead decisions ('active <settings>') plus, on old drives, the Lead Shadow Log's alternates."""
   results, plans = [], []
   radar_time = None
   long_active = False
@@ -77,11 +83,18 @@ def replay(events, start, guard=None):
   from openpilot.common.gps import get_gps_location_service
   from openpilot.common.params import Params
   from openpilot.common.prefix import OpenpilotPrefix
+  from openpilot.cereal.services import SERVICE_LIST
   from openpilot.selfdrive.controls.lib.longitudinal_planner import LongitudinalPlanner
   from openpilot.selfdrive.controls.radard import RadarD
   from openpilot.sunnypilot.selfdrive.controls.lib.fm_radar import FmLeadConfig, PARAM_GUARD
 
   logged_params = fmlog.raw_params(events)
+  # fmlog reads with its own schema parser; radard and the planner need the repo's cereal types. The stock messages
+  # replay uses have the same layout in both FM schemas, so their bytes are re-read with the repo's schema.
+  used = {'carParams', 'carParamsSP', 'radarState', 'longitudinalPlan', 'modelV2', 'radarTracks', 'carState', 'carControl',
+          'controlsState', 'vehicleParameters', 'selfdriveState', 'liveMapDataSP', 'carStateSP', 'selfdriveStateSP',
+          'modelDataV2SP', 'gpsLocation', 'gpsLocationExternal'}
+  events = [messaging.log_from_bytes(e.as_builder().to_bytes()) for e in events if e.which() in used]
   cp = next((e.carParams for e in events if e.which() == 'carParams'), None)
   cp_sp = next((e.carParamsSP for e in events if e.which() == 'carParamsSP'), None)
   if cp is None and 'CarParams' in logged_params:
@@ -102,8 +115,9 @@ def replay(events, start, guard=None):
       if (raw := logged_params.get(key)) and (value := params.cpp2python(key, raw)) is not None:
         params.put(key, value, block=True)
     gps = get_gps_location_service(params)
-    services = ('modelV2', 'radarTracks', 'radarState', 'carState', 'carControl', 'controlsState', 'vehicleParameters',
-                'selfdriveState', 'liveMapDataSP', 'carStateSP', 'selfdriveStateSP', gps, 'fmNavTurn', 'modelDataV2SP')
+    wanted = ('modelV2', 'radarTracks', 'radarState', 'carState', 'carControl', 'controlsState', 'vehicleParameters',
+              'selfdriveState', 'liveMapDataSP', 'carStateSP', 'selfdriveStateSP', gps, 'modelDataV2SP')
+    services = tuple(s for s in wanted if s in SERVICE_LIST)  # fm-dev-nav-settle's fmNavTurn is gone on fm-dev-sync
     sm = messaging.SubMaster(services)
     radars = [RadarD(cp, cp_sp, cp.radarDelay) for _ in configs]
     planners = [LongitudinalPlanner(cp, cp_sp) for _ in configs]
@@ -250,11 +264,11 @@ def main():
       else:
         leads, plans = shadow_report(events, start)
         baseline = 'active'
-        print(f'{path}: recorded shadow decisions and observed planner')
+        print(f'{path}: recorded lead decisions (and shadow decisions on old drives) and observed planner')
       if not leads:
         parser.exit(1, 'No usable lead frames. ' +
                     ('Replay requires modelV2, radarTracks and radarState.\n' if args.replay else
-                     'Shadow reports require Build B fmRadarLead messages.\n'))
+                     'Reports require fmRadarLead messages (fm-dev-nav-lead and later, fm-dev-sync).\n'))
       summarize(leads, plans, baseline, args.braking_window, args.braking_decel)
       if output is not None:
         segment = fmlog.route_segment(path)
