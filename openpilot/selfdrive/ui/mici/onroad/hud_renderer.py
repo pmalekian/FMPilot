@@ -3,6 +3,7 @@ import pyray as rl
 from dataclasses import dataclass
 from openpilot.common.constants import CV
 from openpilot.selfdrive.ui.mici.onroad.torque_bar import TorqueBar
+from openpilot.selfdrive.ui.sunnypilot.onroad import fm_jetlink_icon
 from openpilot.selfdrive.ui.ui_state import ui_state, UIStatus, ChestnutState
 from openpilot.system.ui.lib.application import gui_app, FontWeight
 from openpilot.system.ui.lib.multilang import tr
@@ -197,16 +198,17 @@ class HudRenderer(Widget):
     elif ui_state.chestnut_state in (ChestnutState.UNCOMPILED, ChestnutState.FAILED):
       icon = self._txt_chestnut_orange
       opacity = 1.0
-    elif ui_state.chestnut_state == ChestnutState.ACTIVE:
+    elif ui_state.chestnut_state in (ChestnutState.ACTIVE, ChestnutState.WAITING):
       icon = self._txt_chestnut_green
-      opacity = 1.0
+      opacity = fm_jetlink_icon.DIMMED if ui_state.chestnut_state == ChestnutState.WAITING else 1.0
     else:
       return
 
     if icon is not self._chestnut_icon:
       self._chestnut_fade_time = rl.get_time()
       self._chestnut_icon = icon
-    visible = loading or rl.get_time() - self._chestnut_fade_time < SET_SPEED_PERSISTENCE
+    stays = fm_jetlink_icon.stays_on(ui_state.chestnut_state.value, ui_state.jetlink_view is not None)
+    visible = loading or stays or rl.get_time() - self._chestnut_fade_time < SET_SPEED_PERSISTENCE
     alpha = self._chestnut_alpha_filter.update(visible)
     if alpha < 1e-2:
       return
