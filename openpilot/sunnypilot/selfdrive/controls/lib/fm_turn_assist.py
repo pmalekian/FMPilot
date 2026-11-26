@@ -733,44 +733,55 @@ class FmTurnAssist:
       if value:
         setattr(msg, name, value)
 
+  def _next_carry(self, sign: int, v_ego: float, actual_curvature: float, steering_pressed: bool, steering_torque: float,
+                  lat_active: bool, lane_changing: bool, queue_hold: bool = False) -> tuple[int, float, float, bool]:
+    """Compute the next carry state (carry_sign, carry_time, carry_against, carry_done) without mutating self."""
+    if sign != 0 or not self.carry_enabled or not self.enabled:
+      return 0, 0.0, 0.0, sign == 0  # a carry only follows a turn desire seen while this was on
+
+    if queue_hold:
+      # Queue Guard hides the turn desire while the truck waits behind a car: that is a wait, not the blinker cancelling
+      # mid-turn, so it never starts (or keeps) a carry. The turn comes back as a fresh turn when the hold lets go.
+      return 0, 0.0, 0.0, True
+
+    carry_sign, carry_time, carry_against, carry_done = self.carry_sign, self.carry_time, self.carry_against, self.carry_done
+    if carry_sign == 0:
+      # the turn desire just ended: start only if a turn was active and the truck is turning that way now
+      if (carry_done or self.sign == 0 or self.turn_ended
+          or self.sign * actual_curvature < CARRY_START_CURVATURE):
+        return 0, carry_time, carry_against, True
+      # Carry Only at Turn-In (folded): past 45 deg, or already straightening out, the cancel is the end of the turn
+      if self.turned >= CARRY_TURN_IN_MAX or self.sign * actual_curvature < CARRY_UNWIND_FRAC * self.peak_actual:
+        return 0, carry_time, carry_against, True  # the usual cancel fade
+      carry_sign, carry_time, carry_against = self.sign, 0.0, 0.0
+
+    s = carry_sign
+    against = steering_pressed and s * steering_torque > 0.0
+    carry_against = carry_against + DT_CTRL if against else 0.0
+    carry_time += DT_CTRL
+    if (not lat_active or lane_changing or v_ego >= MAX_SPEED or carry_time > CARRY_MAX_TIME
+        or s * actual_curvature < CARRY_END_CURVATURE
+        or carry_against >= HOLD_AGAINST_TIME - 1e-6 or (against and s * steering_torque >= HOLD_AGAINST_TORQUE)):
+      return 0, carry_time, carry_against, True
+    return s, carry_time, carry_against, carry_done
+
+  def will_carry(self, turn_direction, v_ego: float, actual_curvature: float, steering_pressed: bool,
+                 steering_torque: float, lat_active: bool, lane_changing: bool = False, queue_hold: bool = False) -> bool:
+    """Read-only check: True if Finish Turn After Signal Cancels will carry this control step."""
+    if not self.enabled or not self.carry_enabled:
+      return False
+    carry_sign, _, _, _ = self._next_carry(turn_sign(turn_direction), v_ego, actual_curvature, steering_pressed,
+                                           steering_torque, lat_active, lane_changing, queue_hold)
+    return carry_sign != 0
+
   def _carry(self, sign: int, v_ego: float, actual_curvature: float, steering_pressed: bool, steering_torque: float,
              lat_active: bool, lane_changing: bool, queue_hold: bool = False) -> int:
     """Finish Turn After Signal Cancels: when the turn desire ends (blinker cancelled or self-cancelled) while the truck
     is still turning that way, keep the turn going for Turn Assist until the truck straightens out. Returns the turn's
     sign to use this step."""
-    if sign != 0 or not self.carry_enabled or not self.enabled:
-      self.carry_sign, self.carry_time, self.carry_against = 0, 0.0, 0.0
-      self.carry_done = sign == 0  # a carry only follows a turn desire seen while this was on
-      return sign
-
-    if queue_hold:
-      # Queue Guard hides the turn desire while the truck waits behind a car: that is a wait, not the blinker cancelling
-      # mid-turn, so it never starts (or keeps) a carry. The turn comes back as a fresh turn when the hold lets go.
-      self.carry_sign, self.carry_time, self.carry_against, self.carry_done = 0, 0.0, 0.0, True
-      return 0
-
-    if self.carry_sign == 0:
-      # the turn desire just ended: start only if a turn was active and the truck is turning that way now
-      if (self.carry_done or self.sign == 0 or self.turn_ended
-          or self.sign * actual_curvature < CARRY_START_CURVATURE):
-        self.carry_done = True
-        return 0
-      # Carry Only at Turn-In (folded): past 45 deg, or already straightening out, the cancel is the end of the turn
-      if self.turned >= CARRY_TURN_IN_MAX or self.sign * actual_curvature < CARRY_UNWIND_FRAC * self.peak_actual:
-        self.carry_done = True  # the usual cancel fade
-        return 0
-      self.carry_sign, self.carry_time, self.carry_against = self.sign, 0.0, 0.0
-
-    s = self.carry_sign
-    against = steering_pressed and s * steering_torque > 0.0
-    self.carry_against = self.carry_against + DT_CTRL if against else 0.0
-    self.carry_time += DT_CTRL
-    if (not lat_active or lane_changing or v_ego >= MAX_SPEED or self.carry_time > CARRY_MAX_TIME
-        or s * actual_curvature < CARRY_END_CURVATURE
-        or self.carry_against >= HOLD_AGAINST_TIME - 1e-6 or (against and s * steering_torque >= HOLD_AGAINST_TORQUE)):
-      self.carry_sign, self.carry_done = 0, True
-      return 0
-    return s
+    self.carry_sign, self.carry_time, self.carry_against, self.carry_done = self._next_carry(
+      sign, v_ego, actual_curvature, steering_pressed, steering_torque, lat_active, lane_changing, queue_hold)
+    return sign if sign != 0 else self.carry_sign
 
   def _smooth_start(self, desired_curvature: float, out: float, sign: int) -> float:
     """Smooth Turn Start: the extra request toward the turn rises through a low-pass and drops at once."""
