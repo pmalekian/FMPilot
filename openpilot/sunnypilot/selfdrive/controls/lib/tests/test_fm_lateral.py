@@ -329,6 +329,70 @@ class TestLaneKeepWaitsForTurnCarry(OpenpilotTestCase):
       saw_carry = saw_carry or actual
     assert saw_carry
 
+  def test_disabling_last_turn_assist_mid_carry_clears_published_state_and_unblocks_blendful(self):
+    from openpilot.cereal import custom, log, messaging
+    from openpilot.sunnypilot.modeld_v2.modeld import BlendfulCarryGate
+    from openpilot.sunnypilot.selfdrive.controls.controlsd_ext import ControlsExt
+    from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_assist import PARAM_CARRY, PARAM_HOLD, PARAM_LEAD
+
+    TurnDirection = custom.ModelDataV2SP.TurnDirection
+    v_ego = 5.0
+    params = Params()
+    params.put("FM_LaneKeepMode", MODE_OFF, block=True)
+    params.put_bool(PARAM_HOLD, True, block=True)
+    params.put_bool(PARAM_LEAD, True, block=True)
+    params.put_bool(PARAM_CARRY, True, block=True)
+    lat = FmLateral(CP, params)
+    host = SimpleNamespace(LaC=SimpleNamespace(), fm_lateral=lat)
+    gate = BlendfulCarryGate()
+    lc_off = log.LaneChangeState.off
+
+    def publish_fm_controls(mono_time):
+      cs_msg = messaging.new_message('carState').carState
+      cs_msg.vEgo = v_ego
+      cs_msg.canValid = True
+      msg = ControlsExt.fm_controls_ext(host, {'carState': cs_msg})
+      sm = {'fmControls': msg.fmControls}
+      sm_ns = type("SM", (dict,), {"seen": {"fmControls": True}, "logMonoTime": {"fmControls": mono_time}})(sm)
+      return msg.fmControls.turnAssist, sm_ns
+
+    # 1. Start a right turn (30 frames), then cancel blinker to enter carry
+    car_state = SimpleNamespace(vEgo=v_ego, steeringPressed=False, steeringTorque=0.0, aEgo=0.0,
+                                leftBlinker=False, rightBlinker=True)
+    for _ in range(30):
+      lat.update(0.05, SimpleNamespace(), car_state, True, False, 0.05, _FakeSM(TurnDirection.turnRight))
+    car_state.rightBlinker = False
+    for _ in range(10):
+      lat.update(0.01, SimpleNamespace(), car_state, True, False, 0.05, _FakeSM(TurnDirection.none))
+    ta, fm_sm = publish_fm_controls(100)
+    assert str(ta.source) == 'carry' and ta.sign == 1
+    assert gate.update(log.Desire.none, lc_off, fm_sm) == (False, True)
+
+    # 2. Disable Turn Hold while Turn Lead is still on: NOT the last feature, so carry continues
+    params.put_bool(PARAM_HOLD, False, block=True)
+    for _ in range(60):  # reaches frame 100 refresh tick
+      lat.update(0.01, SimpleNamespace(), car_state, True, False, 0.05, _FakeSM(TurnDirection.none))
+    ta, fm_sm = publish_fm_controls(200)
+    assert lat.turn_assist.enabled and str(ta.source) == 'carry' and ta.sign == 1
+    assert gate.update(log.Desire.none, lc_off, fm_sm) == (False, True)
+
+    # 3. Disable Turn Lead (the last Turn Assist feature) during the carry and step past the next 1 s refresh tick
+    params.put_bool(PARAM_LEAD, False, block=True)
+    for _ in range(100):  # reaches frame 200 refresh tick
+      lat.update(0.01, SimpleNamespace(), car_state, True, False, 0.05, _FakeSM(TurnDirection.none))
+    ta, fm_sm = publish_fm_controls(300)
+    assert not lat.turn_assist.enabled
+    assert lat.turn_assist.carry_sign == 0 and lat.turn_assist.sign == 0
+    assert str(ta.source) == 'none' and ta.sign == 0 and not ta.holdActive and ta.exitFade == 0.0
+    assert gate.update(log.Desire.none, lc_off, fm_sm) == (True, False)
+
+    # 4. Subsequent straight frames stay clear and never resurrect stale carry
+    for i in range(20):
+      lat.update(0.0, SimpleNamespace(), car_state, True, False, 0.0, _FakeSM(TurnDirection.none))
+      ta, fm_sm = publish_fm_controls(400 + i)
+      assert str(ta.source) == 'none' and ta.sign == 0
+      assert gate.update(log.Desire.none, lc_off, fm_sm) == (True, False)
+
   def test_controlsd_passes_carry_active_to_lane_centering(self):
     import ast
     from pathlib import Path

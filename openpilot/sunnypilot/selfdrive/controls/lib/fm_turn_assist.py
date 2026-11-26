@@ -375,6 +375,7 @@ class FmTurnAssist:
     self.read_params()
 
   def read_params(self) -> None:
+    was_enabled = self.enabled
     self.hold_enabled = self.params.get_bool(PARAM_HOLD)
     self.hold_path = self.params.get_bool(PARAM_HOLD_PATH)
     self.hold_driver = self.params.get_bool(PARAM_HOLD_DRIVER)
@@ -395,6 +396,19 @@ class FmTurnAssist:
     self.lead_gate_dist = self._read_float(PARAM_LEAD_GATE_DIST, LEAD_GATE_DIST_DEFAULT, LEAD_GATE_DIST_LIMITS)
     self.lead_yield = self.params.get_bool(PARAM_LEAD_YIELD)
     self.carry_enabled = self.params.get_bool(PARAM_CARRY)
+    if was_enabled and not self.enabled:
+      self.reset()
+
+  def reset(self, desired_curvature: float = 0.0) -> None:
+    """Clear active turn, carry and published log state when the last Turn Assist feature is disabled."""
+    self.carry_sign = 0
+    self.carry_time = 0.0
+    self.carry_against = 0.0
+    self.carry_done = True
+    self.restarts = 0
+    self.amount = 0.0
+    self._reset_turn(0)
+    self._clear_log(desired_curvature)
 
   def _read_float(self, key: str, default: float, limits) -> float:
     """A number setting, clipped to its limits; unset, unreadable or not finite -> default (as fm-dev-nav-settle)."""

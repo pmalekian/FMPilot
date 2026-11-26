@@ -16,7 +16,7 @@ import math
 from openpilot.common.realtime import DT_CTRL
 from openpilot.selfdrive.controls.lib.lane_guard import LANE_CHANGE_COOLDOWN, STOCK, TUNES, LaneGuard
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_lane_keep_mode import MODE_GUARD, get_lane_keep_mode
-from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_assist import FmTurnAssist
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_assist import SOURCE_NONE, FmTurnAssist
 
 PARAMS_PERIOD = 1.0  # s
 CARRY_FADE_TIME = 0.2  # s, quick fade to exact zero for already-applied Lane Guard correction during a carry
@@ -94,6 +94,10 @@ class FmLateral:
                                                   steering_torque=float(getattr(CS, 'steeringTorque', 0.0)),
                                                   queue_hold=queue_hold,
                                                   settle_active=settle_active_from_sm(sm))
+    elif (self.turn_assist.sign != 0 or self.turn_assist.carry_sign != 0
+          or self.turn_assist.log_source != SOURCE_NONE or self.turn_assist.amount != 0.0
+          or self.turn_assist.log_exit != 0.0):
+      self.turn_assist.reset()
 
     # Lane Guard and lane centering are exclusive: lane centering wins if both are on.
     # While Lane Guard isn't the selected mode and has nothing left to fade out, it isn't run at all: its update reads
