@@ -20,13 +20,19 @@ Plan PR numbers (BUILD_PLAN.md) differ from GitHub PR numbers. Status as of Nov 
 | 13 | Pre/Post Turn Behavior (Queue Guard, Turn Pulse, Settle After Turn + Early Right Push) | #19 | `d3406ff` |
 | 14 | Accel Boost picker + Boost bar | #20 | `e9ba455` |
 | 15 | Lead (confidence, stationary ghosts, Smooth Lead Handoffs, `fmRadarLead`) | #21 | `998d062` |
+| 16 | Top Readout | #24 | `97121bc` |
+| 17 | Jetlink extras | #22 | `8e737bb` |
 
 ## Owners and next PR
-- **ChatGPT:** plan PRs 8, 9, 16, 17, 18. Next assigned: **PR 16** Top Readout after its dependencies merge.
-  **PR 17 Jetlink extras** is `needs-checks` on `fm-sync/pr17-jetlink-extras` (GitHub #22). The Jetlink big model
-  runs the Blendful and Settle After Turn callback again. The port also adds the status publisher and comma 4 icon states.
-  Portable unit tests, synthetic action equivalence and Ruff passed. The Linux build and native adapter tests are pending.
-  Merge in plan order after PR 16.
+- **ChatGPT:** plan PRs 8, 9, 16, 17, 18. PRs 16 and 17 are merged. PR 16 Top Readout is merged (#24, checks run by Claude): card publishes
+  `fmCarState` and the HUD uses it for Torque and `fmRadarLead` for Lead. `FM_TopReadout` preserves stored choices and
+  defaults to Off on fresh installs. Retain the Top Readout status row when updating the pending PR 18 branch.
+  **PR 17 Jetlink extras** is merged (#22, `8e737bb`, checks run by Claude): the Jetlink big model runs the Blendful and
+  Settle After Turn callback again (`modeld_v2/fm_jetlink_action.py`); `fm_jetlinkstatusd` publishes `fmJetlinkStatus`
+  while driving with Jetlink on; comma 4 icon states. Jetlink off changes nothing.
+  **PR 18 hardwared stall diagnostics** is `needs-checks` on `fm-sync/pr18-hardwared-stall-diagnostics` (GitHub #23).
+  LoopTimer tests, isolated ThermalConfig tests, synthetic report equivalence and Ruff passed. The Linux build and
+  native hardware tests are pending. Merge next (PR 17 is merged) and resolve the shared `FM_PILOT_HANDOFF.md` status rows then.
 - **Claude:** plan PRs 10-15. Done with 10-15. Next (Claude): **end of M3** once 16, 17 and 18 are merged: full suites, then the final docs pass.
   PR 15 for PR 16 (Top Readout): radard publishes `fmRadarLead` in `RadarD.publish` right after radarState whenever
   the model has 2+ leads (fields: source, leadProb, liveLeadProb, earlyLead, lowSpeedLead, earlyRadarMatches,

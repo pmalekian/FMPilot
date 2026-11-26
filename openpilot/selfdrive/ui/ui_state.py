@@ -16,6 +16,7 @@ from openpilot.common.hardware.usb import cable_connected, get_usb_state, is_che
 from openpilot.selfdrive.modeld.helpers import chestnut_compiled
 from openpilot.selfdrive.selfdrived.alertmanager import OFFROAD_ALERTS
 
+from openpilot.selfdrive.ui.sunnypilot.onroad import fm_jetlink_icon
 from openpilot.selfdrive.ui.sunnypilot.ui_state import UIStateSP, DeviceSP
 from openpilot.sunnypilot import jetlink_adapter
 
@@ -38,6 +39,7 @@ class ChestnutState(Enum):
   LOADING = "loading"
   ACTIVE = "active"
   FAILED = "failed"
+  WAITING = "waiting"  # Jetlink is ready and waiting for a full disengagement.
 
 
 class UIState(UIStateSP):
@@ -219,23 +221,37 @@ class UIState(UIStateSP):
         self.status = UIStatus.DISENGAGED
         self.started_frame = self.sm.frame
         self.started_time = time.monotonic()
-        self.chestnut_present = self.sm["deviceState"].chestnutPresent or (self.chestnut_compiled and self.usb_connected)
+        self.chestnut_present = self.sm["deviceState"].chestnutPresent or (
+          self.chestnut_compiled and self.usb_connected and not self.adb_blocked)
 
       for callback in self._offroad_transition_callbacks:
         callback()
 
       self._started_prev = self.started
 
+  @property
+  def jetlink_view(self):
+    """Jetlink's model icon state when the port is available to Jetlink."""
+    view = self.jetlink
+    return view if not self.chestnut_present and view is not None and view.shown else None
+
   def _update_chestnut_state(self) -> None:
     detected = self.sm["deviceState"].chestnutPresent
     if not self.started:
       self.chestnut_present = detected
+
+    model_seen = self.sm.recv_frame["modelV2"] > self.started_frame
+    if not detected and (view := self.jetlink_view) is not None:
+      running_big = self.sm.alive["modelV2"] and self.sm["modelV2"].big
+      self.chestnut_state = ChestnutState(fm_jetlink_icon.icon_state(view, self.started, model_seen, running_big))
+      return
+
+    if not self.started:
       self.chestnut_state = (ChestnutState.FAILED if self.chestnut_alert else
                              ChestnutState.READY if detected and self.chestnut_compiled else
                              ChestnutState.UNCOMPILED if detected else ChestnutState.DISCONNECTED)
       return
 
-    model_seen = self.sm.recv_frame["modelV2"] > self.started_frame
     if not self.chestnut_present:
       self.chestnut_state = ChestnutState.DISCONNECTED
     elif not self.chestnut_compiled:
@@ -271,6 +287,7 @@ class UIState(UIStateSP):
     self.chestnut_alert = any(self.params.get(k) is not None for k, a in OFFROAD_ALERTS.items() if k.startswith("Offroad_Chestnut") and a["severity"] >= 0)
     self.jetlink = None if self.chestnut_present else jetlink_adapter.status()
     self.adb_blocked = self.jetlink is not None and self.jetlink.holds_port
+    jetlink_host = self.jetlink is not None and self.jetlink.present
     if self.adb_blocked and self.params.get_bool("AdbEnabled"):
       self.params.put_bool("AdbEnabled", False, block=True)
     now = time.monotonic()
@@ -281,7 +298,8 @@ class UIState(UIStateSP):
         self.usb_connected_ts = now
         self.usb_unknown = False
       elif self.usb_connected_ts is not None and now - self.usb_connected_ts > 10.:
-        self.usb_unknown = not any(is_chestnut_usb_id(d["vendorId"], d["productId"], True) for d in get_usb_state())
+        self.usb_unknown = not (jetlink_host or self.adb_blocked or
+                                any(is_chestnut_usb_id(d["vendorId"], d["productId"], True) for d in get_usb_state()))
         self.usb_connected_ts = None
     elif self.usb_connected:
       if self.usb_disconnected_ts is None:
@@ -290,6 +308,9 @@ class UIState(UIStateSP):
         self.usb_connected = False
         self.usb_connected_ts = None
         self.usb_unknown = False
+
+    if jetlink_host:
+      self.usb_unknown = False  # A host may finish connecting after the one-time USB check.
 
     UIStateSP.update_params(self)
 

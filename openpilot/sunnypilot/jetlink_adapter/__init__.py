@@ -4,6 +4,9 @@ Copyright (c) 2026-, Zeph Leggett.
 This file is part of AdventurePilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 
+FM Pilot: Jetlink v0.9.0 support from zoompilot develop 92e1ecb (Zeph Leggett and contributors, MIT),
+on top of AdventurePilot's JetPilot (PR #12, Nimijneb, MIT).
+
 jetlink on this fork: the adapter jetlink runs over, and the hooks manager,
 modeld, hardwared, selfdrived, the model manager and the UI call.
 
@@ -116,14 +119,9 @@ def _adapter_class():
       return ModelConstants
 
     def action_function(self):
-      from openpilot.selfdrive.modeld.modeld import get_action_from_model
-      from openpilot.sunnypilot.modeld_v2.fm_pull_away import ACTION_SPEED_FLOOR
-
-      # The large model uses stock smoothing. Blendful belongs to the local bundle.
-      def action(model_output, prev_action, lat_action_t, long_action_t, v_ego, blendful=None, *, action_speed_floor=ACTION_SPEED_FLOOR):
-        return get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego,
-                                     action_speed_floor=action_speed_floor)
-      return action
+      from openpilot.selfdrive.modeld.modeld import MIN_LAT_CONTROL_SPEED, get_action_from_model
+      from openpilot.sunnypilot.modeld_v2.fm_jetlink_action import with_blendful
+      return with_blendful(get_action_from_model, MIN_LAT_CONTROL_SPEED)
 
     # The large model is comma's, so the stock parser, constants and action path
     # are deliberate. modeld_v2's extra inputs (lateral_control_params,
@@ -213,12 +211,14 @@ class _Off:
   is missing or too old to have it, and one answer for every case keeps them
   alike."""
   # by hook; a callable is handed the hook's arguments. A wanted power-off goes
-  # ahead: no jetlink must keep a comma on to drain the car's battery
+  # ahead: no jetlink must keep a comma on to drain the car's battery.
+  # API 4 still exposes the legacy catalog hooks in v0.9.0.
   ANSWERS = {'should_run': False, 'status': None, 'prepare': False, 'attach': lambda model, *_: model,
              'handed_over': False, 'state': 'none', 'shutdown_step': lambda wanted, reason='': wanted,
              'request_shutdown': False, 'shutdown_pending': False, 'model_state': None,
              'lists_big_models': False, 'big_catalog': None, 'listed_ref': None,
-             'swap_events': None, 'runtime': None}
+             'swap_events': None, 'runtime': None,
+             'should_extend_catalog': False, 'extend_catalog': lambda catalog: catalog}
 
   def __init__(self, why: str = ''):
     self.why = why
@@ -244,4 +244,5 @@ def _hook(name: str):
 # the call: jetlink.openpilot.hooks says what each does and answers
 HOOK_NAMES = (*_Off.ANSWERS, 'reason')
 (should_run, status, prepare, attach, handed_over, state, shutdown_step, request_shutdown, shutdown_pending,
- model_state, lists_big_models, big_catalog, listed_ref, swap_events, runtime, reason) = map(_hook, HOOK_NAMES)
+ model_state, lists_big_models, big_catalog, listed_ref, swap_events, runtime, should_extend_catalog,
+ extend_catalog, reason) = map(_hook, HOOK_NAMES)

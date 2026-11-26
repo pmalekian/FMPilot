@@ -3,6 +3,7 @@ import pyray as rl
 from dataclasses import dataclass
 from openpilot.common.constants import CV
 from openpilot.selfdrive.ui.mici.onroad.torque_bar import TorqueBar
+from openpilot.selfdrive.ui.sunnypilot.onroad import fm_jetlink_icon
 from openpilot.selfdrive.ui.ui_state import ui_state, UIStatus, ChestnutState
 from openpilot.system.ui.lib.application import gui_app, FontWeight
 from openpilot.system.ui.lib.multilang import tr
@@ -10,6 +11,9 @@ from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.system.ui.widgets import Widget
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.cereal import log
+from openpilot.selfdrive.ui.sunnypilot.onroad.fm_torque_readout import (READOUT_CPU_AVG, READOUT_CPU_BUSIEST, READOUT_LEAD,
+                                                                      READOUT_OFF, TURN_NOTICE_TYPES, LeadReadoutState,
+                                                                      make_cpu_readout, make_readout)
 
 EventName = log.OnroadEvent.EventName
 
@@ -96,6 +100,25 @@ class TurnIntent(Widget):
       self._turn_intent_rotation_filter.update(0)
 
 
+FM_TURN_NOTICE_OFFSET = 90  # leave room for the turn notice headline
+FM_READOUT_PERIOD = 0.1  # s, about 10 updates a second so the numbers are readable
+FM_READOUT_COLORS = {
+  'normal': rl.Color(255, 255, 255, 230),
+  'at_cap': rl.Color(255, 176, 0, 255),
+  'refused': rl.Color(255, 64, 64, 255),
+  'off': rl.Color(160, 160, 160, 200),
+}
+FM_CHECK_COLOR = rl.Color(70, 220, 90, 255)
+FM_LEAD_COLORS = {  # Lead readout (fm_torque_readout.py)
+  'white': rl.Color(255, 255, 255, 230),
+  'gray': rl.Color(160, 160, 160, 220),
+  'cyan': rl.Color(110, 225, 255, 255),    # light cyan: camera-only lead under 50%
+  'purple': rl.Color(205, 170, 255, 255),  # light lavender: radar-matched lead under 50%
+  'red': rl.Color(255, 64, 64, 255),       # X: ghost dropped
+  'red_dim': rl.Color(255, 64, 64, 70),
+}
+
+
 class HudRenderer(Widget):
   def __init__(self):
     super().__init__()
@@ -129,6 +152,11 @@ class HudRenderer(Widget):
     self._chestnut_icon: rl.Texture | None = None
     self._wheel_alpha_filter = FirstOrderFilter(0, 0.05, 1 / gui_app.target_fps)
     self._wheel_y_filter = FirstOrderFilter(0, 0.1, 1 / gui_app.target_fps)
+
+    self._fm_readout_started_frame = -1
+    self._fm_readout = None
+    self._fm_readout_time = 0.0
+    self._fm_lead_readout = LeadReadoutState()
 
     self._set_speed_alpha_filter = FirstOrderFilter(0.0, 0.1, 1 / gui_app.target_fps)
     self._chestnut_alpha_filter = FirstOrderFilter(0.0, 0.1, 1 / gui_app.target_fps)
@@ -177,6 +205,121 @@ class HudRenderer(Widget):
     speed_conversion = CV.MS_TO_KPH if ui_state.is_metric else CV.MS_TO_MPH
     self.speed = max(0.0, v_ego * speed_conversion)
 
+  def _has_fm_readout_data(self, *services: str) -> bool:
+    sm = ui_state.sm
+    return all(sm.alive[s] and sm.valid[s] and sm.recv_frame[s] >= ui_state.started_frame for s in services)
+
+  def _draw_fm_top_readout(self, rect: rl.Rectangle) -> None:
+    """FM Pilot: sent / limit now / Max Torque / EPAS check, one line at the top center (fm_torque_readout.py)."""
+    sm = ui_state.sm
+    mode = ui_state.fm_top_readout
+    if mode == READOUT_OFF or not self._has_fm_readout_data('selfdriveState'):
+      return
+    if ui_state.started_frame != self._fm_readout_started_frame:
+      self._fm_readout_started_frame = ui_state.started_frame
+      self._fm_readout = None
+      self._fm_lead_readout = LeadReadoutState()
+
+    ss = sm['selfdriveState']
+    turn_notice = (ss.alertSize == log.SelfdriveState.AlertSize.small and ss.alertStatus == log.SelfdriveState.AlertStatus.normal
+                   and ss.alertType in TURN_NOTICE_TYPES)
+    if ss.alertSize != log.SelfdriveState.AlertSize.none and not turn_notice:
+      return
+    if mode in (READOUT_CPU_AVG, READOUT_CPU_BUSIEST):
+      self._draw_fm_cpu_readout(rect, mode, turn_notice)
+      return
+    if mode == READOUT_LEAD:
+      self._draw_fm_lead_readout(rect, turn_notice)
+      return
+    if not self._has_fm_readout_data('carOutput', 'fmCarState', 'carControl'):
+      self._fm_readout = None
+      return
+    now = rl.get_time()
+    if self._fm_readout is None or now - self._fm_readout_time >= FM_READOUT_PERIOD:
+      fm = sm['fmCarState']
+      self._fm_readout = make_readout(sm['carOutput'].actuatorsOutput.torqueOutputCan, fm.steerCap,
+                                      fm.maxTorque, fm.epasToiActive, sm['carControl'].latActive)
+      self._fm_readout_time = now
+    r = self._fm_readout
+    if r is None:
+      return
+
+    font_size = FONT_SIZES.max_speed
+    color = FM_READOUT_COLORS[r.state]
+    text = f"{r.sent} / {r.cap} / {r.max_torque}"
+    size = measure_text_cached(self._font_semi_bold, text, font_size)
+    arrow_w, gap, mark_w = 16, 10, 24
+    total = arrow_w + gap + size.x + gap + mark_w
+    x = rect.x + rect.width / 2 - total / 2
+    y = rect.y + 16
+    if turn_notice:
+      y += FM_TURN_NOTICE_OFFSET
+    cy = y + size.y / 2
+
+    # backing so it reads over a bright road
+    rl.draw_rectangle_rounded(rl.Rectangle(x - 12, y - 4, total + 24, size.y + 8), 0.4, 8, rl.Color(0, 0, 0, 110))
+
+    if r.direction != 0:
+      half = arrow_w / 2
+      ax = x + half
+      if r.direction < 0:  # left
+        rl.draw_triangle(rl.Vector2(ax - half, cy), rl.Vector2(ax + half, cy + half), rl.Vector2(ax + half, cy - half), color)
+      else:
+        rl.draw_triangle(rl.Vector2(ax + half, cy), rl.Vector2(ax - half, cy - half), rl.Vector2(ax - half, cy + half), color)
+
+    rl.draw_text_ex(self._font_semi_bold, text, rl.Vector2(x + arrow_w + gap, y), font_size, 0, color)
+
+    mx = x + arrow_w + gap + size.x + gap
+    if r.accepted is True:
+      rl.draw_line_ex(rl.Vector2(mx + 2, cy), rl.Vector2(mx + 9, cy + 8), 4, FM_CHECK_COLOR)
+      rl.draw_line_ex(rl.Vector2(mx + 9, cy + 8), rl.Vector2(mx + 22, cy - 9), 4, FM_CHECK_COLOR)
+    elif r.accepted is False:
+      red = FM_READOUT_COLORS['refused']
+      rl.draw_line_ex(rl.Vector2(mx + 3, cy - 9), rl.Vector2(mx + 21, cy + 9), 4, red)
+      rl.draw_line_ex(rl.Vector2(mx + 3, cy + 9), rl.Vector2(mx + 21, cy - 9), 4, red)
+
+  def _draw_fm_cpu_readout(self, rect: rl.Rectangle, mode: int, turn_notice: bool) -> None:
+    """FM Pilot: core 4 / other cores / temperature, same place and style as the torque readout (fm_torque_readout.py)."""
+    sm = ui_state.sm
+    if not self._has_fm_readout_data('deviceState'):
+      return
+    ds = sm['deviceState']
+    out = make_cpu_readout(mode, ds.cpuUsagePercent, ds.cpuTempC, ds.maxTempC)
+    if out is None:
+      return
+    text, busy = out
+    font_size = FONT_SIZES.max_speed
+    color = FM_READOUT_COLORS['at_cap' if busy else 'normal']
+    size = measure_text_cached(self._font_semi_bold, text, font_size)
+    x = rect.x + rect.width / 2 - size.x / 2
+    y = rect.y + 16 + (FM_TURN_NOTICE_OFFSET if turn_notice else 0)
+    rl.draw_rectangle_rounded(rl.Rectangle(x - 12, y - 4, size.x + 24, size.y + 8), 0.4, 8, rl.Color(0, 0, 0, 110))
+    rl.draw_text_ex(self._font_semi_bold, text, rl.Vector2(x, y), font_size, 0, color)
+
+  def _draw_fm_lead_readout(self, rect: rl.Rectangle, turn_notice: bool) -> None:
+    """FM Pilot: lead confidence / source / early radar matches / ghost drops, same place and style as the torque
+    readout (fm_torque_readout.py). Drawn engaged or not: radard runs either way."""
+    sm = ui_state.sm
+    if not self._has_fm_readout_data('fmRadarLead'):
+      self._fm_lead_readout = LeadReadoutState()
+      return
+    lead = sm['fmRadarLead']
+    r = self._fm_lead_readout.update(rl.get_time(), float(lead.liveLeadProb), int(lead.source.raw), bool(lead.lowSpeedLead),
+                                     bool(lead.ghostDropped), int(lead.ghostDrops), int(lead.earlyRadarMatches))
+    font_size = FONT_SIZES.max_speed
+    parts = [(r.prob, FM_LEAD_COLORS[r.prob_color]), (r.letter, FM_LEAD_COLORS[r.letter_color]),
+             (r.counts, FM_LEAD_COLORS['white'])]
+    space = measure_text_cached(self._font_semi_bold, " ", font_size).x
+    sizes = [measure_text_cached(self._font_semi_bold, t, font_size) for t, _ in parts]
+    total = sum(sz.x for sz in sizes) + space * (len(parts) - 1)
+    height = max(sz.y for sz in sizes)
+    x = rect.x + rect.width / 2 - total / 2
+    y = rect.y + 16 + (FM_TURN_NOTICE_OFFSET if turn_notice else 0)
+    rl.draw_rectangle_rounded(rl.Rectangle(x - 12, y - 4, total + 24, height + 8), 0.4, 8, rl.Color(0, 0, 0, 110))
+    for (text, color), sz in zip(parts, sizes, strict=True):
+      rl.draw_text_ex(self._font_semi_bold, text, rl.Vector2(x, y), font_size, 0, color)
+      x += sz.x + space
+
   def _render(self, rect: rl.Rectangle) -> None:
     """Render HUD elements to the screen."""
 
@@ -184,6 +327,8 @@ class HudRenderer(Widget):
 
     if self.is_cruise_set:
       self._draw_set_speed(rect)
+
+    self._draw_fm_top_readout(rect)
 
     self._draw_model_source(rect)
 
@@ -197,16 +342,17 @@ class HudRenderer(Widget):
     elif ui_state.chestnut_state in (ChestnutState.UNCOMPILED, ChestnutState.FAILED):
       icon = self._txt_chestnut_orange
       opacity = 1.0
-    elif ui_state.chestnut_state == ChestnutState.ACTIVE:
+    elif ui_state.chestnut_state in (ChestnutState.ACTIVE, ChestnutState.WAITING):
       icon = self._txt_chestnut_green
-      opacity = 1.0
+      opacity = fm_jetlink_icon.DIMMED if ui_state.chestnut_state == ChestnutState.WAITING else 1.0
     else:
       return
 
     if icon is not self._chestnut_icon:
       self._chestnut_fade_time = rl.get_time()
       self._chestnut_icon = icon
-    visible = loading or rl.get_time() - self._chestnut_fade_time < SET_SPEED_PERSISTENCE
+    stays = fm_jetlink_icon.stays_on(ui_state.chestnut_state.value, ui_state.jetlink_view is not None)
+    visible = loading or stays or rl.get_time() - self._chestnut_fade_time < SET_SPEED_PERSISTENCE
     alpha = self._chestnut_alpha_filter.update(visible)
     if alpha < 1e-2:
       return

@@ -103,6 +103,10 @@ def is_stock_model(started, params, CP: car.CarParams) -> bool:
   """Check if the active model runner is stock."""
   return bool(get_active_model_runner(params, not started) == custom.ModelManagerSP.Runner.stock)
 
+def fm_jetlink_status(started: bool, params: Params, CP: car.CarParams) -> bool:
+  """Log the active Jetlink model while driving with the link setting on."""
+  return started and jetlink_adapter.link_on()
+
 def mapd_ready(started: bool, params: Params, CP: car.CarParams) -> bool:
   return bool(os.path.exists(Paths.mapd_root()))
 
@@ -184,6 +188,7 @@ procs += [
   # Models
   PythonProcess("models_manager", "openpilot.sunnypilot.models.manager", only_offroad),
   RestartingPythonProcess(jetlink_adapter.OWNER, jetlink_adapter.__name__, jetlink_adapter.should_run),
+  PythonProcess("fm_jetlinkstatusd", "openpilot.sunnypilot.fm_jetlink.statusd", fm_jetlink_status),
   NativeProcess("modeld_tinygrad", "openpilot/sunnypilot/modeld_v2", ["./modeld"], and_(only_onroad, is_tinygrad_model)),
   PythonProcess("modeld_warmup", "openpilot.sunnypilot.modeld_v2.warmup", only_offroad),
 

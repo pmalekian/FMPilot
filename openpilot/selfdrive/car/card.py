@@ -72,7 +72,8 @@ class Car:
   def __init__(self, CI=None, RI=None) -> None:
     self.can_sock = messaging.sub_sock('can', timeout=20)
     self.sm = messaging.SubMaster(['pandaStates', 'carControl', 'onroadEvents'] + ['carControlSP', 'longitudinalPlanSP'])
-    self.pm = messaging.PubMaster(['sendcan', 'carState', 'carParams', 'carOutput', 'radarTracks'] + ['carParamsSP', 'carStateSP'])
+    self.pm = messaging.PubMaster(['sendcan', 'carState', 'carParams', 'carOutput', 'radarTracks',
+                                   'carParamsSP', 'carStateSP', 'fmCarState'])
 
     self.can_rcv_cum_timeout_counter = 0
 
@@ -278,6 +279,15 @@ class Car:
     cs_sp_send.valid = CS.canValid
     cs_sp_send.carStateSP = CS_SP
     self.pm.send('carStateSP', cs_sp_send)
+
+    # FM Pilot Top Readout: publish the cap from the same apply() as carOutput, with the latest EPAS status.
+    fm_send = messaging.new_message('fmCarState', valid=CS.canValid)
+    if self.CP.brand == 'rivian':
+      fm_send.fmCarState.epasToiActive = self.CI.CS.toi_active
+      if not self.CP.passive:
+        fm_send.fmCarState.steerCap = self.CI.CC.fm_steer_cap
+        fm_send.fmCarState.maxTorque = self.CI.CC.fm_max_torque
+    self.pm.send('fmCarState', fm_send)
 
   def controls_update(self, CS: car.CarState, CC: car.CarControl, CC_SP: custom.CarControlSP):
     """control update loop, driven by carControl"""
