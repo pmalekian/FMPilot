@@ -13,7 +13,8 @@ from openpilot.common.params import Params
 from openpilot.selfdrive.ui.sunnypilot.layouts.settings.display import OnroadBrightness
 from openpilot.selfdrive.ui.sunnypilot.onroad.fm_torque_readout import PARAM_TOP_READOUT, READOUT_OFF, parse_readout_mode
 from openpilot.sunnypilot.models.helpers import ACTIVE_BUNDLE_KEYS, get_active_source
-from openpilot.sunnypilot.selfdrive.controls.lib.fm_accel_boost_mode import PARAM_MODE as ACCEL_BOOST_MODE, parse_mode as parse_boost_mode
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_accel_boost_mode import (MODE_OFF as ACCEL_BOOST_OFF, PARAM_MODE as ACCEL_BOOST_MODE,
+                                                                            parse_mode as parse_boost_mode)
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_lane_keep_mode import MODE_BLENDFUL, MODE_CENTERING, get_lane_keep_mode
 from openpilot.sunnypilot.sunnylink.sunnylink_state import SunnylinkState
 from openpilot.system.ui.lib.application import gui_app
@@ -73,6 +74,8 @@ class UIStateSP:
     self.custom_torque_params: bool = False
     self.torque_override_enabled: bool = False
     self._sp_initialized: bool = False
+    self.fm_accel_boost_indicator: bool = False
+    self.fm_accel_boost_mode: int = ACCEL_BOOST_OFF
     self.fm_top_readout = READOUT_OFF
 
   def update(self) -> None:

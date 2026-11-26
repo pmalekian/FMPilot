@@ -31,8 +31,8 @@ class FakeSM(dict):
 
 @pytest.fixture
 def state(monkeypatch):
-  monkeypatch.setattr(ui_state, "fm_accel_boost_indicator", True, raising=False)
-  monkeypatch.setattr(ui_state, "fm_accel_boost_mode", MODE_SUNNY, raising=False)
+  monkeypatch.setattr(ui_state, "fm_accel_boost_indicator", True)
+  monkeypatch.setattr(ui_state, "fm_accel_boost_mode", MODE_SUNNY)
   monkeypatch.setattr(type(ui_state), "has_longitudinal_control", property(lambda self: True), raising=False)
   return monkeypatch
 
@@ -41,6 +41,24 @@ def _settle(ind, sm, monkeypatch, frames=200):
   monkeypatch.setattr(ui_state, "sm", sm, raising=False)
   for _ in range(frames):
     ind._update_state()
+
+
+def test_fresh_ui_state_sp_renders_before_update_params(monkeypatch):
+  import pyray as rl
+  from openpilot.common.prefix import OpenpilotPrefix
+  from openpilot.selfdrive.ui.sunnypilot.mici.onroad import accel_boost_indicator as mod
+  from openpilot.selfdrive.ui.sunnypilot.ui_state import UIStateSP
+
+  with OpenpilotPrefix():
+    fresh = UIStateSP()
+    assert fresh.fm_accel_boost_indicator is False
+    assert fresh.fm_accel_boost_mode == MODE_OFF
+    fresh.sm = FakeSM()
+    fresh.has_longitudinal_control = True
+    monkeypatch.setattr(mod, "ui_state", fresh)
+    ind = AccelBoostIndicator()
+    ind.render(rl.Rectangle(0, 0, 536, 240))
+    assert not ind.holding_panel
 
 
 def test_fraction_and_color():
@@ -57,7 +75,7 @@ def test_fraction_and_color():
 @pytest.mark.parametrize("mode", BOOST_MODES)
 @pytest.mark.parametrize("personality", [P.aggressive, P.standard])
 def test_every_mode_fills_with_its_published_boost(state, mode, personality):
-  state.setattr(ui_state, "fm_accel_boost_mode", mode, raising=False)
+  state.setattr(ui_state, "fm_accel_boost_mode", mode)
   top = boost_max(mode, personality)
   ind = AccelBoostIndicator()
   _settle(ind, FakeSM(boost=top / 2, personality=personality), state)
@@ -68,7 +86,7 @@ def test_every_mode_fills_with_its_published_boost(state, mode, personality):
 
 
 def test_op_personality_relaxed_stays_empty(state):
-  state.setattr(ui_state, "fm_accel_boost_mode", MODE_OP_PERSONALITY, raising=False)
+  state.setattr(ui_state, "fm_accel_boost_mode", MODE_OP_PERSONALITY)
   ind = AccelBoostIndicator()
   _settle(ind, FakeSM(boost=0.0, personality=P.relaxed), state)
   assert get_boost_fraction(ind._boost_filter.x, ind._max_boost_filter.x) == pytest.approx(0.0, abs=1e-3)
@@ -83,15 +101,15 @@ def test_empty_when_lead_limits(state):
 
 @pytest.mark.parametrize("setting,mode,enabled", [(False, MODE_SUNNY, True), (True, MODE_OFF, True), (True, MODE_SUNNY, False)])
 def test_hidden_keeps_confidence_ball(state, setting, mode, enabled):
-  state.setattr(ui_state, "fm_accel_boost_indicator", setting, raising=False)
-  state.setattr(ui_state, "fm_accel_boost_mode", mode, raising=False)
+  state.setattr(ui_state, "fm_accel_boost_indicator", setting)
+  state.setattr(ui_state, "fm_accel_boost_mode", mode)
   ind = AccelBoostIndicator()
   _settle(ind, FakeSM(enabled=enabled), state)
   assert not ind.holding_panel
 
 
 def test_evp_set_speed_fills_when_tied_with_cruise(state):
-  state.setattr(ui_state, "fm_accel_boost_mode", MODE_EVP_SET_SPEED, raising=False)
+  state.setattr(ui_state, "fm_accel_boost_mode", MODE_EVP_SET_SPEED)
   ind = AccelBoostIndicator()
   _settle(ind, FakeSM(boost=0.3, source=CRUISE), state)
   assert ind._boost_filter.x == pytest.approx(0.3, abs=1e-3)
@@ -99,7 +117,7 @@ def test_evp_set_speed_fills_when_tied_with_cruise(state):
 
 @pytest.mark.parametrize("mode", [MODE_GAS, MODE_SUNNY, MODE_AP_ACCEL_CONTROL, MODE_OP_PERSONALITY])
 def test_other_modes_empty_when_cruise_limits(state, mode):
-  state.setattr(ui_state, "fm_accel_boost_mode", mode, raising=False)
+  state.setattr(ui_state, "fm_accel_boost_mode", mode)
   ind = AccelBoostIndicator()
   _settle(ind, FakeSM(boost=0.1, source=CRUISE), state)
   assert ind._boost_filter.x == pytest.approx(0.0, abs=1e-3)
