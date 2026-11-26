@@ -46,6 +46,11 @@ Max Torque 580 -> 580). Fresh installs start at stock/off.
 ## Finish Turn After Signal Cancels (when it is on)
 - **Carry Only at Turn-In:** always on (no carry when the desire ends after 45° turned or once the truck is straightening,
   curve under 70% of the turn's tightest). Was `FM_TurnCarryTurnInOnly`.
+- **Lane keeping waits for the turn carry:** fixed behavior (not a setting). While Finish Turn After Signal Cancels is
+  carrying a turn (`fmControls.turnAssist.source == carry`), Blendful (both small-model and Jetlink big-model paths),
+  AP Lane Centering and Lane Guard add no steering; when the carry ends, each resumes normally as after a blinker turn
+  (`modeld_v2/modeld.py`, `controlsd.py`, `fm_lateral.py`, `fm_turn_assist.py`). Settle After Turn's carry handling is
+  unchanged.
 
 ## Alerts
 - **Quiet road-edge block:** always on (small gray message, no sound). `FM_QuietRoadEdgeBlock` is not read.
