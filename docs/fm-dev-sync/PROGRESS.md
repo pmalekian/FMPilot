@@ -20,17 +20,16 @@ Plan PR numbers (BUILD_PLAN.md) differ from GitHub PR numbers. Status as of Nov 
 | 13 | Pre/Post Turn Behavior (Queue Guard, Turn Pulse, Settle After Turn + Early Right Push) | #19 | `d3406ff` |
 | 14 | Accel Boost picker + Boost bar | #20 | `e9ba455` |
 | 15 | Lead (confidence, stationary ghosts, Smooth Lead Handoffs, `fmRadarLead`) | #21 | `998d062` |
+| 16 | Top Readout | #24 | `97121bc` |
 
 ## Owners and next PR
-- **ChatGPT:** plan PRs 8, 9, 16, 17, 18. **PR 16 Top Readout** is `needs-checks` on `fm-sync/pr16-top-readout`
-  (GitHub #24). Card publishes `fmCarState` and the HUD uses it for Torque and `fmRadarLead` for Lead.
-  `FM_TopReadout` preserves stored choices and defaults to Off on fresh installs. Portable tests, synthetic comparisons,
-  Ruff, Sunnylink compilation and isolated validation passed. The Linux build and native card, UI and Sunnylink checks
-  are pending. Merge first, then retain the Top Readout status row when updating the pending PR 17 and 18 branches.
+- **ChatGPT:** plan PRs 8, 9, 16, 17, 18. PR 16 Top Readout is merged (#24, checks run by Claude): card publishes
+  `fmCarState` and the HUD uses it for Torque and `fmRadarLead` for Lead. `FM_TopReadout` preserves stored choices and
+  defaults to Off on fresh installs. Retain the Top Readout status row when updating the pending PR 17 and 18 branches.
   **PR 17 Jetlink extras** is `needs-checks` on `fm-sync/pr17-jetlink-extras` (GitHub #22). The Jetlink big model
   runs the Blendful and Settle After Turn callback again. The port also adds the status publisher and comma 4 icon states.
   Portable unit tests, synthetic action equivalence and Ruff passed. The Linux build and native adapter tests are pending.
-  Merge in plan order after PR 16.
+  Merge in plan order (PR 16 is merged).
   **PR 18 hardwared stall diagnostics** is `needs-checks` on `fm-sync/pr18-hardwared-stall-diagnostics` (GitHub #23).
   LoopTimer tests, isolated ThermalConfig tests, synthetic report equivalence and Ruff passed. The Linux build and
   native hardware tests are pending. Merge after PR 17 and resolve the shared `FM_PILOT_HANDOFF.md` status rows then.
