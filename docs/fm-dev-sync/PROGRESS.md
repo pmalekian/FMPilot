@@ -22,7 +22,11 @@ Plan PR numbers (BUILD_PLAN.md) differ from GitHub PR numbers. Status as of Nov 
 | 15 | Lead (confidence, stationary ghosts, Smooth Lead Handoffs, `fmRadarLead`) | #21 | `998d062` |
 
 ## Owners and next PR
-- **ChatGPT:** plan PRs 8, 9, 16, 17, 18. Next assigned: **PR 16** Top Readout after its dependencies merge.
+- **ChatGPT:** plan PRs 8, 9, 16, 17, 18. **PR 16 Top Readout** is `needs-checks` on `fm-sync/pr16-top-readout`
+  (GitHub #24). Card publishes `fmCarState` and the HUD uses it for Torque and `fmRadarLead` for Lead.
+  `FM_TopReadout` preserves stored choices and defaults to Off on fresh installs. Portable tests, synthetic comparisons,
+  Ruff, Sunnylink compilation and isolated validation passed. The Linux build and native card, UI and Sunnylink checks
+  are pending. Merge first, then retain the Top Readout status row when updating the pending PR 17 and 18 branches.
   **PR 17 Jetlink extras** is `needs-checks` on `fm-sync/pr17-jetlink-extras` (GitHub #22). The Jetlink big model
   runs the Blendful and Settle After Turn callback again. The port also adds the status publisher and comma 4 icon states.
   Portable unit tests, synthetic action equivalence and Ruff passed. The Linux build and native adapter tests are pending.
