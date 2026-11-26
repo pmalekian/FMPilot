@@ -26,9 +26,10 @@ Plan PR numbers (BUILD_PLAN.md) differ from GitHub PR numbers. Status as of Nov 
 | — | Audit fixes (H-1, M-1, L-1..L-6; PR title rule) | #25 | `4324841` |
 | — | Turn exit fixes (Hold Adds Your Steering 45° cutoff + M-3 Settle coordination) | #26 | `2aa8757` |
 | — | Lane keeping waits for the turn carry (M-2: Blendful small/Jetlink, AP Lane Centering, Lane Guard) | #27 | `8eb0613` |
+| — | Turn exit and carry follow-ups (M-2..M-4, L-1..L-3; NNLC M-1 skipped) | #28 | `a438c61` |
 
 ## Owners and next PR
-- **Antigravity (post-audit fixes):** All three post-audit fix PRs merged: Audit fixes (#25, `4324841`), Turn exit fixes (#26, `2aa8757`), and Lane keeping waits for the turn carry (#27, `8eb0613`). `FM_FOLDED_DEFAULTS.md` (both copies), `FM_PILOT.md`, `FM_PILOT_HANDOFF.md`, and `AGENT_RULES.md` updated; all merged `fm-dev-sync` PR titles cleaned up to drop plan PR numbers. Nothing pending.
+- **Antigravity (post-audit fixes):** Post-audit fix PRs merged: Audit fixes (#25, `4324841`), Turn exit fixes (#26, `2aa8757`), Lane keeping waits for the turn carry (#27, `8eb0613`), and Turn exit and carry follow-ups (#28, `a438c61`: 45° stays crossed, 0.2 s carry residual fade across Blendful/AP Lane Centering/Lane Guard, Blendful fresh-status handoff gate, clear carry/turn state on disable, shared settings snapshot in `FmLateral`, updated 45° Sunnylink descriptions, settled-headroom override test; NNLC M-1 intentionally skipped). `FM_FOLDED_DEFAULTS.md` (both copies), `FM_PILOT.md`, `FM_PILOT_HANDOFF.md`, and `AGENT_RULES.md` updated. Nothing pending.
 - **ChatGPT:** plan PRs 8, 9, 16, 17, 18. PRs 16, 17 and 18 are merged. PR 16 Top Readout is merged (#24, checks run by Claude): card publishes
   `fmCarState` and the HUD uses it for Torque and `fmRadarLead` for Lead. `FM_TopReadout` preserves stored choices and
   defaults to Off on fresh installs. Retain the Top Readout status row when updating the pending PR 18 branch.
