@@ -8,7 +8,6 @@ import sys
 import threading
 import time
 from collections import OrderedDict, namedtuple
-from contextlib import contextmanager
 
 import openpilot.cereal.messaging as messaging
 from openpilot.cereal import log
@@ -30,6 +29,7 @@ from openpilot.system.hardware.power_monitoring import PowerMonitoring
 from openpilot.system.hardware.fan_controller import FanController
 from openpilot.system.hardware.chestnut.monitoring import chestnut_state_thread
 from openpilot.system.hardware.chestnut.status import ChestnutStatus
+from openpilot.system.hardware.loop_timer import LoopTimer
 from openpilot.common.version import terms_version, training_version, get_build_metadata, terms_version_sp
 from openpilot.sunnypilot import jetlink_adapter
 
@@ -46,72 +46,14 @@ JETLINK_SHUTDOWN_CAP_S = 30.
 
 HOOKS = jetlink_adapter.hooks()
 
-# Diagnostic timing for the deviceState publish loop. hardware_thread runs at 2 Hz, and a stall of a
-# few seconds stops deviceState altogether, which selfdrived reports as a communication issue and
-# which has disengaged the car mid drive. Log analysis narrowed the stall to the params calls and the
-# offroad alert calls in the loop below but could not name the blocking call, because nothing on the
-# device recorded how long any single call took. These two classes record exactly that, and report the
-# breakdown whenever one iteration runs long.
+# Diagnostic timing for deviceState stalls, which selfdrived reports as communication issues.
 HW_LOOP_SLOW_MS = 100.
 
-# Phases that block on purpose and must not count as time the device lost. sm.update() polls
-# pandaStates, which publishes at 10 Hz, with a 1.5x timeout, so the roughly 100 ms it spends waiting
-# is how this loop paces itself. Judging the threshold on the raw total counted that wait as work and
-# fired on nearly every iteration: 4268 reports in one 14 minute drive, 3.4 MB of undecimated log, of
-# which 7 were real. These phases are still reported, because a publisher in trouble shows up as one
-# of them repeatedly hitting its timeout, but they are left out of the "was this slow" decision.
-BLOCKING_PHASES = ("sm_update",)
 
-
-class LoopTimer:
-  """Collects per phase timings for a single hardware_thread iteration and reports slow ones.
-
-  The cost is two clock reads per measurement, so this stays enabled while driving. A report is only
-  emitted when an iteration spends more than HW_LOOP_SLOW_MS doing actual work, so a healthy device
-  stays silent. "Actual work" is the whole iteration minus BLOCKING_PHASES, the waits this loop takes
-  deliberately; see the note there for why the difference matters.
-  """
-
-  def __init__(self, slow_ms: float):
-    self.slow_ms = slow_ms
-    self.started = 0.
-    self.phases: dict[str, float] = {}
-    self.params: dict[str, float] = {}
-
-  def start(self) -> None:
-    self.phases = {}
-    self.params = {}
-    self.started = time.monotonic()
-
-  def record(self, name: str, ms: float) -> None:
-    # summed, so a key touched twice in one iteration still reports its full cost
-    self.params[name] = self.params.get(name, 0.) + ms
-
-  @contextmanager
-  def phase(self, name: str):
-    t0 = time.monotonic()
-    try:
-      yield
-    finally:
-      self.phases[name] = self.phases.get(name, 0.) + (time.monotonic() - t0) * 1e3
-
-  def report(self) -> None:
-    total_ms = (time.monotonic() - self.started) * 1e3
-    blocked_ms = sum(self.phases.get(n, 0.) for n in BLOCKING_PHASES)
-    work_ms = total_ms - blocked_ms
-    if work_ms < self.slow_ms:
-      return
-    # params timings are nested inside the phase timings, so the two are reported separately
-    slow_phases = {n: round(ms, 1) for n, ms in self.phases.items() if ms >= 1.}
-    slow_params = {n: round(ms, 1) for n, ms in self.params.items() if ms >= 1.}
-    # a deliberate wait can never be the culprit this report exists to name, so it is not a candidate
-    # for "worst" even though it stays in phases for anyone reading the whole picture
-    candidates = [kv for kv in list(slow_phases.items()) + list(slow_params.items()) if kv[0] not in BLOCKING_PHASES]
-    worst = max(candidates, key=lambda kv: kv[1], default=("none", 0.))
+def report_slow_loop(loop_timer: LoopTimer) -> None:
+  if (ev := loop_timer.report()) is not None:
     # error=True puts this in errorLogMessage, which is not decimated and so survives into qlogs
-    cloudlog.event("hardwared_slow_loop", error=True, work_ms=round(work_ms, 1),
-                   total_ms=round(total_ms, 1), blocked_ms=round(blocked_ms, 1),
-                   worst=worst[0], worst_ms=worst[1], phases=slow_phases, params=slow_params)
+    cloudlog.event("hardwared_slow_loop", error=True, **ev)
 
 
 class TimedParams:
@@ -371,6 +313,7 @@ def hardware_thread(end_event, hw_queue) -> None:
   onroad_conditions["not_tici"] = not is_unsupported_combo
   set_offroad_alert_if_changed("Offroad_TiciSupport", is_unsupported_combo, extra_text=build_metadata.channel)
 
+  loop_timer.start_watchdog(end_event)
   while not end_event.is_set():
     loop_timer.start()
     with loop_timer.phase("sm_update"):
@@ -402,11 +345,12 @@ def hardware_thread(end_event, hw_queue) -> None:
     # Run at 2Hz, plus either edge of ignition
     ign_edge = (started_ts is not None) != all(onroad_conditions.values())
     if (sm.frame % round(SERVICE_LIST['pandaStates'].frequency * DT_HW) != 0) and not ign_edge:
-      loop_timer.report()
+      report_slow_loop(loop_timer)
       continue
 
     msg = messaging.new_message('deviceState', valid=True)
-    msg.deviceState = thermal_config.get_msg()
+    with loop_timer.phase("thermal"):
+      msg.deviceState = thermal_config.get_msg(loop_timer.record_read)
     msg.deviceState.deviceType = HARDWARE.get_device_type()
 
     try:
@@ -655,7 +599,7 @@ def hardware_thread(end_event, hw_queue) -> None:
 
     count += 1
     should_start_prev = should_start
-    loop_timer.report()
+    report_slow_loop(loop_timer)
 
 
 def main():

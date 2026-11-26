@@ -81,7 +81,7 @@ ruff check .
 | PR 15 Lead | merged, PR #21 (`998d062`): Ignore Stationary Radar Ghosts, Radar-matched / Camera-only Lead Confidence (25-50 %, 50 = stock), Smooth Lead Handoffs in radard (`fm_radar.py`, `fm_lead_handoff.py`), Cruise > Smart Cruise Control (Sunnylink); keys unchanged, defaults off / 50 / 50 / off (as on `ca08aac9`), no migration; old `FM_LeadDetectionThreshold` not read. radard publishes `fmRadarLead` with each radarState (for PR 16's Lead readout and `tools/fm/lead.py`, which reads both layouts and replays on either). Lead Shadow Log and Radar Badge dropped. All defaults: radarState byte-identical to the base on constructed drives |
 | PR 16 Top Readout | Implemented and pending Linux checks. Sunnylink `FM_TopReadout` selects Off, Torque, CPU (Avg), CPU (Busiest) or Lead on comma 4. Fresh installs default to Off and stored settings carry forward. Card publishes `fmCarState` and the Lead mode reads `fmRadarLead` |
 | PR 17 Jetlink extras | implemented, pending Linux checks: zoompilot API 4 / v0.9.0 adapter delta on AP JetPilot, Blendful and Settle After Turn restored on the Jetlink big model, `fmJetlinkStatus` published onroad with Jetlink on, comma 4 model icon states. Existing settings carry forward |
-| PR 18 hardwared stall diagnostics | See `docs/fm-dev-sync/PROGRESS.md` for GitHub status |
+| PR 18 hardwared stall diagnostics | Implemented and pending Linux checks. `hardwared_slow_loop` reports untimed work, thermal reads and watchdog data. Keeps sunnypilot #2109's params-lock fix |
 
 ## Reference (unchanged from before)
 
