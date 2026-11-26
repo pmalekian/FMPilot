@@ -545,6 +545,57 @@ class TestHoldFollowsModelExit:
     run(c, 0.06, RIGHT, steps=10, actual=0.10, pressed=True, torque=-1.5)
     assert not c.hold_released
 
+  def _cross_46_then_recross_42(self, a):
+    """Turn right past 46 deg, then countersteer briefly back to ~42 deg while keeping Turn Hold active."""
+    while math.degrees(a.turned) < 46.0:
+      run(a, 0.10, RIGHT, actual=0.10)
+    assert math.degrees(a.turned) >= 46.0 and a.past_exit_turned and not a.hold_released
+    # Brief countersteer (< 0.25 s and < 1.5 Nm) lowers live heading below 45 deg without releasing the hold
+    while math.degrees(a.turned) > 42.0:
+      run(a, 0.08, RIGHT, actual=-0.10, pressed=True, torque=0.8)
+    assert 41.0 < math.degrees(a.turned) < 42.5 and a.past_exit_turned and not a.hold_released
+
+  def test_recross_46_to_42_never_rearms_driver_adds_or_pressure_exemption(self):
+    # Hold Adds Your Steering: 46 deg -> 42 deg -> press into right turn with 0.16 1/m: nothing latched, then releases
+    a = self.assist(on=False, **{PARAM_HOLD_DRIVER: True})
+    self._cross_46_then_recross_42(a)
+    peak_before = a.peak
+    # Clear the countersteer against_time with one unpressed frame, then press into the turn
+    run(a, 0.08, RIGHT, actual=0.05)
+    first = run(a, 0.08, RIGHT, actual=0.16, pressed=True, torque=-1.5)
+    assert math.degrees(a.turned) < 45.0
+    assert a.log_driver == 0.0 and a.peak == pytest.approx(peak_before) and first <= peak_before + 1e-6
+    press_steps = int(round(HOLD_AGAINST_TIME / DT_CTRL)) + 2
+    run(a, 0.08, RIGHT, steps=press_steps, actual=0.16, pressed=True, torque=-1.5)
+    assert a.hold_released and a.release_reason == fm_turn_assist.RELEASE_DRIVER
+    assert a.peak == pytest.approx(peak_before) and a.log_driver == 0.0
+
+    # Hold Follows the Model's Exit: 46 deg -> 42 deg -> model eases (< 50% peak) while pressing in still triggers exit
+    b = self.assist(on=True, **{PARAM_HOLD_DRIVER: True})
+    self._cross_46_then_recross_42(b)
+    peak_b = b.peak
+    run(b, 0.08, RIGHT, actual=0.05)
+    out = run(b, 0.03, RIGHT, actual=0.16, pressed=True, torque=-1.5)
+    assert math.degrees(b.turned) < 45.0
+    assert b.hold_released and b.release_reason == fm_turn_assist.RELEASE_MODEL_EXIT
+    assert b.log_driver == 0.0 and b.peak == pytest.approx(peak_b) and out <= peak_b + 1e-6
+
+  def test_signal_cancel_after_46_to_42_recross_drops_pressure_exemption(self):
+    # Before ever crossing 45 deg: pressing into the turn on signal cancel keeps the cancel fade alive
+    before = self.assist(on=False, **{PARAM_HOLD_DRIVER: True})
+    self.turn(before, 35)
+    run(before, 0.03, RIGHT, actual=0.05)  # hold floor active, hold_exit_amount == 1.0
+    assert not before.past_exit_turned
+    assert run(before, 0.03, NONE, actual=0.05, pressed=True, torque=-1.5) > 0.03
+
+    # After 46 deg -> 42 deg recross: 45 deg stays crossed, so pressing into the turn on signal cancel ends the fade
+    after = self.assist(on=False, **{PARAM_HOLD_DRIVER: True})
+    self._cross_46_then_recross_42(after)
+    assert run(after, 0.03, RIGHT, actual=0.05) > 0.03  # hold floor active -> hold_exit_amount == 1.0
+    assert math.degrees(after.turned) < 45.0 and after.past_exit_turned
+    assert run(after, 0.03, NONE, actual=0.05, pressed=True, torque=-1.5) == pytest.approx(0.03)
+    assert after.hold_exit_amount == 0.0 and not after.past_exit_turned  # reset for the next turn
+
   def test_off_holds_to_75_deg(self):
     a = self.assist(on=False)
     self.turn(a, 50)
