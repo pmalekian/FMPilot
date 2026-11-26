@@ -19,13 +19,20 @@ Plan PR numbers (BUILD_PLAN.md) differ from GitHub PR numbers. Status as of Nov 
 | 12 | Finish Turn After Signal Cancels | #18 | `48c343f` |
 | 13 | Pre/Post Turn Behavior (Queue Guard, Turn Pulse, Settle After Turn + Early Right Push) | #19 | `d3406ff` |
 | 14 | Accel Boost picker + Boost bar | #20 | `e9ba455` |
+| 15 | Lead (confidence, stationary ghosts, Smooth Lead Handoffs, `fmRadarLead`) | #21 | `998d062` |
 
 ## Owners and next PR
 - **ChatGPT:** plan PRs 8, 9, 16, 17, 18. Next assigned: **PR 16** Top Readout after its dependencies merge.
   **For PR 17 (Jetlink):** on ca08aac9, Settle After Turn and Blendful also ran on the Jetlink large model through
   `fm_jetlink_action.py`. On fm-dev-sync, AP's Jetlink adapter skips that hook, so Settle acts only with local models.
   Restoring it is Jetlink scope; flag it to Frankie if PR 17 doesn't cover it.
-- **Claude:** plan PRs 10-15. Next: **PR 15** Lead.
+- **Claude:** plan PRs 10-15. Done with 10-15. Next (Claude): **end of M3** once 16, 17 and 18 are merged: full suites, then the final docs pass.
+  PR 15 for PR 16 (Top Readout): radard publishes `fmRadarLead` in `RadarD.publish` right after radarState whenever
+  the model has 2+ leads (fields: source, leadProb, liveLeadProb, earlyLead, lowSpeedLead, earlyRadarMatches,
+  ghostDropped/DRel/YRel/VLead/TrackId, ghostDrops, guardEnabled, radarThreshold, cameraThreshold, smoothHandoffs,
+  decisions[2]; counters reset when radard starts). `tools/fm/lead.py --replay` was fixed (it was broken on the base).
+  ca08aac9's copy of the old shared `FM_LeadDetectionThreshold` into both confidence keys was not ported (only matters
+  coming from a branch older than the split).
   PR 14: `fm_accel_boost_mode.py` alone picks the boost; `AccelBoostSP` and `AccelerationControl` are hidden and never
   read. Migration `accel_boost_mode` keeps a stored mode (ca08aac9's 0 was already no boost); only an unset mode with
   `AccelBoostSP` on becomes 2. `longitudinalPlan.accelBoost` = what the mode added. OP Personality verified against
