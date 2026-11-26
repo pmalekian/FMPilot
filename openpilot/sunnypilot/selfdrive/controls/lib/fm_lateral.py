@@ -58,6 +58,7 @@ class FmLateral:
     self.lane_guard_carry_start = 0.0
     self.left_hand_traffic = False
     self.frame = 0
+    self._step_refreshed = False
     self.read_params()
 
   def read_params(self) -> None:
@@ -66,9 +67,20 @@ class FmLateral:
     if hasattr(self, 'turn_assist'):
       self.turn_assist.read_params()
 
+  def _refresh_for_step(self) -> None:
+    """Advance the frame counter and refresh params at most once per control step, so carry_active() and update()
+    in the same frame share one settings snapshot."""
+    if self._step_refreshed:
+      return
+    self.frame += 1
+    if self.frame % int(PARAMS_PERIOD / DT_CTRL) == 0:
+      self.read_params()
+    self._step_refreshed = True
+
   def carry_active(self, model_v2, CS, lat_active: bool, actual_curvature: float = 0.0, sm=None) -> bool:
     """Read-only check: True while Finish Turn After Signal Cancels is carrying a turn this control step.
     Used by controlsd before lane_centering.update so AP Lane Centering stays out during a carry."""
+    self._refresh_for_step()
     if not self.turn_assist.enabled:
       return False
     turn_direction, lane_changing, queue_hold = _turn_inputs(model_v2, sm)
@@ -78,9 +90,8 @@ class FmLateral:
 
   def update(self, desired_curvature: float, model_v2, CS, lat_active: bool, lane_centering_enabled: bool,
              actual_curvature: float = 0.0, sm=None) -> float:
-    self.frame += 1
-    if self.frame % int(PARAMS_PERIOD / DT_CTRL) == 0:
-      self.read_params()
+    self._refresh_for_step()
+    self._step_refreshed = False
 
     # Turn Assist reads the active turn desire (modelDataV2SP.laneTurnDirection, from modeld) from controlsd's own
     # SubMaster, already updated this step: a SubMaster polled here would sleep inside the control step whenever no new
