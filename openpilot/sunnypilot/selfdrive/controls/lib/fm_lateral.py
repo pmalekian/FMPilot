@@ -11,12 +11,26 @@ rear-axle off-tracking and clip_curvature, so they work the same with torque and
 Ported from fm-dev-nav-settle ca08aac9 (FM's own copy of gerrylum's off-tracking is dropped: AP's rivian_offtrack runs
 after this).
 """
+import math
+
 from openpilot.common.realtime import DT_CTRL
 from openpilot.selfdrive.controls.lib.lane_guard import LANE_CHANGE_COOLDOWN, STOCK, TUNES, LaneGuard
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_lane_keep_mode import MODE_GUARD, get_lane_keep_mode
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_turn_assist import FmTurnAssist
 
 PARAMS_PERIOD = 1.0  # s
+
+
+def settle_active_from_sm(sm) -> bool:
+  """True when modeld's fmModel reports Settle After Turn / Early Right Push active."""
+  if sm is None or not sm.seen.get('fmModel', False):
+    return False
+  fm = sm['fmModel']
+  phase = getattr(fm, 'turnSettlePhase', 0)
+  if str(phase) not in ('idle', '0', 'None'):
+    return True
+  curv = float(getattr(fm, 'turnSettle', 0.0))
+  return math.isfinite(curv) and curv != 0.0
 
 
 class FmLateral:
@@ -58,7 +72,8 @@ class FmLateral:
                                                   a_ego=float(getattr(CS, 'aEgo', 0.0)),
                                                   lane_changing=lane_change_state != 0,
                                                   steering_torque=float(getattr(CS, 'steeringTorque', 0.0)),
-                                                  queue_hold=queue_hold)
+                                                  queue_hold=queue_hold,
+                                                  settle_active=settle_active_from_sm(sm))
 
     # Lane Guard and lane centering are exclusive: lane centering wins if both are on.
     # While Lane Guard isn't the selected mode and has nothing left to fade out, it isn't run at all: its update reads

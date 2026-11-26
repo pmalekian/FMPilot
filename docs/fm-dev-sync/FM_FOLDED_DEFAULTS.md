@@ -33,6 +33,13 @@ Max Torque 580 -> 580). Fresh installs start at stock/off.
 - **Hold Only Counts While Steering:** always on. Was `FM_TurnHoldSteeringOnly`.
 - **Hold Ignores Crawl Spikes:** always on (below 5 mph the hold's peak only learns a request kept up for 0.3 s). Was
   `FM_TurnHoldSteadyPeak`.
+- **Hold Adds Your Steering stops at 45°:** fixed behavior (not a setting). Once the truck has turned 45° from the start
+  of the turn, Hold Adds Your Steering stops latching new driver input into the hold (anything added before 45° stays
+  frozen in the peak and exits only through normal exit logic), and driver pressure into the turn no longer blocks the
+  0.5 s model-exit fade or release (`fm_turn_assist.py`). Before 45° and Ordinary Turn Hold are unchanged.
+- **Turn Hold steps aside for Settle After Turn / Early Right Push:** fixed behavior (not a setting). Once `fmModel`
+  shows Settle After Turn / Early Right Push active for the current turn, Turn Hold ends its floor with a 0.5 s fade and
+  does not restart for that turn (`fm_turn_assist.py`, `fm_lateral.py`).
 - Still settings (Turn Hold Settings): Turn Hold, Hold Path Source, Hold Adds Your Steering, Hold Follows the Model's Exit,
   Stop Before Turning Starts Over.
 
