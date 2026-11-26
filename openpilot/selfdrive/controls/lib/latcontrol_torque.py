@@ -77,6 +77,7 @@ class LatControlTorque(LatControl):
     # Override torque params from extension
     if self.extension.update_override_torque_params(self.torque_params):
       self.update_limits()
+      self.extension.update_limits()
 
     self.fm_low_speed.apply(self, INTERP_SPEEDS, KP_INTERP)
 

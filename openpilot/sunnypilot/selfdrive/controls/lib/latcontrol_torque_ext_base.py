@@ -7,7 +7,6 @@ See the LICENSE.md file in the root directory for more details.
 import math
 import numpy as np
 
-from openpilot.common.pid import PIDController
 from openpilot.selfdrive.controls.lib.drive_helpers import CONTROL_N
 from openpilot.selfdrive.modeld.constants import ModelConstants
 
@@ -61,7 +60,7 @@ class LatControlTorqueExtBase:
     self.torque_params = lac_torque.torque_params
 
     self._ff = 0.0
-    self._pid = PIDController(KP, KI)
+    self._pid = lac_torque.pid
     self._pid_log = None
     self._setpoint = 0.0
     self._measurement = 0.0
