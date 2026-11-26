@@ -34,7 +34,7 @@ Plan PR numbers (BUILD_PLAN.md) differ from GitHub PR numbers. Status as of Nov 
   **PR 18 hardwared stall diagnostics** is merged (#23, `3674674`, checks run by Claude): `hardwared_slow_loop` reports
   untimed work, thermal reads and watchdog data (`loop_timer.py`); keeps sunnypilot #2109's params-lock fix. Python-only,
   no native tests; the real stall report needs a drive on the comma 4.
-- **Claude:** plan PRs 10-15. Done with 10-15. Next (Claude): **end of M3** (16, 17 and 18 are all merged, so it is next): full suites, then the final docs pass.
+- **Claude:** plan PRs 10-15. Done with 10-15. **End of M3 done** (Nov 25, 2026): full suites passed on `023ff40f` (only the 2 known base failures plus sandbox-only ones; `test_agnos_updater::test_manifest` needs network; PR 10-13 equivalence scripts: only the documented PR 13 Queue Guard carry and Settle-after-carry differences) and the final docs pass is done. Nothing next: Frankie drives and shares rlogs.
   PR 15 for PR 16 (Top Readout): radard publishes `fmRadarLead` in `RadarD.publish` right after radarState whenever
   the model has 2+ leads (fields: source, leadProb, liveLeadProb, earlyLead, lowSpeedLead, earlyRadarMatches,
   ghostDropped/DRel/YRel/VLead/TrackId, ghostDrops, guardEnabled, radarThreshold, cameraThreshold, smoothHandoffs,
