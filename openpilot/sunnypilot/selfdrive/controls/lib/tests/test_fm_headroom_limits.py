@@ -80,12 +80,24 @@ class TestHeadroomLimits(OpenpilotTestCase):
 
   def test_override_torque_params_keeps_torque_units(self):
     for cls in CONTROLLERS:
-      controller, VM = make(cls, 580, jerk=True)
       params = Params()
       params.put_bool("TorqueParamsOverrideEnabled", True, block=True)
-      params.put("TorqueParamsOverrideLatAccelFactor", 2.8, block=True)
+      params.put("TorqueParamsOverrideLatAccelFactor", 2.2, block=True)
       params.put("TorqueParamsOverrideFriction", 0.1, block=True)
+      controller, VM = make(cls, 580, jerk=True)
+      for _ in range(300):  # settle headroom before the next 300-frame override polling tick (frame 300)
+        step(controller, VM, 5.0, active=True, update_ext_limits=False)
+      settled_max = controller.steer_max
+      assert settled_max == pytest.approx(580 / 385), cls
+      assert controller.torque_params.latAccelFactor == pytest.approx(2.2), cls
+      assert controller.torque_params.friction == pytest.approx(0.1), cls
+      # Change override values right before polling frame 300, when headroom is already steady
+      params.put("TorqueParamsOverrideLatAccelFactor", 2.8, block=True)
+      params.put("TorqueParamsOverrideFriction", 0.15, block=True)
       step(controller, VM, 5.0, active=True, update_ext_limits=False)
+      assert controller.steer_max == settled_max, cls
+      assert controller.torque_params.latAccelFactor == pytest.approx(2.8), cls
+      assert controller.torque_params.friction == pytest.approx(0.15), cls
       assert controller.pid.pos_limit == pytest.approx(controller.steer_max), cls
       assert controller.pid.neg_limit == pytest.approx(-controller.steer_max), cls
 
