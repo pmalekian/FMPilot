@@ -4,6 +4,7 @@
 - With every Lead setting at its default, radarState (leadOne, leadTwo) is byte-identical to the fm-dev-sync base radard
   on randomized constructed frames, and so is the lead MPC's plan (the planner's only radarState input).
 - Each setting changes what it should.
+- fmRadarLead is published next to radarState with its fields filled.
 """
 import math
 import random
@@ -300,3 +301,44 @@ def test_turning_smooth_lead_handoffs_off_drops_its_state():
   for n in range(1, int(1 / DT_MDL) + 2):
     single(rd, RAMP['v_ego'], RAMP['leads'], RAMP['points'], inputs, n)
   assert rd.fm_handoffs is None
+
+
+# --- fmRadarLead ---
+
+class Publisher:
+  def __init__(self):
+    self.sent = {}
+
+  def send(self, service, msg):
+    self.sent[service] = msg.to_bytes()
+
+
+def test_fm_radar_lead_is_published_with_radar_state():
+  rd = RadarD(CP, CP_SP, 0.0, DictParams({PARAM_GUARD: True, PARAM_RADAR: 35, PARAM_CAMERA: 45, PARAM_SMOOTH: True}))
+  single(rd, **RAMP)
+  pm = Publisher()
+  rd.publish(pm)
+  assert set(pm.sent) == {'radarState', 'fmRadarLead'}
+  with log.Event.from_bytes(pm.sent['fmRadarLead']) as event:
+    assert event.valid
+    m = event.fmRadarLead.as_builder()
+  assert str(m.source) == 'camera' and m.leadProb == pytest.approx(0.99) and m.liveLeadProb == pytest.approx(0.99)
+  assert m.ghostDropped and m.ghostTrackId == 35184 and m.ghostDRel == pytest.approx(16.0) and m.ghostDrops == 1
+  assert m.guardEnabled and m.smoothHandoffs
+  assert (m.radarThreshold, m.cameraThreshold) == pytest.approx((.35, .45))
+  assert not m.lowSpeedLead and not m.earlyLead and m.earlyRadarMatches == 0
+  assert len(m.decisions) == 2
+  one, two = m.decisions
+  assert str(one.source) == 'camera' and one.ghostDropped and one.ghostTrackId == 35184 and str(one.admission) == 'camera'
+  assert str(two.source) == 'none' and two.confidence == pytest.approx(0.1)
+
+
+def test_no_fm_radar_lead_without_model_leads():
+  rd = RadarD(CP, CP_SP)
+  inputs = Inputs()
+  model = log.ModelDataV2.new_message()
+  inputs['modelV2'], inputs['carState'] = model, SimpleNamespace(vEgo=5.0)
+  rd.update(inputs, car.RadarData.new_message())
+  pm = Publisher()
+  rd.publish(pm)
+  assert set(pm.sent) == {'radarState'}

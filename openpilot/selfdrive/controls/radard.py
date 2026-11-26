@@ -352,6 +352,13 @@ class RadarD:
     radar_msg.radarState = self.radar_state
     pm.send("radarState", radar_msg)
 
+    # FM Pilot Radar Lead Status: what was done with the leads this frame (log and Lead readout only)
+    if self.fm_lead_msg is not None:
+      fm_msg = messaging.new_message("fmRadarLead")
+      fm_msg.valid = self.radar_state_valid
+      fm_msg.fmRadarLead = self.fm_lead_msg
+      pm.send("fmRadarLead", fm_msg)
+
 
 # fuses camera and radar data for best lead detection
 def main() -> None:
@@ -368,7 +375,7 @@ def main() -> None:
 
   # *** setup messaging
   sm = messaging.SubMaster(['modelV2', 'carState', 'radarTracks'], poll='modelV2')
-  pm = messaging.PubMaster(['radarState'])
+  pm = messaging.PubMaster(['radarState', 'fmRadarLead'])
 
   RD = RadarD(CP, CP_SP, CP.radarDelay, Params())
 
