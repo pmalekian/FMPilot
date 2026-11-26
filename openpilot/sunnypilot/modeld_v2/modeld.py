@@ -46,7 +46,7 @@ from openpilot.sunnypilot.modeld_v2.fm_lateral_smoothing import (
 )
 from openpilot.sunnypilot.modeld_v2.fm_pull_away import ACTION_SPEED_FLOOR, StraightPullAway
 from openpilot.sunnypilot.modeld_v2.fm_turn_settle import PARAM as PARAM_TURN_SETTLE, PARAM_EARLY as PARAM_TURN_SETTLE_EARLY, \
-  TurnSettle, carry_from_sm, settle_from_model
+  TurnSettle, settle_from_model
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_lane_keep_mode import MODE_BLENDFUL, get_lane_keep_mode
 from openpilot.sunnypilot.modeld_v2.constants import ModelConstants, Plan
 from openpilot.sunnypilot.modeld_v2.meta_helper import load_meta_constants
@@ -277,9 +277,77 @@ class ModelState(ModelStateBase):
     return log.ModelDataV2.Action(desiredCurvature=float(desired_curvature), desiredAcceleration=float(desired_accel), shouldStop=bool(stop))
 
 
-def is_blendful_active(desire, lane_change_state, sm) -> bool:
-  """FM Pilot: Blendful waits for Finish Turn After Signal Cancels carry (small-model and Jetlink big-model paths)."""
-  return desire == log.Desire.none and lane_change_state == log.LaneChangeState.off and carry_from_sm(sm) == 0
+TURN_DESIRES = (log.Desire.turnLeft, log.Desire.turnRight)
+
+
+class BlendfulCarryGate:
+  """FM Pilot: keeps Blendful out during a Finish Turn After Signal Cancels carry (small-model and Jetlink big-model
+  paths) and across the modeld/controlsd handoff when a turn desire clears, until an fmControls status published after
+  that change arrives. When a carry ends, admits Blendful on the first fresh not-carrying status."""
+
+  def __init__(self):
+    self._in_turn = False
+    self._wait_after_ns: int | None = None
+    self._carrying = False
+    self._last_fm_time = 0
+    self._carry_mono_time = 0
+
+  def note_published_desire(self, desire, now_ns: int | None = None) -> None:
+    """Record the desire just published in modelDataV2SP so a cleared turn desire waits for a later fmControls."""
+    if desire in TURN_DESIRES:
+      self._in_turn = True
+      self._wait_after_ns = None
+      self._carrying = False
+    elif self._in_turn:
+      self._in_turn = False
+      t = int(time.monotonic() * 1e9) if now_ns is None else int(now_ns)
+      self._wait_after_ns = max(t, self._last_fm_time)
+
+  def update(self, desire, lane_change_state, sm) -> tuple[bool, bool]:
+    """Return (blendful_active, blendful_carry) for this model frame."""
+    seen_map = getattr(sm, 'seen', None)
+    seen = bool(seen_map and seen_map.get('fmControls', False))
+    if seen:
+      ta = sm['fmControls'].turnAssist
+      source = str(ta.source)
+      sign = int(ta.sign)
+      fm_time = int(getattr(sm, 'logMonoTime', {}).get('fmControls', 0))
+      if fm_time > self._last_fm_time:
+        self._last_fm_time = fm_time
+    else:
+      source, sign, fm_time = 'none', 0, 0
+
+    if desire in TURN_DESIRES:
+      self._in_turn = True
+      self._wait_after_ns = None
+      self._carrying = False
+      return False, False
+
+    if self._in_turn:
+      # Fallback if note_published_desire() was not called: require an fmControls newer than what was seen in the turn
+      self._in_turn = False
+      self._wait_after_ns = self._last_fm_time
+
+    if self._wait_after_ns is not None:
+      if seen and fm_time > self._wait_after_ns and source != 'desire':
+        self._wait_after_ns = None
+        if source == 'carry' and sign != 0:
+          self._carrying = True
+          self._carry_mono_time = fm_time
+        else:
+          self._carrying = False
+    elif self._carrying:
+      if seen and source == 'carry' and sign != 0:
+        self._carry_mono_time = max(self._carry_mono_time, fm_time)
+      elif seen and fm_time > self._carry_mono_time and source != 'desire':
+        self._carrying = False
+    elif seen and source == 'carry' and sign != 0:
+      self._carrying = True
+      self._carry_mono_time = fm_time
+
+    active = (desire == log.Desire.none and lane_change_state == log.LaneChangeState.off
+              and self._wait_after_ns is None and not self._carrying)
+    return active, self._carrying
 
 
 def main(demo=False):
@@ -414,6 +482,7 @@ def main(demo=False):
   meta_constants = load_meta_constants()
   RELC = RoadEdgeLaneChangeController()
   blendful = Blendful()
+  blendful_gate = BlendfulCarryGate()
   blendful_enabled = False
   big_model_smoothing = smoothing_override(params, PARAM_BIG_MODEL)
   pull_away = StraightPullAway()
@@ -557,10 +626,9 @@ def main(demo=False):
 
       if not sm['carControl'].latActive:
         prev_action.desiredCurvature = sm['controlsState'].curvature
-      # FM Pilot: Blendful waits for Finish Turn After Signal Cancels carry on both small-model and Jetlink big-model paths
-      blendful_active = is_blendful_active(desire, DH.lane_change_state, sm)
-      blend = partial(blendful.update, model_output, v_ego, blendful_active, enabled=blendful_enabled,
-                      carry=carry_from_sm(sm) != 0)
+      # FM Pilot: Blendful waits for Finish Turn After Signal Cancels carry (and a fresh post-clear status) on both paths
+      blendful_active, blendful_carry = blendful_gate.update(desire, DH.lane_change_state, sm)
+      blend = partial(blendful.update, model_output, v_ego, blendful_active, enabled=blendful_enabled, carry=blendful_carry)
 
       def lane_keep(curvature, blend=blend, model_output=model_output, v_ego=v_ego, desire=desire, turn_settle=turn_settle,
                     turn_settle_early=turn_settle_early):
@@ -618,6 +686,7 @@ def main(demo=False):
       fm_send.fmModel.turnSettleGuard = float(settle.guard)
       pm.send('fmModel', fm_send)
       pm.send('modelDataV2SP', mdv2sp_send)
+      blendful_gate.note_published_desire(DH.desire)
     last_vipc_frame_id = meta_main.frame_id
 
 if __name__ == "__main__":
