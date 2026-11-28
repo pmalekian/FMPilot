@@ -184,4 +184,6 @@ in Sunnylink Device (and on the device under Models): `JetlinkLink`, offroad.
   (Nimijneb, MIT). The API 4 adapter delta, action wrapper and icon mapping come from zoompilot develop `92e1ecb`
   via `fm-dev-nav-settle` `ca08aac9`. Jetlink Status is FM Pilot's own and uses Jetlink's runtime records.
 - **hardwared stall diagnostics**: FM Pilot's own, ported from `fm-dev-nav-settle` `eb7550ff`; keeps sunnypilot #2109's params-lock fix (sunnypilot contributors, MIT).
+- **hardwared writes NetworkMetered only when it changes** (each write is a file write and two fsyncs): openpilot #39481
+  (`f37cf702`, Nov 27, 2026, comma.ai, MIT), its hardwared lines only.
 - Everything else here is FM Pilot's own, built on AdventurePilot, sunnypilot and openpilot (MIT).
