@@ -1,4 +1,4 @@
-"""Raw-request activation and the real gas-override/assist chain.
+"""Raw-request activation and AP's Acceleration Control (FM Pilot removed Gas Override Boost and the tests of the two chained).
 
 Messages use the real schemas. These synthetic tests establish continuity and state
 invariants; they do not establish road comfort or jerk limits.
@@ -9,7 +9,6 @@ import pytest
 from opendbc.car import structs
 from openpilot.cereal import log
 from openpilot.common.constants import CV
-from openpilot.selfdrive.controls.lib.accel_boost import AccelBoost
 from openpilot.sunnypilot.selfdrive.controls.lib.acceleration_control import (
   AccelerationControl, ACCELERATION_CONTROL_BOOST, PARAM_REFRESH_FRAMES,
 )
@@ -71,7 +70,7 @@ def test_monotone_continuous_dense_sweep(personality, override):
 
 
 def test_defensive_negative_incoming():
-  # Positive raw/negative incoming is unreachable through real AccelBoost, but
+  # Positive raw/negative incoming is unreachable from the planner (it hands in the raw request), but
   # remains an explicit defensive API contract for future callers.
   assist = _assist()
   assert assist.update(_sm(desired_accel=0.1), -0.05) == -0.05
@@ -112,74 +111,6 @@ def test_setting_refresh_and_availability():
     output = assist.update(_sm(), 0.1)
   assert output == 0.1
   assert assist.boost == 0
-
-
-def _latch_gas_override(gas, personality, cycles):
-  sm = _sm(personality=personality, desired_accel=0)
-  gas.update(sm, 0, 1, 1)
-  assert gas.boost_eligible
-  for _ in range(cycles):
-    for _ in range(40):
-      gas.update(_sm(personality=personality, desired_accel=0, gas_pressed=True), 0, 1, 1)
-    gas.update(sm, 0, 1, 1)
-  assert gas.total_boost == pytest.approx(0.05 * cycles)
-  assert gas.boost_this_override == 0
-
-
-@pytest.mark.parametrize('personality', list(ACCELERATION_CONTROL_BOOST))
-@pytest.mark.parametrize('cycles', [1, 2])
-def test_real_override_latch_raw_sweep_release_and_reset(personality, cycles):
-  # Production order: assist on the raw request, then the gas override on the lifted candidate.
-  gas, assist = AccelBoost(), _assist()
-  _latch_gas_override(gas, personality, cycles)
-  previous = None
-  for raw in np.linspace(-0.1, 0.15, 501):
-    sm = _sm(personality=personality, desired_accel=float(raw))
-    lifted = assist.update(sm, float(raw))
-    output = gas.update(sm, lifted, 1, 1)
-    assert gas.total_boost == pytest.approx(cycles * 0.05)  # the latched override is kept, not grown
-    assert output == pytest.approx(raw + assist.boost + cycles * 0.05)
-    if raw <= 0:
-      assert lifted == raw
-      assert assist.boost == 0
-    if previous is not None:
-      assert -1e-7 <= output - previous <= 0.002001
-    previous = output
-  # Successive sign changes must recompute requested boost without losing the override.
-  for raw in (0.1, -0.05, 0, 0.05, -1e-6, 1e-6):
-    sm = _sm(personality=personality, desired_accel=raw)
-    lifted = assist.update(sm, raw)
-    gas.update(sm, lifted, 1, 1)
-    assert gas.total_boost == pytest.approx(cycles * 0.05)
-    assert (lifted == raw) == (raw <= 0)
-  # Disengagement releases the real override and assist state.
-  sm = _sm(personality=personality, desired_accel=0.1, engaged=False)
-  assert gas.update(sm, assist.update(sm, 0.1), 1, 1) == 0.1
-  assert gas.total_boost == 0
-  assert assist.boost == 0
-
-
-def _override_cycles(gas, assist, raw, lead, cruise=1.0, presses=4):
-  # Real chain in production order: 2 s hands-off, then 3 s of gas, repeated.
-  for _ in range(presses):
-    for pressed, frames in ((False, 40), (True, 60)):
-      for _ in range(frames):
-        sm = _sm(desired_accel=raw, gas_pressed=pressed)
-        gas.update(sm, assist.update(sm, raw), lead, cruise)
-
-
-def test_gas_override_does_not_learn_when_assist_already_cleared_the_model():
-  # Model mildly timid (0.12), lead allows 0.30. With the assist, the e2e candidate (0.12 + 0.2)
-  # is above the lead, so the lead is the limit and the driver's gas presses say nothing about
-  # the model. The override must not latch eligibility from the un-lifted request.
-  gas, assist = AccelBoost(), _assist()
-  _override_cycles(gas, assist, raw=0.12, lead=0.30)
-  assert gas.total_boost == 0
-  # Without the assist the model really is the limit, so the override learns as upstream intends.
-  gas, assist = AccelBoost(), _assist(enabled=False)
-  _override_cycles(gas, assist, raw=0.12, lead=0.30)
-  # two overrides of 0.05 each; then 0.12 + 0.10 is no longer 0.1 under the lead, so it stops
-  assert gas.total_boost == pytest.approx(0.1)
 
 
 @pytest.mark.parametrize('scale,expected', [(1.0, 0.3), (0.5, 0.2), (0.0, 0.1), (-1.0, 0.1), (2.0, 0.3)])
