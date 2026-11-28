@@ -109,6 +109,7 @@ class Plant:
     # does not predict slowdown
     position = log.XYZTData.new_message()
     position.x = [float(x) for x in (self.speed + 0.5) * np.array(ModelConstants.T_IDXS)]
+    position.t = [float(t) for t in ModelConstants.T_IDXS]  # FM Pilot: modeld always sends the times (OP Personality reads them)
     model.modelV2.position = position
     model.modelV2.action.desiredAcceleration = float(self.acceleration + 0.5)
     velocity = log.XYZTData.new_message()
