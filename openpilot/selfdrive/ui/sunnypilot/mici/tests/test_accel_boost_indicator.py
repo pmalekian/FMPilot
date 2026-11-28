@@ -12,14 +12,14 @@ from openpilot.cereal import log
 from openpilot.selfdrive.ui.sunnypilot.mici.onroad.accel_boost_indicator import (CAP_BLEND_START, COLOR_FILL, AccelBoostIndicator,
                                                                                 get_boost_color, get_boost_fraction)
 from openpilot.selfdrive.ui.ui_state import ui_state
-from openpilot.sunnypilot.selfdrive.controls.lib.fm_accel_boost_mode import (MODE_AP_ACCEL_CONTROL, MODE_EVP_SET_SPEED, MODE_GAS, MODE_OFF,
+from openpilot.sunnypilot.selfdrive.controls.lib.fm_accel_boost_mode import (MODE_AP_ACCEL_CONTROL, MODE_EVP_SET_SPEED, MODE_OFF,
                                                                             MODE_OP_PERSONALITY, MODE_SUNNY, boost_max)
 
 E2E = log.LongitudinalPlan.LongitudinalPlanSource.e2e
 LEAD = log.LongitudinalPlan.LongitudinalPlanSource.lead0
 CRUISE = log.LongitudinalPlan.LongitudinalPlanSource.cruise
 P = log.LongitudinalPersonality
-BOOST_MODES = (MODE_GAS, MODE_SUNNY, MODE_EVP_SET_SPEED, MODE_AP_ACCEL_CONTROL, MODE_OP_PERSONALITY)
+BOOST_MODES = (MODE_SUNNY, MODE_EVP_SET_SPEED, MODE_AP_ACCEL_CONTROL, MODE_OP_PERSONALITY)
 
 
 class FakeSM(dict):
@@ -115,7 +115,7 @@ def test_evp_set_speed_fills_when_tied_with_cruise(state):
   assert ind._boost_filter.x == pytest.approx(0.3, abs=1e-3)
 
 
-@pytest.mark.parametrize("mode", [MODE_GAS, MODE_SUNNY, MODE_AP_ACCEL_CONTROL, MODE_OP_PERSONALITY])
+@pytest.mark.parametrize("mode", [MODE_SUNNY, MODE_AP_ACCEL_CONTROL, MODE_OP_PERSONALITY])
 def test_other_modes_empty_when_cruise_limits(state, mode):
   state.setattr(ui_state, "fm_accel_boost_mode", mode)
   ind = AccelBoostIndicator()

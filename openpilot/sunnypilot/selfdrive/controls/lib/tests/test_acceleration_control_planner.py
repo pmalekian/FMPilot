@@ -5,7 +5,7 @@ FM Pilot: the boost step is the Accel Boost picker now (fm_accel_boost_mode.py):
 tests (one boost at a time; the toggles are not read), and every mode's published accelBoost is checked.
 
 The generated MPC optimizer and unrelated SP controllers are seams. The production
-planner update, cruise limiter, plan interpolation, AccelBoost, AccelerationControl,
+planner update, cruise limiter, plan interpolation, the Accel Boost picker, AccelerationControl,
 min-selection, clipping and both publishers execute unchanged. No road/replay claim.
 """
 from types import SimpleNamespace
@@ -22,7 +22,7 @@ from openpilot.selfdrive.controls.lib.longitudinal_planner import LongitudinalPl
 from openpilot.sunnypilot.selfdrive.controls.lib.accel_boost import ACCEL_BOOST_MAX as SUNNY_MAX
 from openpilot.sunnypilot.selfdrive.controls.lib.acceleration_control import ACCELERATION_CONTROL_BOOST
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_accel_boost_mode import (
-  MODES, MODE_AP_ACCEL_CONTROL, MODE_GAS, MODE_OFF, MODE_OP_PERSONALITY, MODE_SUNNY, PARAM_MODE, READ_FRAMES, FmAccelBoostMode,
+  MODES, MODE_AP_ACCEL_CONTROL, MODE_OFF, MODE_OP_PERSONALITY, MODE_SUNNY, PARAM_MODE, READ_FRAMES, FmAccelBoostMode,
 )
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_op_personality_boost import ACCEL_BOOST as OP_MAX
 from openpilot.sunnypilot.selfdrive.controls.lib.longitudinal_planner import LongitudinalPlannerSP
@@ -210,15 +210,15 @@ def test_sunny_boost_alone_in_the_whole_frame(monkeypatch):
   assert msgs['fmPlan']['accelBoostMode'] == 'sunnyBoost'
 
 
-def test_switching_from_ap_to_gas_mid_drive_drops_the_lift(monkeypatch):
+def test_switching_from_ap_to_the_removed_gas_mode_mid_drive_drops_the_lift(monkeypatch):
   planner, sm = _planner_with_mode(monkeypatch, MODE_AP_ACCEL_CONTROL)
   for _ in range(5):
     planner.update(sm)
-  planner.accel_boost.params = ModeParams(MODE_GAS)
+  planner.accel_boost.params = ModeParams(1)  # 1 was Gas (Gas Override Boost), removed: reads as Off
   for _ in range(READ_FRAMES + 1):
     planner.update(sm)
-  assert planner.accel_boost.mode == MODE_GAS
-  assert planner.output_a_target == pytest.approx(0.1, abs=1e-6)  # no gas press: Gas Override Boost adds nothing
+  assert planner.accel_boost.mode == MODE_OFF
+  assert planner.output_a_target == pytest.approx(0.1, abs=1e-6)
 
 
 @pytest.mark.parametrize('mode', MODES)
@@ -228,7 +228,7 @@ def test_boost_bar_field_for_every_mode(monkeypatch, mode):
   sm['carState'].vCruise = 40 * 3.6  # far above: the cruise ramp leaves room for EVP Set Speed
   planner.a_cruise = 2.0
   for frame in range(200):
-    sm['carState'].gasPressed = 20 <= frame < 100  # Gas Override Boost builds only while the driver presses the gas
+    sm['carState'].gasPressed = 20 <= frame < 100  # no mode needs it now (Gas Override Boost is gone); kept as a disturbance
     planner.update(sm)
   msgs = _publish(planner, sm)
   boost = msgs['longitudinalPlan']['accelBoost']
@@ -236,7 +236,7 @@ def test_boost_bar_field_for_every_mode(monkeypatch, mode):
   expected = {MODE_OFF: 0.0, MODE_SUNNY: SUNNY_MAX[0], MODE_AP_ACCEL_CONTROL: ACCELERATION_CONTROL_BOOST[0], MODE_OP_PERSONALITY: OP_MAX[0]}
   if mode in expected:
     assert boost == pytest.approx(expected[mode], abs=1e-6)
-  else:  # Gas: some of one override's 0.05; EVP Set Speed: toward its 0.7 cap
+  else:  # EVP Set Speed: toward its 0.7 cap
     assert boost > 0.0
   names = {v: k for k, v in custom.FmPlan.AccelBoostMode.schema.enumerants.items()}
   assert msgs['fmPlan']['accelBoostMode'] == names[mode]

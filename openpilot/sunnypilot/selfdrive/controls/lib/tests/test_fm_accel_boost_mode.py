@@ -2,7 +2,8 @@
 
 Ported from fm-dev-nav-settle ca08aac9 (selfdrive/controls/lib/tests/test_fm_boost_mode.py: Predictive is Sunny Boost now,
 Set Speed is EVP Set Speed, the default is Off), plus tests for modes 4 and 5, what every mode adds, the picker deciding
-alone over sunnypilot's AccelBoostSP and AP's AccelerationControl toggles, and Off adding nothing.
+alone over sunnypilot's AccelBoostSP and AP's AccelerationControl toggles, and Off adding nothing. Mode 1 (Gas, Gas Override
+Boost) is removed: a stored 1 reads as Off.
 """
 import random
 from types import SimpleNamespace
@@ -14,12 +15,11 @@ from openpilot.cereal import custom, log
 from openpilot.common.constants import CV
 from openpilot.common.params import Params
 from openpilot.common.test import OpenpilotTestCase
-from openpilot.selfdrive.controls.lib.accel_boost import AccelBoost, ACCEL_BOOST_MAX as GAS_MAX
 from openpilot.sunnypilot.selfdrive.controls.lib.accel_boost import AccelBoostSP, ACCEL_BOOST_MAX as SUNNY_MAX
 from openpilot.sunnypilot.selfdrive.controls.lib.acceleration_control import AccelerationControl, ACCELERATION_CONTROL_BOOST
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_accel_boost_mode import (
-  DEFAULT_MODE, MODES, MODE_AP_ACCEL_CONTROL, MODE_EVP_SET_SPEED, MODE_GAS, MODE_OFF, MODE_OP_PERSONALITY, MODE_SUNNY, PARAM_MODE,
-  READ_FRAMES, FmAccelBoostMode, boost_max, parse_mode,
+  DEFAULT_MODE, MODES, MODE_AP_ACCEL_CONTROL, MODE_EVP_SET_SPEED, MODE_OFF, MODE_OP_PERSONALITY, MODE_SUNNY, PARAM_MODE,
+  READ_FRAMES, REMOVED_MODES, FmAccelBoostMode, boost_max, parse_mode,
 )
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_op_personality_boost import ACCEL_BOOST as OP_MAX
 from openpilot.sunnypilot.selfdrive.controls.lib.set_speed_assist import MAX_BOOST as EVP_MAX
@@ -68,7 +68,7 @@ def picker(mode):
 
 
 class TestParseMode:
-  @pytest.mark.parametrize("value,mode", [(0, MODE_OFF), (1, MODE_GAS), (2, MODE_SUNNY), ("2", MODE_SUNNY),
+  @pytest.mark.parametrize("value,mode", [(0, MODE_OFF), (1, MODE_OFF), (2, MODE_SUNNY), ("2", MODE_SUNNY),
                                           (3, MODE_EVP_SET_SPEED), ("3", MODE_EVP_SET_SPEED), (4, MODE_AP_ACCEL_CONTROL),
                                           (5, MODE_OP_PERSONALITY), (None, MODE_OFF), (7, MODE_OFF), (-1, MODE_OFF),
                                           ("x", MODE_OFF)])
@@ -77,8 +77,9 @@ class TestParseMode:
 
   def test_values_match_the_log_enum(self):
     enum = custom.FmPlan.AccelBoostMode.schema.enumerants  # fmPlan.accelBoostMode
-    assert enum == {'off': MODE_OFF, 'gas': MODE_GAS, 'sunnyBoost': MODE_SUNNY, 'evpSetSpeed': MODE_EVP_SET_SPEED,
+    assert enum == {'off': MODE_OFF, 'gas': 1, 'sunnyBoost': MODE_SUNNY, 'evpSetSpeed': MODE_EVP_SET_SPEED,
                     'apAccelControl': MODE_AP_ACCEL_CONTROL, 'opPersonality': MODE_OP_PERSONALITY}
+    assert REMOVED_MODES == (1,) and 1 not in MODES  # gas @1 stays in the log enum but is never sent
 
   def test_default_is_off(self):
     assert DEFAULT_MODE == MODE_OFF
@@ -132,15 +133,14 @@ class TestEachModesAmount:
     assert run(boost, 2000, gas_pressed=True, gas=0.9, mph=40) == 0.5
     assert boost.applied == 0.0
 
-  def test_gas_after_an_override(self):
-    boost = picker(MODE_GAS)
-    assert run(boost, 400) == 0.5  # no gas press, predictions say go: Gas Override Boost does nothing
+  def test_removed_gas_mode_is_off(self):
+    boost = picker(1)  # a stored 1 (the removed Gas mode)
+    assert boost.mode == MODE_OFF
     run(boost, 10)
-    for _ in range(4):  # four separate presses of 0.05 each fill it to its 0.2 cap
-      run(boost, 2000, gas_pressed=True)
+    for _ in range(4):  # the presses that used to fill Gas Override Boost add nothing now
+      assert run(boost, 2000, gas_pressed=True) == 0.5
       run(boost, 10)
-    assert boost.applied == pytest.approx(GAS_MAX)
-    assert run(boost, 1) == pytest.approx(0.5 + GAS_MAX)
+    assert boost.applied == 0.0
 
   @pytest.mark.parametrize("personality,idx", [(P.aggressive, 0), (P.standard, 1), (P.relaxed, 2)])
   def test_evp_set_speed_at_highway_speed(self, personality, idx):
@@ -185,7 +185,7 @@ class TestEachModesAmount:
 
   def test_boost_max_per_mode(self):
     assert boost_max(MODE_OFF, P.aggressive) == 0.0
-    assert boost_max(MODE_GAS, P.relaxed) == GAS_MAX
+    assert boost_max(1, P.relaxed) == 0.0  # the removed Gas mode
     for idx, personality in enumerate((P.aggressive, P.standard, P.relaxed)):
       assert boost_max(MODE_SUNNY, personality) == SUNNY_MAX[idx]
       assert boost_max(MODE_EVP_SET_SPEED, personality) == EVP_MAX[idx]
@@ -200,23 +200,22 @@ class TestOneAtATime:
       boost = picker(mode)
       run(boost, 10, mph=40)
       run(boost, 2000, gas_pressed=True, mph=40)  # every boost would want to add something here
-      others = {MODE_GAS: boost.gas.total_boost, MODE_SUNNY: boost.sunny.total_boost, MODE_EVP_SET_SPEED: boost.set_speed.total_boost,
+      others = {MODE_SUNNY: boost.sunny.total_boost, MODE_EVP_SET_SPEED: boost.set_speed.total_boost,
                 MODE_AP_ACCEL_CONTROL: boost.ap_accel_control.boost, MODE_OP_PERSONALITY: boost.op_personality.total_boost}
       assert all(v == 0.0 for m, v in others.items() if m != mode), (mode, others)
 
   def test_switching_mode_starts_clean(self):
-    params = FakeParams(MODE_GAS)
+    params = FakeParams(MODE_SUNNY)
     boost = FmAccelBoostMode(CP, params)
-    run(boost, 10)
-    run(boost, 2000, gas_pressed=True)
+    run(boost, 400)
     assert boost.applied > 0.0
     params.values[PARAM_MODE] = MODE_OFF
     out = run(boost, READ_FRAMES)
     assert boost.mode == MODE_OFF and out == 0.5
-    params.values[PARAM_MODE] = MODE_GAS
-    run(boost, READ_FRAMES)
-    assert boost.mode == MODE_GAS
-    assert boost.gas.total_boost == 0.0  # the old Gas Override Boost total did not come back
+    params.values[PARAM_MODE] = MODE_SUNNY
+    run(boost, READ_FRAMES, brake=0.5)  # the model predicts a brake press, so a new boost can't build
+    assert boost.mode == MODE_SUNNY
+    assert boost.applied == 0.0 and boost.sunny.boost == 0.0  # the old Sunny Boost total did not come back
 
   def test_switching_away_from_evp_and_back_starts_clean(self):
     params = FakeParams(MODE_EVP_SET_SPEED)
@@ -264,11 +263,6 @@ class TestPickerDecidesAlone(OpenpilotTestCase):
     assert all(o == 0.1 for o in outs)
     assert boost.applied == 0.0 and boost.acceleration_control_boost == 0.0
 
-  def test_toggles_on_with_gas_add_only_gas(self):
-    boost, outs = self._drive(MODE_GAS, True, True)
-    assert outs[30] == 0.1  # before the gas press: neither Acceleration Boost nor Acceleration Control lifted it
-    assert boost.sunny.total_boost == 0.0 and boost.ap_accel_control.boost == 0.0
-
   def test_ap_accel_control_runs_with_its_toggle_off(self):
     boost, outs = self._drive(MODE_AP_ACCEL_CONTROL, False, False)
     assert outs[-1] == pytest.approx(0.1 + ACCELERATION_CONTROL_BOOST[P.standard])
@@ -284,6 +278,15 @@ class TestPickerDecidesAlone(OpenpilotTestCase):
       assert FmAccelBoostMode(CP).mode == mode
     params.remove(PARAM_MODE)
     assert FmAccelBoostMode(CP).mode == MODE_OFF  # fresh install
+
+
+class _NoGasPress:
+  """Stands in for comma's Gas Override Boost (removed from FM Pilot) in frames without a gas press, where it added
+  nothing: it only built while the driver pressed the gas."""
+  @staticmethod
+  def update(sm, a_target, mpc, cruise):
+    assert not sm['carState'].gasPressed
+    return a_target
 
 
 def _base_chain(sm, raw, mpc, cruise, gas, sunny, ac, sp_on, throttle_scale=1.0):
@@ -329,21 +332,14 @@ class TestSameAsBase:
   @pytest.mark.parametrize("seed", range(5))
   def test_off_equals_the_base_whenever_the_base_added_nothing(self, seed):
     # without a gas override and with both toggles off, the base's chain adds nothing either
-    gas, sunny, ac = AccelBoost(), AccelBoostSP(), AccelerationControl(CP, params=_Bool(False))
+    gas, sunny, ac = _NoGasPress(), AccelBoostSP(), AccelerationControl(CP, params=_Bool(False))
     boost = picker(MODE_OFF)
     for sm, raw, mpc, cruise in _random_frames(seed, gas_presses=False):
       assert boost.update(sm, raw, mpc, cruise) == _base_chain(sm, raw, mpc, cruise, gas, sunny, ac, sp_on=False)
 
   @pytest.mark.parametrize("seed", range(5))
-  def test_gas_equals_the_base_with_both_toggles_off(self, seed):
-    gas, sunny, ac = AccelBoost(), AccelBoostSP(), AccelerationControl(CP, params=_Bool(False))
-    boost = picker(MODE_GAS)
-    for sm, raw, mpc, cruise in _random_frames(seed):
-      assert boost.update(sm, raw, mpc, cruise) == _base_chain(sm, raw, mpc, cruise, gas, sunny, ac, sp_on=False)
-
-  @pytest.mark.parametrize("seed", range(5))
   def test_sunny_equals_the_base_with_acceleration_boost_on(self, seed):
-    gas, sunny, ac = AccelBoost(), AccelBoostSP(), AccelerationControl(CP, params=_Bool(False))
+    gas, sunny, ac = _NoGasPress(), AccelBoostSP(), AccelerationControl(CP, params=_Bool(False))
     boost = picker(MODE_SUNNY)
     for sm, raw, mpc, cruise in _random_frames(seed):
       assert boost.update(sm, raw, mpc, cruise) == _base_chain(sm, raw, mpc, cruise, gas, sunny, ac, sp_on=True)
@@ -351,7 +347,7 @@ class TestSameAsBase:
   @pytest.mark.parametrize("seed", range(5))
   def test_ap_equals_the_base_with_acceleration_control_on_without_a_gas_override(self, seed):
     # the base also ran Gas Override Boost on top of Acceleration Control; with no gas press it adds nothing
-    gas, sunny, ac = AccelBoost(), AccelBoostSP(), AccelerationControl(CP, params=_Bool(True))
+    gas, sunny, ac = _NoGasPress(), AccelBoostSP(), AccelerationControl(CP, params=_Bool(True))
     boost = picker(MODE_AP_ACCEL_CONTROL)
     for sm, raw, mpc, cruise in _random_frames(seed, gas_presses=False):
       assert boost.update(sm, raw, mpc, cruise, 0.7) == pytest.approx(_base_chain(sm, raw, mpc, cruise, gas, sunny, ac, True, 0.7),

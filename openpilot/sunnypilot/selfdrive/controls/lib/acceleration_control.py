@@ -5,10 +5,9 @@ zero requests get none. The speed ramp is zero at 10 mph and full at 20 mph.
 The lift is faded by curve control's throttle interlock, so it adds nothing while the
 steering is at its lateral limit.
 
-It runs BEFORE Gas Override Boost, which keeps its own state and output. That one latches
-"the model is limiting" from the candidate it is handed; it must see this lift, or it
-learns a boost from overrides where the lead, not the model, was the limit. Competing
-cruise and lead candidates and final acceleration limits still constrain the result.
+Competing cruise and lead candidates and final acceleration limits still constrain the result.
+(FM Pilot: AP ran this before Gas Override Boost; FM Pilot has no Gas Override Boost, and this is
+mode 4 of the Accel Boost picker, fm_accel_boost_mode.py.)
 
 At full speed the combined raw-to-candidate gain in the activation band is 2/3/4
 for Relaxed/Standard/Aggressive. This continuous ramp is not a jerk limiter;
@@ -17,7 +16,7 @@ recorded replay and product acceptance remain necessary.
 import numpy as np
 
 from openpilot.cereal import log
-from openpilot.selfdrive.controls.lib.accel_boost import ACCEL_BOOST_MIN_SPEED
+from openpilot.common.constants import CV
 
 Personality = log.LongitudinalPersonality
 
@@ -33,6 +32,9 @@ ACTIVATION_BP = [0.0, 0.1]
 ACTIVATION_V = [0.0, 1.0]
 
 PARAM_REFRESH_FRAMES = 20  # 1 s at the 20 Hz planner rate
+
+# FM Pilot: AP took this from Gas Override Boost (selfdrive/controls/lib/accel_boost.py), which FM Pilot removed; same value
+ACCEL_BOOST_MIN_SPEED = 10 * CV.MPH_TO_MS
 
 
 class AccelerationControl:
@@ -59,7 +61,7 @@ class AccelerationControl:
     if not self.enabled or not sm['selfdriveState'].enabled or sm['modelV2'].action.shouldStop:
       return output_a_target_e2e
 
-    # same low-speed ramp as Gas Override Boost: none below 10 mph, full by 20 mph
+    # none below 10 mph, full by 20 mph (AP's ramp, from the old Gas Override Boost)
     speed_scale = np.interp(sm['carState'].vEgo, [ACCEL_BOOST_MIN_SPEED, 2 * ACCEL_BOOST_MIN_SPEED], [0.0, 1.0])
 
     # Defensive contract for future callers: do not lift a braking incoming candidate.

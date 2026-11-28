@@ -665,7 +665,7 @@ struct FmPlan @0xa30662f84033036c {
 
   enum AccelBoostMode {
     off @0;
-    gas @1;               # Gas Override Boost (openpilot #39015 via sunnypilot)
+    gas @1;               # removed (was Gas Override Boost, openpilot #39015 via sunnypilot); never sent
     sunnyBoost @2;        # sunnypilot's predictive boost (AccelBoostSP, #2089)
     evpSetSpeed @3;       # EVPilot's Set Speed Assist
     apAccelControl @4;    # AdventurePilot's Acceleration Control
