@@ -1,6 +1,6 @@
 # FM Pilot: handoff for new chats (short)
 
-State as of Nov 25, 2026: **`fm-dev-sync` plan PRs 1-18 are all merged and the M3 full suites passed** (head `023ff40f`; only the known base and sandbox-only failures; PR 10-13 equivalence scripts show only the documented PR 13 differences). Built PR by PR from the agreed plan (project docs
+State as of Nov 28, 2026: **the Nov 28 sunnypilot sync (PR #35) is merged into `fm-dev-sync` at `5332fc67`** after an independent safety review (below). **Next: Frankie installs it (first boot updates AGNOS to 20.6, see below), drives and shares rlogs.** Earlier: plan PRs 1-18 merged and M3 full suites passed Nov 25 (`023ff40f`). Built PR by PR from the agreed plan (project docs
 `claude/FM_DEV_SYNC_BUILD_PLAN.md`, `claude/FM_DEV_SYNC_INVENTORY.md`, `claude/FM_FOLDED_DEFAULTS.md`; repo copy
 `FM_FOLDED_DEFAULTS.md`). Planning and building are finished: don't re-plan. The Nov 27 upstream PRs #29–#33 landed before the Nov 28 sync described below. History before `fm-dev-sync` (every earlier branch, build
 and drive analysis, the old handoff word for word) is in `FM_PILOT_FINDINGS.md`: read it only when a task needs it.
@@ -24,7 +24,7 @@ emulator support #2096. Since Nov 27 openpilot master added only #39445 (MPC use
 reworked second try) and a CI script #39492; opendbc nothing; nightly `b3b11cb1` (Nov 28) predates #39445.
 The Nov 28 sync decision is recorded below. The separate OP MPC picker proposal (#39445) remains pending.
 
-## Nov 28 sunnypilot sync (PR #35)
+## Nov 28 sunnypilot sync (PR #35, merged `5332fc67`)
 
 PR #34 merged at `4ea3a1c23`. The sync branch `fm-sync/sunnypilot-nov28` merges sunnypilot `6b3ac1276`, including
 openpilot `c65119ce1`, modeld_v2 #2096/#2097 and CI #2116. The next opendbc vendor baseline is `6ae14e59`. The
@@ -33,6 +33,37 @@ enters main controls on PCM cruise's rising edge, resets heartbeat mismatches on
 MADS lateral controls and heartbeat logic. Hyundai's set/resume reset now runs through enter_controls(). The PR records
 the conflict decisions, validation results and merge status. The full off-device build passed. Ruff passes on FM’s tracked Python files, including vendored opendbc. With submodules populated, Ruff also reports 41 findings in the upstream tinygrad pin. Install and driving changes are in FM_PILOT.md. AGNOS 19.9 devices need the
 20.6 slot update and reboot on first installation. Validate the local and Jetlink paths on hardware separately.
+
+**Independent review before merge (Nov 28, fresh Claude session; full text in the PR #35 comment).** Rivian panda
+behavior is unchanged by the sync:
+- before/after replay of `fm-dev-sync` `4ea3a1c` vs the PR (same 5.4M frames, 264 scenarios: stock/long x 11 safety
+  params x 4 MADS modes, counters, checksums, quality flags, cruise/brake edges, stalk, TOI blips and zero cuts,
+  real-time rollovers, heartbeats, ticks, relay), default and firmware single-precision builds: every decision and
+  state matches once the one upstream tick change below is emulated; no redundancy fault;
+- exhaustive envelope (20 params x 0-40 m/s in 0.05 steps: ceiling both signs, rise / fast-ramp boundary, zero cut):
+  0 differences; panda H7 firmware compiles with `-Werror` against the vendored safety.
+Findings: (1) upstream sunnypilot `tick_copy()` now also drops MADS lateral when a monitored message is invalid at the
+1 Hz tick (wrong-counter streak, bad checksum/quality), not only when it lags: stricter, Enhanced MADS lateral-only can
+now end on a corrupted frame just before a tick; (2) #4102 clears the main heartbeat count inside `enter_controls()`,
+unobservable for Rivian; (3) fixed in `da0ba8a`: the upstream `*.npz` LFS rule made the five qrcode fixtures show
+modified and the install dirty; (4) nit: FM's `hyundai_common.h` drops sunnypilot's now-redundant set/res reset (one
+more vendored delta on the next sync); (5) the `lateral.h` zero cut covers every `has_steer_req_tolerance` car (Toyota,
+Hyundai, CAN-FD, Subaru, Rivian), their tests pass. Gap tests added in `71aff5c` (zero cut keeps the last request
+and the real-time reference; every Max Torque level across 0-40 m/s). Replay scripts: project doc
+`claude/pr35_safety_equivalence_scripts.md`. Results on `da0ba8a`: Rivian + globals + defaults safety 906 passed;
+lateral users 8,351 passed; handoff suites 1,989 passed, 47 skipped, only the known `test_compare_onnx_hashes` (LFS);
+`tools/fm` 89; Sunnylink byte-identical, 10/10; ruff clean on FM paths. Not verified: truck, Jetlink Mac, model
+compiles.
+
+**First install of `fm-dev-sync` from here (what to expect):** switch in Software settings as usual (keeps settings).
+On AGNOS 19.9 the first start runs the AGNOS 20.6 update before FM starts: it checks the alternate OS slot, downloads
+and verifies the missing partitions, switches slots and reboots, then the build runs. Expect several minutes and at
+least one reboot; keep the truck parked with the comma powered and online (not on metered-only or weak Wi-Fi) until
+FM's home screen is back. Settings and the FM migration flag carry over. Then check: the bundled default model is now
+Crumbly Cheddar if he uses the default; driver monitoring uses Super Leicht 2 (sleep threshold 0.5, critical
+attention alerts take priority over FM readouts); Max Torque, Enhanced MADS and the Accel Boost picker show his stored
+values. Falling back to an older FM branch (e.g. `fm-dev-nav-settle`, which pins AGNOS 19.9) works the same way in reverse:
+`launch_chffrplus.sh` flashes whatever AGNOS the branch pins when `/VERSION` differs, so its first start goes back to 19.9.
 
 ## Setup
 
@@ -77,8 +108,10 @@ python -m pytest -q --timeout=120 --continue-on-collection-errors openpilot/sunn
   opendbc_repo/opendbc/car/rivian opendbc_repo/opendbc/sunnypilot/car/rivian opendbc_repo/opendbc/safety/tests/test_rivian.py
 (cd tools/fm && python -m pytest tests)
 python openpilot/sunnypilot/sunnylink/tools/compile_settings_ui.py && python openpilot/sunnypilot/sunnylink/tools/validate_settings_ui.py
-ruff check .
+ruff check openpilot opendbc_repo tools   # what FM owns; `ruff check .` also lints tinygrad_repo's own tests (41 upstream findings)
 ```
+Headless: `export SCALE=1` and run the pytest line under `xvfb-run -a` (raylib's window probe segfaults without a
+display); use `-p no:xdist`.
 
 - **Base results (Step 0, `4efb05a`):** 1162 passed, 167 skipped, 2 failed, both pre-existing and not FM's:
   `test_default_model::test_compare_onnx_hashes` (LFS not pulled) and `test_manager::test_set_params_with_default_value`
@@ -119,6 +152,7 @@ ruff check .
 | Driving Personality Retune from openpilot | merged, PR #30 (`d04d4b1`): mode 5 runs openpilot's `AccelBoost` (#39248) unchanged at `selfdrive/controls/lib/accel_boost.py` (+0.3 / 0.15 / 0 bias plus 20 / 10 / 0 % gain, only while the plan runs ahead), reset with the planner as openpilot; Relaxed follows at 1.45 s like Standard (#39440); Hold Boost in Curves `FM_OpBoostCurveHold` (on by default) gates it with openpilot's CurveSpeed (`curve_speed.py`, read only, never added to the target; plannerd reads `vehicleParameters`, ignored for validity); `test_fm_personality_settings.py` covers follow time, Following Time Offset, stop distance + personality link and following distance for every mode |
 | Rivian counters 0-14 | merged, PR #31 (`c0e665b`): commaai/opendbc #4077 in `opendbc_repo/` (packer and parser; openpilot now checks Rivian counters like the panda) |
 | hardwared NetworkMetered on change | merged, PR #32 (`fd96b7b`): openpilot #39481's hardwared lines |
+| Nov 28 sunnypilot sync | merged, PR #35 (`5332fc67`): sunnypilot `6b3ac1276` (openpilot `c65119ce1`, AGNOS 20.6, tinygrad `3589d75`, modeld_v2 #2096/#2097), opendbc re-vendored on `6ae14e59` with AP/FM's delta, #4102; independent review found no Rivian panda change (see the section above); + Rivian zero-cut / envelope tests `71aff5c`, qrcode LFS fix `da0ba8a` |
 
 ## Reference (unchanged from before)
 
