@@ -47,6 +47,34 @@ class TestCanParserPacker(unittest.TestCase):
       parser.update([0, [msg]])
       assert parser.vl["CAN_FD_MESSAGE"]["COUNTER"] == ((cnt + i) % 256)
 
+  def test_rivian_counter(self):
+    # Rivian counts 0 to 14, despite the 4-bit field (opendbc #4077)
+    packer = CANPacker("rivian_primary_actuator")
+    parser = CANParser("rivian_primary_actuator", [("ESP_Status", 0)], 0)
+    for i in range(100):
+      parser.update([0, [packer.make_can_msg("ESP_Status", 0, {})]])
+      assert parser.vl["ESP_Status"]["ESP_Status_Counter"] == i % 15
+      assert parser.can_valid
+
+    # 15 follows no count, so it's always a bad counter
+    for _ in range(MAX_BAD_COUNTER):
+      parser.update([0, [packer.make_can_msg("ESP_Status", 0, {"ESP_Status_Counter": 15})]])
+    assert not parser.can_valid
+
+  def test_rivian_messages_fm_sends_count_0_to_14(self):
+    # FM Pilot: what the Rivian car code sends (explicit % 15 counters) parses as valid, wrap included
+    from opendbc.car.rivian import riviancan
+    packer = CANPacker("rivian_primary_actuator")
+    parser = CANParser("rivian_primary_actuator", [("ACM_lkaHbaCmd", 0), ("ACM_longitudinalRequest", 0)], 0)
+    hba = {"ACM_hbaSysState": 0, "ACM_hbaLamp": 0, "ACM_hbaOnOffState": 0, "ACM_slifOnOffState": 0}
+    mads = type("Mads", (), {"lka_icon_states": False})()
+    for frame in range(60):
+      msgs = [riviancan.create_lka_steering(packer, frame, hba, 0, True, True, mads, 0),
+              riviancan.create_longitudinal(packer, frame, 0.0, True)]
+      parser.update([frame * 10_000_000, msgs])
+      assert parser.vl["ACM_lkaHbaCmd"]["ACM_lkaHbaCmd_Counter"] == frame % 15
+      assert parser.can_valid
+
   def test_parser_can_valid(self):
     msgs = [("CAN_FD_MESSAGE", 10), ]
     packer = CANPacker(TEST_DBC)
