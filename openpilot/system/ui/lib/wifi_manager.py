@@ -16,6 +16,7 @@ from jeepney.io.threading import DBusRouter, open_dbus_connection as open_dbus_c
 from jeepney.low_level import MessageType
 from jeepney.wrappers import Properties
 
+from openpilot.common.hardware import PC
 from openpilot.common.swaglog import cloudlog
 from openpilot.system.ui.lib.networkmanager import (NM, NM_WIRELESS_IFACE, NM_802_11_AP_SEC_PAIR_WEP40,
                                                     NM_802_11_AP_SEC_PAIR_WEP104, NM_802_11_AP_SEC_GROUP_WEP40,
@@ -38,6 +39,8 @@ else:
 TETHERING_IP_ADDRESS = "192.168.43.1"
 DEFAULT_TETHERING_PASSWORD = "swagswagcomma"
 SIGNAL_QUEUE_SIZE = 10
+# FM Pilot: waits between attempts to reach a slow system D-Bus at boot (the last one repeats)
+DBUS_RETRY_SECONDS = (1.0, 2.0, 5.0, 10.0)
 SCAN_PERIOD_SECONDS = 5
 
 DEBUG = False
@@ -161,17 +164,17 @@ class WifiManager:
     self._active = True  # used to not run when not in settings
     self._exit = False
 
+    self._stopped = False  # FM Pilot: stop() was called; ends the D-Bus retry below
+
     # DBus connections
+    self._router_main: DBusRouter | None = None  # used by scanner / general method calls
+    self._conn_monitor: DBusConnection | None = None  # used by state monitor thread
+    self._nm = DBusAddress(NM_PATH, bus_name=NM, interface=NM_IFACE)
     try:
-      self._router_main = DBusRouter(open_dbus_connection_threading(bus="SYSTEM"))  # used by scanner / general method calls
-      _wrap_router(self._router_main)
-      self._conn_monitor = open_dbus_connection_blocking(bus="SYSTEM")  # used by state monitor thread
-      self._nm = DBusAddress(NM_PATH, bus_name=NM, interface=NM_IFACE)
+      self._connect_dbus()
     except Exception:
       # missing, or too slow to answer: AGNOS runs D-Bus in the background, which can be starved or out of memory
       cloudlog.exception("Failed to connect to system D-Bus")
-      self._router_main = None
-      self._conn_monitor = None
       self._exit = True
 
     # Store wifi device path
@@ -211,7 +214,40 @@ class WifiManager:
     threading.Thread(target=self._handle_requests, daemon=True).start()
     if not self._exit:
       self._initialize()
+    elif not PC:
+      # FM Pilot: on a device keep trying, so a D-Bus that was slow at boot doesn't leave Wi-Fi "searching" until a reboot
+      threading.Thread(target=self._retry_dbus, daemon=True).start()
     atexit.register(self.stop)
+
+  def _connect_dbus(self):
+    router = DBusRouter(open_dbus_connection_threading(bus="SYSTEM"))
+    try:
+      _wrap_router(router)
+      monitor = open_dbus_connection_blocking(bus="SYSTEM")
+    except Exception:
+      router.close()
+      router.conn.close()
+      raise
+    self._router_main, self._conn_monitor = router, monitor
+
+  def _retry_dbus(self):
+    attempt = 0
+    while not self._stopped:
+      time.sleep(DBUS_RETRY_SECONDS[min(attempt, len(DBUS_RETRY_SECONDS) - 1)])
+      attempt += 1
+      if self._stopped:
+        return
+      try:
+        self._connect_dbus()
+      except Exception:
+        continue
+      if self._stopped:
+        self._close_dbus()
+        return
+      cloudlog.warning(f"Connected to system D-Bus after {attempt} retries")
+      self._exit = False
+      self._initialize()
+      return
 
   def _initialize(self):
     def worker():
@@ -954,6 +990,7 @@ class WifiManager:
     self.stop()
 
   def stop(self):
+    self._stopped = True
     if not self._exit:
       self._exit = True
       if self._scan_thread.is_alive():
@@ -961,8 +998,11 @@ class WifiManager:
       if self._state_thread.is_alive():
         self._state_thread.join()
 
-      if self._router_main is not None:
-        self._router_main.close()
-        self._router_main.conn.close()
-      if self._conn_monitor is not None:
-        self._conn_monitor.close()
+      self._close_dbus()
+
+  def _close_dbus(self):
+    if self._router_main is not None:
+      self._router_main.close()
+      self._router_main.conn.close()
+    if self._conn_monitor is not None:
+      self._conn_monitor.close()
