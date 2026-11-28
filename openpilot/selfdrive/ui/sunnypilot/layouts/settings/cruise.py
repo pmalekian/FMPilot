@@ -69,7 +69,7 @@ class CruiseLayout(Widget):
 
     self.curve_speed_toggle = toggle_item_sp(
       title=tr("Curve Speed Control"),
-      description=tr("Slow down ahead of curves and power smoothly through them, keeping cornering within the "
+      description=tr("Slow down ahead of curves and power smoothly through them, keeping cornering within the " +
                      "steering's limits. Uses the vision path; no map data required."),
       param="CurveSpeedControl")
 
@@ -148,7 +148,7 @@ class CruiseLayout(Widget):
 
     self.rivian_resume_toggle = toggle_item_sp(
       title=tr("Rivian: Enable Resume"),
-      description=tr('When enabled a full stalk down action held for at least 0.5s, provided activation of ACC is available on stock Rivian, will set the cruise speed to be equal to that from the last time cruise was deactivated. If cruise has never been activated it will set the cruise speed to the current vehicle speed. It is recommended to disable the stock Rivian feature: "Set to speed limit on divided highways", which uses the same activation mechanism.'),
+      description=tr('When enabled a full stalk down action held for at least 0.5s, provided activation of ACC is available on stock Rivian, will set the cruise speed to be equal to that from the last time cruise was deactivated. If cruise has never been activated it will set the cruise speed to the current vehicle speed. It is recommended to disable the stock Rivian feature: "Set to speed limit on divided highways", which uses the same activation mechanism.'),  # noqa: E501 (keep the translation key literal)
       param="RivianResumeEnabled")
 
 

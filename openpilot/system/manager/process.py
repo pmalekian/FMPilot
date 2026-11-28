@@ -193,7 +193,7 @@ class RestartingPythonProcess(PythonProcess):
       if now - self.started_at < self.QUICK_DEATH:
         self.backoff = min(self.BACKOFF_MAX, 2 * self.backoff or self.BACKOFF)
         self.next_start = now + self.backoff
-        cloudlog.warning(f"{self.name} died {now - self.started_at:.1f} s after it started, "
+        cloudlog.warning(f"{self.name} died {now - self.started_at:.1f} s after it started, " +
                          f"starting it again in {self.backoff:.0f} s")
       else:
         self.backoff = 0.0

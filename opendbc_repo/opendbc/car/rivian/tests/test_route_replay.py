@@ -118,7 +118,6 @@ class TestRivianRouteReplay(unittest.TestCase):
           self.assertGreater(releases, 0, "the logged ToiFlt latch should have been released")
 
 
-
 DROPOUT_FIXTURE = os.path.join(os.path.dirname(__file__), "data", "rivian_toi_dropout_route_replay.json.gz")
 RACK_REARM_FRAMES = 2  # the EPAS took torque again 10-40 ms after a release on every logged occurrence
 
