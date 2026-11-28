@@ -19,9 +19,9 @@ from openpilot.sunnypilot.selfdrive.controls.lib.accel_boost import AccelBoostSP
 from openpilot.sunnypilot.selfdrive.controls.lib.acceleration_control import AccelerationControl, ACCELERATION_CONTROL_BOOST
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_accel_boost_mode import (
   DEFAULT_MODE, MODES, MODE_AP_ACCEL_CONTROL, MODE_EVP_SET_SPEED, MODE_OFF, MODE_OP_PERSONALITY, MODE_SUNNY, PARAM_MODE,
-  READ_FRAMES, REMOVED_MODES, FmAccelBoostMode, boost_max, parse_mode,
+  READ_FRAMES, REMOVED_MODES, FmAccelBoostMode, OP_BAR_MODEL_ACCEL, boost_max, parse_mode,
 )
-from openpilot.sunnypilot.selfdrive.controls.lib.fm_op_personality_boost import ACCEL_BOOST as OP_MAX
+from openpilot.selfdrive.controls.lib.accel_boost import AccelBoost as OpAccelBoost, get_accel_boost
 from openpilot.sunnypilot.selfdrive.controls.lib.set_speed_assist import MAX_BOOST as EVP_MAX
 
 P = log.LongitudinalPersonality
@@ -44,13 +44,17 @@ class FakeParams:
 
 
 def make_sm(enabled=True, gas_pressed=False, mph=30, brake=0.0, gas=0.0, should_stop=False, curvature=0.0,
-            personality=P.aggressive, probs=6, a_ego=0.0, lead=False, desired_accel=0.5):
+            personality=P.aggressive, probs=6, a_ego=0.0, lead=False, desired_accel=0.5, plan_ahead=2.0):
+  # plan_ahead: m/s the model's 10 s plan averages above the current speed (OP Personality's gate: full from 1.0)
+  v = mph * CV.MPH_TO_MS
+  position = SimpleNamespace(x=[0.0, (max(v, 1.0) + plan_ahead) * 10.0], t=[0.0, 10.0])
   meta = SimpleNamespace(disengagePredictions=SimpleNamespace(brakePressProbs=[brake] * probs, gasPressProbs=[gas] * probs))
   return {
     'selfdriveState': SimpleNamespace(enabled=enabled, personality=Personality(personality)),
     'carState': SimpleNamespace(gasPressed=gas_pressed, vEgo=mph * CV.MPH_TO_MS, aEgo=a_ego),
-    'modelV2': SimpleNamespace(meta=meta, action=SimpleNamespace(shouldStop=should_stop, desiredCurvature=curvature,
-                                                                 desiredAcceleration=desired_accel)),
+    'modelV2': SimpleNamespace(meta=meta, position=position, action=SimpleNamespace(shouldStop=should_stop,
+                                                                                    desiredCurvature=curvature,
+                                                                                    desiredAcceleration=desired_accel)),
     'radarState': SimpleNamespace(leadOne=SimpleNamespace(present=lead)),
   }
 
@@ -169,8 +173,44 @@ class TestEachModesAmount:
   @pytest.mark.parametrize("personality", [P.aggressive, P.standard, P.relaxed])
   def test_op_personality(self, personality):
     boost = picker(MODE_OP_PERSONALITY)
-    assert run(boost, 1, mph=30, personality=personality) == pytest.approx(0.5 + OP_MAX[personality])
-    assert boost.applied == pytest.approx(OP_MAX[personality])
+    bias, gain = get_accel_boost(personality)
+    # openpilot #39248: bias (back over ~1 s) plus gain x the model's request, on a clear road
+    assert run(boost, 400, mph=30, personality=personality) == pytest.approx(0.5 + bias + gain * 0.5, abs=1e-4)
+    assert boost.applied == pytest.approx(bias + gain * 0.5, abs=1e-4)
+
+  def test_op_personality_is_openpilots_class(self):
+    boost, upstream = picker(MODE_OP_PERSONALITY), OpAccelBoost()
+    rng = random.Random(0)
+    for _ in range(600):
+      sm = make_sm(mph=rng.uniform(0, 60), plan_ahead=rng.uniform(-2, 3), personality=rng.choice((P.aggressive, P.standard, P.relaxed)))
+      e2e = rng.uniform(-1.5, 1.5)
+      assert boost.update(sm, e2e, 1.5, 1.5) == upstream.update(sm, e2e, 0.0)
+
+  def test_op_personality_holds_off_when_the_plan_slows(self):
+    boost = picker(MODE_OP_PERSONALITY)
+    run(boost, 400, personality=P.aggressive)
+    assert boost.applied > 0.3
+    assert run(boost, 30, personality=P.aggressive, plan_ahead=-1.0) == pytest.approx(0.5)  # bias drops at once, no gain
+
+  def test_op_personality_holds_off_at_the_curve_interlock(self):
+    boost = picker(MODE_OP_PERSONALITY)
+    for _ in range(400):
+      out = boost.update(make_sm(personality=P.aggressive), 0.5, 1.5, 1.5, throttle_scale=0.8)
+    assert out == 0.5
+    for _ in range(400):
+      out = boost.update(make_sm(personality=P.aggressive), 0.5, 1.5, 1.5, throttle_scale=1.0)
+    assert out > 0.5
+
+  def test_op_personality_plan_without_times_adds_nothing(self):
+    boost = picker(MODE_OP_PERSONALITY)
+    run(boost, 400, personality=P.aggressive)
+    sm = make_sm(personality=P.aggressive)
+    sm['modelV2'].position = SimpleNamespace(x=[0.0, 300.0], t=[])  # e.g. the longitudinal maneuver plant's model
+    assert boost.update(sm, 0.5, 1.5, 1.5) == 0.5
+    assert boost.op_personality.op.bias_filter.x == 0.0  # starts over
+
+  def test_op_personality_unknown_personality_adds_nothing(self):
+    assert run(picker(MODE_OP_PERSONALITY), 50, personality=9) == 0.5
 
   @pytest.mark.parametrize("mode", MODES)
   def test_applied_is_what_was_added(self, mode):
@@ -190,7 +230,8 @@ class TestEachModesAmount:
       assert boost_max(MODE_SUNNY, personality) == SUNNY_MAX[idx]
       assert boost_max(MODE_EVP_SET_SPEED, personality) == EVP_MAX[idx]
       assert boost_max(MODE_AP_ACCEL_CONTROL, personality) == ACCELERATION_CONTROL_BOOST[personality]
-      assert boost_max(MODE_OP_PERSONALITY, personality) == OP_MAX[personality]
+      bias, gain = get_accel_boost(personality)
+      assert boost_max(MODE_OP_PERSONALITY, personality) == bias + gain * OP_BAR_MODEL_ACCEL
     assert boost_max(MODE_AP_ACCEL_CONTROL, SimpleNamespace(raw=P.relaxed)) == 0.1  # a capnp enum
 
 
@@ -201,7 +242,7 @@ class TestOneAtATime:
       run(boost, 10, mph=40)
       run(boost, 2000, gas_pressed=True, mph=40)  # every boost would want to add something here
       others = {MODE_SUNNY: boost.sunny.total_boost, MODE_EVP_SET_SPEED: boost.set_speed.total_boost,
-                MODE_AP_ACCEL_CONTROL: boost.ap_accel_control.boost, MODE_OP_PERSONALITY: boost.op_personality.total_boost}
+                MODE_AP_ACCEL_CONTROL: boost.ap_accel_control.boost, MODE_OP_PERSONALITY: boost.op_personality.op.bias_filter.x}
       assert all(v == 0.0 for m, v in others.items() if m != mode), (mode, others)
 
   def test_switching_mode_starts_clean(self):

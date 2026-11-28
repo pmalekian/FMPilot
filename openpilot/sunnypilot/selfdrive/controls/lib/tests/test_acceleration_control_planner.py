@@ -24,7 +24,7 @@ from openpilot.sunnypilot.selfdrive.controls.lib.acceleration_control import ACC
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_accel_boost_mode import (
   MODES, MODE_AP_ACCEL_CONTROL, MODE_OFF, MODE_OP_PERSONALITY, MODE_SUNNY, PARAM_MODE, READ_FRAMES, FmAccelBoostMode,
 )
-from openpilot.sunnypilot.selfdrive.controls.lib.fm_op_personality_boost import ACCEL_BOOST as OP_MAX
+from openpilot.selfdrive.controls.lib.accel_boost import get_accel_boost
 from openpilot.sunnypilot.selfdrive.controls.lib.longitudinal_planner import LongitudinalPlannerSP
 from openpilot.sunnypilot.selfdrive.controls.lib.tests.test_acceleration_control import _sm
 
@@ -172,7 +172,9 @@ def _planner_with_mode(monkeypatch, mode, personality=log.LongitudinalPersonalit
   planner.events_sp = SimpleNamespace(clear=lambda: None)
   planner.e2e_alerts_helper = SimpleNamespace(update=lambda sm, events: None)
   probs = [0.0, 0.05, 0.0, 0.0, 0.0, 0.0]
+  # the plan's 10 s average runs 2 m/s ahead of 25 m/s: a clear road for OP Personality's gate
   sm['modelV2'] = log.ModelDataV2.new_message(action={'desiredAcceleration': 0.1},
+                                              position={'x': [0.0, 270.0], 't': [0.0, 10.0]},
                                               meta={'disengagePredictions': {'brakePressProbs': probs, 'gasPressProbs': probs}})
   sm['selfdriveState'].personality = personality
   return planner, sm
@@ -233,9 +235,11 @@ def test_boost_bar_field_for_every_mode(monkeypatch, mode):
   msgs = _publish(planner, sm)
   boost = msgs['longitudinalPlan']['accelBoost']
   assert boost == pytest.approx(planner.accel_boost.applied)
-  expected = {MODE_OFF: 0.0, MODE_SUNNY: SUNNY_MAX[0], MODE_AP_ACCEL_CONTROL: ACCELERATION_CONTROL_BOOST[0], MODE_OP_PERSONALITY: OP_MAX[0]}
+  op_bias, op_gain = get_accel_boost(0)  # openpilot #39248, aggressive: bias plus gain x the model's 0.1
+  expected = {MODE_OFF: 0.0, MODE_SUNNY: SUNNY_MAX[0], MODE_AP_ACCEL_CONTROL: ACCELERATION_CONTROL_BOOST[0],
+              MODE_OP_PERSONALITY: op_bias + op_gain * 0.1}
   if mode in expected:
-    assert boost == pytest.approx(expected[mode], abs=1e-6)
+    assert boost == pytest.approx(expected[mode], abs=1e-4)  # OP Personality's bias comes back over ~1 s (a filter)
   else:  # EVP Set Speed: toward its 0.7 cap
     assert boost > 0.0
   names = {v: k for k, v in custom.FmPlan.AccelBoostMode.schema.enumerants.items()}

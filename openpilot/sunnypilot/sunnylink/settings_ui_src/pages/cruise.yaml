@@ -37,8 +37,9 @@ sections:
       0.25 / 0.1 m/s² for aggressive / standard / relaxed; fades in tight curves and when the model slows or stops
       (sunnypilot). EVP Set Speed: above 20 mph, helps the car reach your set speed when only the model holds it back,
       up to +0.7 / 0.5 / 0.3 m/s²; shrinks as the model slows or the road turns (EVPilot). AP Accel Control: +0.3 / 0.2 /
-      0.1 m/s² on any model request above 0.1 m/s², from 10 mph, full by 20 mph (AdventurePilot). OP Personality: +0.15 /
-      0.05 / 0 m/s², faded below 22 mph and when the model brakes (openpilot). The boosts lift only the model''s target:
+      0.1 m/s² on any model request above 0.1 m/s², from 10 mph, full by 20 mph (AdventurePilot). OP Personality: +0.3 /
+      0.15 / 0 m/s² plus 20 / 10 / 0% of the model''s acceleration, only while the model plans to keep speeding up; drops
+      at once when it plans to slow (openpilot). The boosts lift only the model''s target:
       the lead and the set speed still limit it. sunnypilot''s Acceleration Boost and AP''s Acceleration Control toggles
       are these options now.'
     options:
