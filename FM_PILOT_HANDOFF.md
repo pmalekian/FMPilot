@@ -25,6 +25,16 @@ reworked second try) and a CI script #39492; opendbc nothing; nightly `b3b11cb1`
 Proposed next: sync sunnypilot master into `fm-dev-sync` (overlaps PRs #30/#31: same upstream code), then an OP MPC
 picker (Default MPC / OP MPC, #39445) on top. Waiting on Frankie.
 
+## Nov 28 sunnypilot sync candidate
+
+PR #34 merged at `4ea3a1c23`. The sync branch `fm-sync/sunnypilot-nov28` merges sunnypilot `6b3ac1276`, including
+openpilot `c65119ce1`, modeld_v2 #2096/#2097 and CI #2116. The next opendbc vendor baseline is `6ae14e59`. The
+previous vendor delta was derived from `3db0b060` and applied to that new baseline. Frankie approved #4102. Rivian still
+enters main controls on PCM cruise's rising edge, resets heartbeat mismatches on that edge and retains the separate
+MADS lateral controls and heartbeat logic. Hyundai's set/resume reset now runs through enter_controls(). The PR records
+the conflict decisions and validation status. Install and driving changes are in FM_PILOT.md. AGNOS 19.9 devices need the
+20.6 slot update and reboot on first installation. Validate the local and Jetlink paths on hardware separately.
+
 ## Setup
 
 - **Truck:** 2022 Rivian R1S Launch Edition (Gen 1), comma 4, torque harness.

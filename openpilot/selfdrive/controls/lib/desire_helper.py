@@ -34,6 +34,8 @@ class DesireHelper:
     self.fm_queue_guard = FmQueueGuard()  # FM Pilot: a turn waits while stopped close behind a car
     self.fm_queue_hold = False
     self.fm_turn_pulse = FmTurnPulse()  # FM Pilot: fresh turn pulse to the model when pulling away from a stop
+    self.turn_frames = 0
+    self.turn_repulse = 98
 
   @staticmethod
   def get_lane_change_direction(CS):
@@ -112,8 +114,10 @@ class DesireHelper:
     self.prev_one_blinker = one_blinker and lateral_active
 
     if self.lane_turn_direction != TurnDirection.none:
+      self.turn_frames += 1
       self.desire = TURN_DESIRES[self.lane_turn_direction]
     else:
+      self.turn_frames = 0
       self.desire = log.Desire.none
       if self.lane_change_state == LaneChangeState.laneChangeStarting:
         if self.lane_change_direction == LaneChangeDirection.left:
@@ -122,5 +126,9 @@ class DesireHelper:
           self.desire = log.Desire.laneChangeRight
 
     self.model_desire = self.fm_turn_pulse.update(self.desire, v_ego)
+
+    # Refresh the model input while the published turn stays continuous for carry and settling.
+    if self.turn_frames and self.turn_frames % self.turn_repulse == 0:
+      self.model_desire = log.Desire.none
 
     self.alc.update_state()

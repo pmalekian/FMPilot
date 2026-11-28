@@ -70,7 +70,7 @@ class TestStalkControls:
     self.parser.vl["VDM_AdasSts"]["VDM_UserAdasRequest"] = vdm
     ret = structs.CarState()
     ret.cruiseState.enabled = cruise
-    cs.update(ret, self.parsers)
+    cs.update_ext(ret, self.parsers)
     return [(be.type, be.pressed) for be in ret.buttonEvents]
 
   def test_off_emits_nothing(self):

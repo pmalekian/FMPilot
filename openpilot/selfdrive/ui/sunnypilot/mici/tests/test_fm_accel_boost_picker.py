@@ -7,12 +7,12 @@ import time
 
 import pytest
 
-pytest.importorskip("pyray")
+pytest.importorskip("raylib_nb")
 
 from openpilot.common.params import Params
 from openpilot.common.prefix import OpenpilotPrefix
 from openpilot.selfdrive.ui.mici.widgets import button
-from openpilot.selfdrive.ui.mici.layouts.settings.toggles import ACCEL_BOOST_OPTIONS, FmAccelBoostPicker
+from openpilot.selfdrive.ui.mici.layouts.settings.driving import ACCEL_BOOST_OPTIONS, FmAccelBoostPicker
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_accel_boost_mode import MODES, parse_mode
 
 KEY = "FM_AccelBoostMode"

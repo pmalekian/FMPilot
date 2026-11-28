@@ -125,6 +125,14 @@ class TestDesireHelperQueueGuard:
   def lead(d):
     return SimpleNamespace(present=d is not None, dRel=d if d is not None else 0.0)
 
+  def test_model_refresh_preserves_published_turn(self):
+    dh = self.make(False)
+    dh.turn_repulse = 3
+    for expected in (log.Desire.turnLeft, log.Desire.turnLeft, log.Desire.none, log.Desire.turnLeft):
+      dh.update(cs(2.0, left=True), False, 0.0)
+      assert dh.desire == log.Desire.turnLeft
+      assert dh.model_desire == expected
+
   def test_off_turn_stays(self):
     dh = self.make(False)
     dh.update(cs(0.0, left=True), False, 0.0, lead=self.lead(3.0))

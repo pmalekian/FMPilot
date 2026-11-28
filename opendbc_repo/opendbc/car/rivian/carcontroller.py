@@ -137,7 +137,7 @@ class CarController(CarControllerBase, MadsCarController):
     return False
 
   def update(self, CC, CC_SP, CS, now_nanos):
-    MadsCarController.update(self, CC, CC_SP, CS)
+    MadsCarController.update_mads(self, CC, CC_SP, CS)
     actuators = CC.actuators
     can_sends = []
 

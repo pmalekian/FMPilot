@@ -7,7 +7,7 @@ pretend.
 """
 import pytest
 
-pytest.importorskip("pyray", reason="raylib is not available here")
+pytest.importorskip("raylib_nb", reason="raylib is not available here")
 
 from openpilot.system.ui.sunnypilot.widgets.screen_saver import (
   CUSTOM_TEXT_MODE, DEFAULT_TEXT, LOGO_MODE, PRESET_TEXTS, ScreenSaverSP,

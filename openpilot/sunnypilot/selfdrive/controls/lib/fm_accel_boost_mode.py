@@ -178,7 +178,7 @@ class FmAccelBoostMode:
 
     out = output_a_target_e2e
     if self.mode == MODE_SUNNY:
-      out = self.sunny.update(sm, output_a_target_e2e, output_a_target_mpc, a_cruise)
+      out = self.sunny.update(sm, output_a_target_e2e, 0.0)
     elif self.mode == MODE_EVP_SET_SPEED:
       out = self.set_speed.update(sm, output_a_target_e2e, a_cruise, output_a_target_mpc)
     elif self.mode == MODE_AP_ACCEL_CONTROL:

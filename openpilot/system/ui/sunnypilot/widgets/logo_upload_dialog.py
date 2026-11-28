@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-import pyray as rl
+import raylib_nb as rl
 
 from openpilot.common.qrcode import make_texture
 from openpilot.common.swaglog import cloudlog

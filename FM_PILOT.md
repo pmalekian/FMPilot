@@ -5,14 +5,19 @@ Rivian R1S Launch Edition (Gen 1) with a comma 4 on the torque harness. Every FM
 
 ## Branch `fm-dev-sync`
 
-- **Base:** AdventurePilot `dev-next-src` `cf3ad0ec` (the torque line: `steerControlType = torque`; the `-a` branches
-  are the angle line) merged with sunnypilot master `c410198c` (Nov 24, 2026). opendbc stays copied in the repo
-  (`opendbc_repo/`) as AdventurePilot does: re-synced to sunnypilot's opendbc pin `3db0b06` with AP's Rivian changes
-  kept. Everything AdventurePilot and sunnypilot do is kept; FM Pilot adds the features below. Picked from commaai/opendbc
-  since: Rivian counters count 0 to 14 in the packer and parser (#4077).
-- **Install:** `pmalekian/fm-dev-sync` (comma's installer takes GitHub owner/branch). Switch branches from the device's
-  Software settings; uninstalling wipes settings. The older branches (`fm-dev-nav-settle`, `fm-dev-max`, ...) stay as
-  fallbacks.
+- **Base.** AdventurePilot torque branch `dev-next-src` at `cf3ad0ec`, with sunnypilot master through `6b3ac1276`
+  (openpilot `c65119ce1`, November 26). FM vendors sunnypilot's opendbc pin `6ae14e59` with AP and FM's Rivian changes.
+  The upstream parser and packer handle the 0–14 Rivian counter sequence.
+- **Installation.** Switch to `pmalekian/fm-dev-sync` in Software settings to keep stored settings. This revision requires
+  AGNOS 20.6. A comma 4 on 19.9 checks the alternate OS slot, downloads and verifies any missing partitions, then
+  switches slots and reboots before FM starts. Keep the parked device powered and online through the reboot.
+- **Nov 28 driving changes.** Drivers using the bundled default model get Crumbly Cheddar. Super Leicht 2 runs with
+  upstream driver-monitoring policy, including its 0.5 sleep threshold. The model gets a periodic turn-desire refresh
+  on a sustained signaled turn. FM publishes a continuous turn to carry, Blendful and Settle After Turn. The selected
+  Accel Boost mode alone adds acceleration. OP Personality uses the upstream curve offset only to gate boost when
+  Hold Boost in Curves is enabled. FM keeps its selectable crawl steering floor, smart cruise curve controls, Rivian
+  steering limits and fault handling. Rivian cruise still engages on the rising edge of ACM status and resets the main
+  heartbeat mismatch count at engagement. MADS retains its separate lateral permission and heartbeat resets.
 - **How it was built:** one GitHub PR per feature into `fm-dev-sync`, in the order of
   `claude/FM_DEV_SYNC_BUILD_PLAN.md` (project doc). Code is ported from `fm-dev-nav-settle` `ca08aac9`.
 - **Defaults:** every FM setting starts at stock/off on a fresh install. On the first boot of `fm-dev-sync` a one-time

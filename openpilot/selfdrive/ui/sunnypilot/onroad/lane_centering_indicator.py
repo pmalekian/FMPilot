@@ -34,7 +34,7 @@ See the LICENSE.md file in the root directory for more details.
 """
 import time
 
-import pyray as rl
+import raylib_nb as rl
 
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.selfdrive.ui.ui_state import ui_state

@@ -136,7 +136,7 @@ class TestSunnyBoost:
     boost, upstream = picker(MODE_SUNNY), AccelBoostSP()
     for frame in range(300):
       sm = make_sm(personality=P.standard, brake=0.05 if frame < 150 else 0.25)
-      assert boost.update(sm, 0.4, 1.5, 1.5) == upstream.update(sm, 0.4, 1.5, 1.5)
+      assert boost.update(sm, 0.4, 1.5, 1.5) == upstream.update(sm, 0.4, 0.0)
 
 
 class TestEachModesAmount:
@@ -396,8 +396,9 @@ def _base_chain(sm, raw, mpc, cruise, gas, sunny, ac, sp_on, throttle_scale=1.0)
   """The base planner's boost step before the picker (fm-dev-sync 4b46d9e): Acceleration Control first, then comma's Gas
   Override Boost, or sunnypilot's Acceleration Boost in its place while that is on and Acceleration Control is off."""
   lifted = ac.update(sm, raw, throttle_scale)
-  boost = sunny if (sp_on and not ac.enabled) else gas
-  return boost.update(sm, lifted, mpc, cruise)
+  if sp_on and not ac.enabled:
+    return sunny.update(sm, lifted, 0.0)
+  return gas.update(sm, lifted, mpc, cruise)
 
 
 class _Bool:

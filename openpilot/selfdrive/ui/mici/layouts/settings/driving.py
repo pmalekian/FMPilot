@@ -1,0 +1,115 @@
+from openpilot.cereal import log
+
+from openpilot.system.ui.widgets.scroller import NavScroller
+from openpilot.selfdrive.ui.mici.widgets.button import BigParamControl, BigMultiParamToggle, BigMultiToggle
+from openpilot.system.ui.lib.application import gui_app
+from openpilot.selfdrive.ui.layouts.settings.common import restart_needed_callback
+from openpilot.selfdrive.ui.ui_state import ui_state
+from openpilot.selfdrive.ui.mici.layouts.settings.initial_cruise_speed import InitialCruiseSpeedButton
+
+PERSONALITY_TO_INT = log.LongitudinalPersonality.schema.enumerants
+# FM_AccelBoostMode values 0 and 2-5 (1 was Gas, removed; a stored 1 shows and reads as off)
+ACCEL_BOOST_OPTIONS = (("off", 0), ("sunny boost", 2), ("evp set speed", 3), ("ap accel control", 4), ("op personality", 5))
+
+
+class FmAccelBoostPicker(BigMultiParamToggle):
+  """BigMultiParamToggle stores the option's index; the Accel Boost picker stores its mode number (1 is unused)."""
+  def __init__(self, *args, values: list[int], **kwargs):
+    self._values = values
+    super().__init__(*args, **kwargs)
+
+  def _load_value(self):
+    stored = self._params.get(self._param)
+    idx = self._values.index(stored) if stored in self._values else 0
+    self.set_value(self._options[idx])
+
+  def _handle_mouse_release(self, mouse_pos):
+    BigMultiToggle._handle_mouse_release(self, mouse_pos)
+    self._params.put(self._param, self._values[self._options.index(self.value)])
+
+
+class DrivingLayoutMici(NavScroller):
+  def __init__(self):
+    super().__init__()
+
+    self._personality_toggle = BigMultiParamToggle("driving personality", "LongitudinalPersonality", ["aggressive", "standard", "relaxed"],
+                                                   description="Standard is recommended.\n" +
+                                                               "Aggressive follows closer, with firmer gas and braking.\n" +
+                                                               "Relaxed follows at the same distance as Standard, with gentler acceleration.\n" +
+                                                               "Use the steering wheel distance button on supported cars.")
+    self._initial_cruise_speed = InitialCruiseSpeedButton()
+    self._initial_cruise_speed.set_visible(lambda: ui_state.CP is not None and ui_state.has_longitudinal_control and not ui_state.CP.pcmCruise)
+    self._curve_speed_toggle = BigParamControl("curve speed control", "CurveSpeedControl")
+    # FM Pilot: AP's Acceleration Control is one option of the Accel Boost picker (FM_AccelBoostMode, fm_accel_boost_mode.py)
+    self._accel_boost_picker = FmAccelBoostPicker("accel boost", "FM_AccelBoostMode", [o for o, _ in ACCEL_BOOST_OPTIONS],
+                                                  values=[v for _, v in ACCEL_BOOST_OPTIONS],
+                                                  description="One boost on top of the model's acceleration, or off.\n" +
+                                                              "Details in sunnylink: Cruise > Accel Boost.")
+    ldw_toggle = BigParamControl("lane departure warnings", "IsLdwEnabled",
+                                 description="Warn when you drift across a detected lane line.\n" +
+                                             "Only above 31 mph (50 km/h), with no turn signal.")
+    always_on_dm_toggle = BigParamControl("always-on driver monitor", "AlwaysOnDM", description="Monitor the driver even when sunnypilot is not engaged.")
+    green_light_chime = BigParamControl("green light chime", "GreenLightAlert")
+    enable_openpilot = BigParamControl("enable sunnypilot", "OpenpilotEnabledToggle", toggle_callback=restart_needed_callback,
+                                       description="Enable to use sunnypilot driver assistance.\n" +
+                                                   "Disable to use your car's stock driver assistance.")
+
+
+    self._scroller.add_widgets([
+      self._personality_toggle,
+      self._initial_cruise_speed,
+      self._curve_speed_toggle,
+      self._accel_boost_picker,
+      green_light_chime,
+      always_on_dm_toggle,
+      ldw_toggle,
+      enable_openpilot,
+    ])
+
+    # Toggle lists
+    self._refresh_toggles = (
+      ("CurveSpeedControl", self._curve_speed_toggle),
+      ("GreenLightAlert", green_light_chime),
+      ("IsLdwEnabled", ldw_toggle),
+      ("AlwaysOnDM", always_on_dm_toggle),
+      ("OpenpilotEnabledToggle", enable_openpilot),
+    )
+
+    enable_openpilot.set_enabled(lambda: not ui_state.engaged)
+    always_on_dm_toggle.set_enabled(not ui_state.params.get_bool("AlwaysOnDMLock"))
+
+    if ui_state.params.get_bool("ShowDebugInfo"):
+      gui_app.set_show_touches(True)
+      gui_app.set_show_fps(True)
+
+    ui_state.add_engaged_transition_callback(self._update_toggles)
+
+  def _update_state(self):
+    super()._update_state()
+
+    if ui_state.sm.updated["selfdriveState"]:
+      personality = PERSONALITY_TO_INT[ui_state.sm["selfdriveState"].personality]
+      if personality != ui_state.personality and ui_state.started:
+        self._personality_toggle.set_value(self._personality_toggle._options[personality])
+      ui_state.personality = personality
+
+  def show_event(self):
+    super().show_event()
+    self._update_toggles()
+
+  def _update_toggles(self):
+    ui_state.update_params()
+    self._initial_cruise_speed.refresh()
+
+    # CP gating: personality and curve speed control only apply with OP longitudinal control.
+    # Hide-only -- do NOT delete the param (that clobbers a value set via sunnylink); the
+    # refresh loop below mirrors the param back into the widget when it's shown again.
+    if ui_state.CP is not None:
+      long_avail = ui_state.has_longitudinal_control
+      for w in (self._personality_toggle, self._curve_speed_toggle, self._accel_boost_picker):
+        w.set_visible(long_avail)
+    self._accel_boost_picker._load_value()  # FM Pilot: mirror a mode picked in sunnylink
+
+    # Refresh toggles from params to mirror external changes
+    for key, item in self._refresh_toggles:
+      item.set_checked(ui_state.params.get_bool(key))

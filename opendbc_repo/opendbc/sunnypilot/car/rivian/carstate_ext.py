@@ -187,7 +187,7 @@ class CarStateExt:
 
     return button_events
 
-  def update(self, ret: structs.CarState, can_parsers: dict[StrEnum, CANParser]) -> None:
+  def update_ext(self, ret: structs.CarState, can_parsers: dict[StrEnum, CANParser]) -> None:
     button_events = []
 
     if self.CP_SP.flags & RivianFlagsSP.LONGITUDINAL_HARNESS_UPGRADE:

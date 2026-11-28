@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-pytest.importorskip("pyray")
+pytest.importorskip("raylib_nb")
 
 from openpilot.cereal import log
 from openpilot.selfdrive.ui.sunnypilot.mici.onroad.accel_boost_indicator import (CAP_BLEND_START, COLOR_FILL, AccelBoostIndicator,
@@ -44,7 +44,7 @@ def _settle(ind, sm, monkeypatch, frames=200):
 
 
 def test_fresh_ui_state_sp_renders_before_update_params(monkeypatch):
-  import pyray as rl
+  import raylib_nb as rl
   from openpilot.common.prefix import OpenpilotPrefix
   from openpilot.selfdrive.ui.sunnypilot.mici.onroad import accel_boost_indicator as mod
   from openpilot.selfdrive.ui.sunnypilot.ui_state import UIStateSP
