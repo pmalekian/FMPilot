@@ -277,6 +277,42 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.DriverTorqueSteeringSafe
     results += [self._torque_loop_frame(0.8) for _ in range(30)]
     self.assertTrue(all(results), f"controller kept sending requests the panda refuses: {results}")
 
+  def _hold_torque(self, torque):
+    self.safety.set_controls_allowed(True)
+    self.safety.set_desired_torque_last(torque)
+    self.safety.set_rt_torque_last(torque)
+    self.safety.set_torque_driver(0, 0)
+    self.assertTrue(self._tx(self._torque_cmd_msg(torque)))
+
+  def test_zero_cut_keeps_last_request(self):
+    """FM Pilot (AP/FM lateral.h, ported into the Nov 28 dual-copy checks): a TOI release (torque 0, request low) passes
+    whatever the last torque, and the panda keeps the last active request, so the resume is rate checked against it"""
+    for torque in (100, -100, 250, -250):
+      sign = 1 if torque > 0 else -1
+      for cut_frames in (1, 2, 5):
+        for step, ok in ((0, True), (self.MAX_RATE_UP, True), (self.MAX_RATE_UP + 1, False)):
+          self._hold_torque(torque)
+          for _ in range(cut_frames):
+            self.assertTrue(self._tx(self._torque_cmd_msg(0, steer_req=0)), (torque, cut_frames))
+          self.assertEqual(self._tx(self._torque_cmd_msg(torque + sign * step)), ok, (torque, cut_frames, step))
+
+  def test_zero_cut_across_rt_interval_keeps_rt_reference(self):
+    """a release that lands when the 250 ms real-time interval rolls over must not reset the real-time reference to
+    0, or resuming at the held torque (above the 125 real-time delta) would be refused"""
+    for torque in (250, -250):
+      self.safety.set_timer(0)
+      self._hold_torque(torque)
+      self.safety.set_timer(common.RT_INTERVAL + 1)
+      self.assertTrue(self._tx(self._torque_cmd_msg(0, steer_req=0)))
+      self.safety.set_timer(common.RT_INTERVAL + 10001)
+      self.assertTrue(self._tx(self._torque_cmd_msg(torque)), torque)
+
+  def test_nonzero_request_low_is_still_rate_checked(self):
+    """only an exact zero skips the rate checks: a frame with the request low and torque left on is checked as usual"""
+    for torque in (250, -250):
+      self._hold_torque(torque)
+      self.assertFalse(self._tx(self._torque_cmd_msg(torque + (self.MAX_RATE_UP + 1) * (1 if torque > 0 else -1), steer_req=0)))
+
   def test_wheel_touch(self):
     # For hiding hold wheel alert on engage
     for controls_allowed in (True, False):
@@ -567,6 +603,33 @@ class TestRivianMaxTorqueGate(unittest.TestCase):
       self.assertFalse(self._allowed(safety, packer, -value - 1), value)
       self.assertTrue(self._allowed(safety, packer, 105, last=100), value)  # the faster ramp
       self.assertFalse(self._allowed(safety, packer, 106, last=100), value)
+
+  def _set_speed(self, safety, packer, speed):
+    for _ in range(8):  # fill every recent speed sample
+      self._cnt += 1
+      self.assertTrue(safety.safety_rx_hook(packer.make_can_msg_safety("ESP_Status", 0, {
+        "ESP_Vehicle_Speed": speed * 3.6, "ESP_Vehicle_Speed_Q": 1, "ESP_Status_Counter": self._cnt % 15})))
+      self.assertTrue(safety.safety_rx_hook(packer.make_can_msg_safety("VDM_PropStatus", 0, {
+        "VDM_VehicleSpeed": speed * 3.6, "VDM_VehicleSpeedQ": 1, "VDM_PropStatus_Counter": self._cnt % 15})))
+
+  def test_every_level_envelope_across_speeds(self):
+    """FM Pilot: for 385 and every Max Torque level, at whole m/s from 0 to 40 (where the panda's float math is exact):
+    the ceiling is the 3-point envelope [9, 25, 27] -> [cap, 295, 275] at the slowest recent speed minus 1, plus 1,
+    and torque may rise 5 per frame only with a level set and every recent speed below 12.5 m/s. Identical to the
+    pre-sync panda (Nov 28 before/after replay)."""
+    self._cnt = 0
+    for value in range(385, 581, 15):
+      level = max_torque_level(value)
+      packer, safety = self._safety(self._param(level) if level >= 1 else 0)
+      for speed in range(41):
+        self._set_speed(safety, packer, float(speed))
+        ceiling = min(value, int(np.interp(speed - 1.0, [9, 25, 27], [value, 295, 275]) + 1.0))
+        for sign in (1, -1):
+          self.assertTrue(self._allowed(safety, packer, sign * ceiling), (value, speed, sign))
+          self.assertFalse(self._allowed(safety, packer, sign * (ceiling + 1)), (value, speed, sign))
+        rise = 5 if level >= 1 and speed < 12.5 else 3
+        self.assertTrue(self._allowed(safety, packer, 100 + rise, last=100), (value, speed))
+        self.assertFalse(self._allowed(safety, packer, 101 + rise, last=100), (value, speed))
 
   def test_levels_cover_the_slider(self):
     self.assertEqual([385 + 15 * max_torque_level(v) for v in range(385, 581, 15)], list(range(385, 581, 15)))
