@@ -42,6 +42,12 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.DriverTorqueSteeringSafe
   cnt_brake = 0
   cnt_pcm = 0
 
+  RX_QUALITY_FLAGS = {
+    "ESP_Status": {"ESP_Vehicle_Speed_Q": (1,)},
+    "VDM_PropStatus": {"VDM_VehicleSpeedQ": (1,)},
+    "iBESP2": {"iBESP2_BrakePedalApplied_Q": (1,)},
+  }
+
   def _torque_driver_msg(self, torque, counter=None):
     values = {"EPAS_TorsionBarTorque": torque / 100.0, "EPAS_SystemStatus_Counter": self.cnt_torque % 15 if counter is None else counter}
     self.__class__.cnt_torque += 1
@@ -51,15 +57,14 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.DriverTorqueSteeringSafe
     values = {"ACM_lkaStrToqReq": torque, "ACM_lkaActToi": steer_req}
     return self.packer.make_can_msg_safety("ACM_lkaHbaCmd", 0, values)
 
-  def _speed_msg(self, speed, quality_flag=True):
-    values = {"ESP_Vehicle_Speed": speed * 3.6, "ESP_Status_Counter": self.cnt_speed % 15,
-              "ESP_Vehicle_Speed_Q": 1 if quality_flag else 0}
+  def _speed_msg(self, speed):
+    values = {"ESP_Vehicle_Speed": speed * 3.6, "ESP_Status_Counter": self.cnt_speed % 15, "ESP_Vehicle_Speed_Q": 1}
     self.__class__.cnt_speed += 1
     return self.packer.make_can_msg_safety("ESP_Status", 0, values)
 
-  def _speed_msg_2(self, speed, quality_flag=True):
+  def _speed_msg_2(self, speed):
     # Rivian has a dynamic max torque limit based on speed, so it checks two sources
-    return self._user_gas_msg(0, speed, quality_flag)
+    return self._user_gas_msg(0, speed)
 
   def _user_brake_msg(self, brake, quality_flag=True, counter=None):
     values = {"iBESP2_BrakePedalApplied": brake, "iBESP2_BrakePedalApplied_Q": 1 if quality_flag else 2,
@@ -67,9 +72,9 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.DriverTorqueSteeringSafe
     self.__class__.cnt_brake += 1
     return self.packer.make_can_msg_safety("iBESP2", 0, values)
 
-  def _user_gas_msg(self, gas, speed=0, quality_flag=True):
+  def _user_gas_msg(self, gas, speed=0):
     values = {"VDM_AcceleratorPedalPosition": gas, "VDM_VehicleSpeed": speed * 3.6,
-              "VDM_PropStatus_Counter": self.cnt_speed_2 % 15, "VDM_VehicleSpeedQ": 1 if quality_flag else 0}
+              "VDM_PropStatus_Counter": self.cnt_speed_2 % 15, "VDM_VehicleSpeedQ": 1}
     self.__class__.cnt_speed_2 += 1
     return self.packer.make_can_msg_safety("VDM_PropStatus", 0, values)
 
@@ -272,6 +277,42 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.DriverTorqueSteeringSafe
     results += [self._torque_loop_frame(0.8) for _ in range(30)]
     self.assertTrue(all(results), f"controller kept sending requests the panda refuses: {results}")
 
+  def _hold_torque(self, torque):
+    self.safety.set_controls_allowed(True)
+    self.safety.set_desired_torque_last(torque)
+    self.safety.set_rt_torque_last(torque)
+    self.safety.set_torque_driver(0, 0)
+    self.assertTrue(self._tx(self._torque_cmd_msg(torque)))
+
+  def test_zero_cut_keeps_last_request(self):
+    """FM Pilot (AP/FM lateral.h, ported into the Nov 28 dual-copy checks): a TOI release (torque 0, request low) passes
+    whatever the last torque, and the panda keeps the last active request, so the resume is rate checked against it"""
+    for torque in (100, -100, 250, -250):
+      sign = 1 if torque > 0 else -1
+      for cut_frames in (1, 2, 5):
+        for step, ok in ((0, True), (self.MAX_RATE_UP, True), (self.MAX_RATE_UP + 1, False)):
+          self._hold_torque(torque)
+          for _ in range(cut_frames):
+            self.assertTrue(self._tx(self._torque_cmd_msg(0, steer_req=0)), (torque, cut_frames))
+          self.assertEqual(self._tx(self._torque_cmd_msg(torque + sign * step)), ok, (torque, cut_frames, step))
+
+  def test_zero_cut_across_rt_interval_keeps_rt_reference(self):
+    """a release that lands when the 250 ms real-time interval rolls over must not reset the real-time reference to
+    0, or resuming at the held torque (above the 125 real-time delta) would be refused"""
+    for torque in (250, -250):
+      self.safety.set_timer(0)
+      self._hold_torque(torque)
+      self.safety.set_timer(common.RT_INTERVAL + 1)
+      self.assertTrue(self._tx(self._torque_cmd_msg(0, steer_req=0)))
+      self.safety.set_timer(common.RT_INTERVAL + 10001)
+      self.assertTrue(self._tx(self._torque_cmd_msg(torque)), torque)
+
+  def test_nonzero_request_low_is_still_rate_checked(self):
+    """only an exact zero skips the rate checks: a frame with the request low and torque left on is checked as usual"""
+    for torque in (250, -250):
+      self._hold_torque(torque)
+      self.assertFalse(self._tx(self._torque_cmd_msg(torque + (self.MAX_RATE_UP + 1) * (1 if torque > 0 else -1), steer_req=0)))
+
   def test_wheel_touch(self):
     # For hiding hold wheel alert on engage
     for controls_allowed in (True, False):
@@ -282,26 +323,6 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.DriverTorqueSteeringSafe
         "SCCM_WheelTouch_Calibration": 100,
       }
       self.assertTrue(self._tx(self.packer.make_can_msg_safety("SCCM_WheelTouch", 2, values)))
-
-  def test_rx_hook(self):
-    # checksum, counter, and quality flag checks
-    for quality_flag in (True, False):
-      for msg_type in ("speed", "speed_2"):
-        self.safety.set_controls_allowed(True)
-        # send multiple times to verify counter checks
-        for _ in range(10):
-          if msg_type == "speed":
-            msg = self._speed_msg(0, quality_flag=quality_flag)
-          elif msg_type == "speed_2":
-            msg = self._speed_msg_2(0, quality_flag=quality_flag)
-
-          self.assertEqual(quality_flag, self._rx(msg))
-          self.assertEqual(quality_flag, self.safety.get_controls_allowed())
-
-        # Mess with checksum to make it fail
-        msg[0].data[0] = 0xff
-        self.assertFalse(self._rx(msg))
-        self.assertFalse(self.safety.get_controls_allowed())
 
   cnt_stalk = 0
 
@@ -324,22 +345,22 @@ class TestRivianSafetyBase(common.CarSafetyTest, common.DriverTorqueSteeringSafe
   def _param_sp(self):
     return (RivianSafetyFlagsSP.ENHANCED_MADS if self.ENHANCED_MADS else 0) | self._max_torque_param_sp()
 
-  def _set_safety_param_sp(self):
-    self.safety.set_current_safety_param_sp(self._param_sp())
+  @property
+  def _safety_param_sp(self):
+    return self._param_sp()
 
-  def setUp(self):
-    self.safety = libsafety_py.libsafety
-    # Centralized setup initializes hooks, then init_tests clears the stored SP
-    # parameter and advances the relay transition grace period. Set the parameter
-    # before hooks latch it, then restore storage AFTER init_tests without resetting
-    # hooks again (which would restart the relay grace period).
-    self._set_safety_param_sp()
-    super().setUp()
-    self._set_safety_param_sp()
-
-  def _reset_safety_hooks(self):
-    self._set_safety_param_sp()
-    super()._reset_safety_hooks()
+  def test_pcm_rising_edge_resets_main_heartbeat(self):
+    self.assertTrue(self._rx(self._pcm_status_msg(False)))
+    for _ in range(2):
+      self.safety.set_heartbeat_engaged_mismatches(2)
+      self.assertTrue(self._rx(self._pcm_status_msg(True)))
+      self.assertTrue(self.safety.get_controls_allowed())
+      self.assertEqual(self.safety.get_heartbeat_engaged_mismatches(), 0)
+      self.safety.set_heartbeat_engaged_mismatches(2)
+      self.assertTrue(self._rx(self._pcm_status_msg(True)))
+      self.assertEqual(self.safety.get_heartbeat_engaged_mismatches(), 2)
+      self.assertTrue(self._rx(self._pcm_status_msg(False)))
+      self.assertFalse(self.safety.get_controls_allowed())
 
   def test_mads_parameter_reinitialization_and_bus(self):
     for reinitialize in (False, True):
@@ -583,36 +604,47 @@ class TestRivianMaxTorqueGate(unittest.TestCase):
       self.assertTrue(self._allowed(safety, packer, 105, last=100), value)  # the faster ramp
       self.assertFalse(self._allowed(safety, packer, 106, last=100), value)
 
+  def _set_speed(self, safety, packer, speed):
+    for _ in range(8):  # fill every recent speed sample
+      self._cnt += 1
+      self.assertTrue(safety.safety_rx_hook(packer.make_can_msg_safety("ESP_Status", 0, {
+        "ESP_Vehicle_Speed": speed * 3.6, "ESP_Vehicle_Speed_Q": 1, "ESP_Status_Counter": self._cnt % 15})))
+      self.assertTrue(safety.safety_rx_hook(packer.make_can_msg_safety("VDM_PropStatus", 0, {
+        "VDM_VehicleSpeed": speed * 3.6, "VDM_VehicleSpeedQ": 1, "VDM_PropStatus_Counter": self._cnt % 15})))
+
+  def test_every_level_envelope_across_speeds(self):
+    """FM Pilot: for 385 and every Max Torque level, at whole m/s from 0 to 40 (where the panda's float math is exact):
+    the ceiling is the 3-point envelope [9, 25, 27] -> [cap, 295, 275] at the slowest recent speed minus 1, plus 1,
+    and torque may rise 5 per frame only with a level set and every recent speed below 12.5 m/s. Identical to the
+    pre-sync panda (Nov 28 before/after replay)."""
+    self._cnt = 0
+    for value in range(385, 581, 15):
+      level = max_torque_level(value)
+      packer, safety = self._safety(self._param(level) if level >= 1 else 0)
+      for speed in range(41):
+        self._set_speed(safety, packer, float(speed))
+        ceiling = min(value, int(np.interp(speed - 1.0, [9, 25, 27], [value, 295, 275]) + 1.0))
+        for sign in (1, -1):
+          self.assertTrue(self._allowed(safety, packer, sign * ceiling), (value, speed, sign))
+          self.assertFalse(self._allowed(safety, packer, sign * (ceiling + 1)), (value, speed, sign))
+        rise = 5 if level >= 1 and speed < 12.5 else 3
+        self.assertTrue(self._allowed(safety, packer, 100 + rise, last=100), (value, speed))
+        self.assertFalse(self._allowed(safety, packer, 101 + rise, last=100), (value, speed))
+
   def test_levels_cover_the_slider(self):
     self.assertEqual([385 + 15 * max_torque_level(v) for v in range(385, 581, 15)], list(range(385, 581, 15)))
 
 
-class TestRivianIgnition(common.SafetyTestBase):
+class TestRivianIgnition(common.CanIgnitionSafetyTest):
   DBC = "rivian_primary_actuator"
-  SAFETY_MODEL = None
+  IGNITION_VALUES = range(4)
+  IGNITION_ON_VALUES = {1}  # VDM_EpasPowerMode_Drive_On
+  IGNITION_COUNTER_MOD = 15
 
-  TX_MSGS: list = []
+  def _ignition_msg(self, value, counter=None, bus=0):
+    return self.packer.make_can_msg_safety("VDM_OutputSignals", bus,
+                                           {"VDM_OutputSigs_Counter": counter, "VDM_EpasPowerMode": value})
 
-  def _msg(self, counter, mode):
-    return self.packer.make_can_msg_safety("VDM_OutputSignals", 0,
-                                           {"VDM_OutputSigs_Counter": counter,
-                                            "VDM_EpasPowerMode": mode})
 
-  # VDM_EpasPowerMode_Drive_On=1
-  def test_ignition_on(self):
-    for i in range(15):
-      self.safety.init_tests()
-      self.safety.ignition_can_hook(self._msg(i, 1))
-      self.assertFalse(self.safety.get_ignition_can())
-      self.safety.ignition_can_hook(self._msg((i + 1) % 15, 1))
-      self.assertTrue(self.safety.get_ignition_can())
-
-  def test_ignition_off(self):
-    self.safety.ignition_can_hook(self._msg(0, 1))
-    self.safety.ignition_can_hook(self._msg(1, 1))
-    self.assertTrue(self.safety.get_ignition_can())
-    self.safety.ignition_can_hook(self._msg(2, 0))
-    self.safety.ignition_can_hook(self._msg(3, 0))
-    self.assertFalse(self.safety.get_ignition_can())
 if __name__ == "__main__":
   unittest.main()

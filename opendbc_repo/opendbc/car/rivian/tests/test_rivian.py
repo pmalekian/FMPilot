@@ -7,7 +7,7 @@ from unittest import mock
 from opendbc.car import gen_empty_fingerprint, structs
 from opendbc.car.rivian.carcontroller import ACM_ENGAGE_TIMEOUT_FRAMES, CarController
 from opendbc.car.rivian.fingerprints import FW_VERSIONS
-from opendbc.car.rivian.values import CAR, FW_QUERY_CONFIG, WMI, ModelLine, ModelYear, RivianSafetyFlags
+from opendbc.car.rivian.values import CAR, WMI, ModelLine, ModelYear, RivianSafetyFlags, match_fw_to_car_fuzzy
 
 GearShifter = structs.CarState.GearShifter
 
@@ -28,7 +28,7 @@ class TestRivian(unittest.TestCase):
                   vin[3] = "Z"
                 vin = "".join(vin)
 
-                matches = FW_QUERY_CONFIG.match_fw_to_car_fuzzy({}, vin, FW_VERSIONS)
+                matches = match_fw_to_car_fuzzy({}, vin, FW_VERSIONS)
                 should_match = year in platform.config.years and not bad
                 assert (matches == {platform}) == should_match, "Bad match"
 
@@ -278,5 +278,5 @@ class TestRivianHarnessEligibility(unittest.TestCase):
               })
               parsers[Bus.alt].update([(1_000_000_000 + frame * 10_000_000, [message])])
             ret = structs.CarState()
-            cs.update(ret, parsers)
+            cs.update_ext(ret, parsers)
             self.assertEqual((ret.leftBlindspot, ret.rightBlindspot), (left, right) if harness else (False, False))

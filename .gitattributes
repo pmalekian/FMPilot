@@ -16,6 +16,10 @@ openpilot/sunnypilot/modeld_v2/models/*.pkl filter=lfs diff=lfs merge=lfs -text
 # NOTE: this path must track the nested openpilot/ layout -- when upstream moved the tree, this rule
 # stopped matching, *.png swallowed the logo back into LFS, and both prebuilt builds failed.
 openpilot/selfdrive/assets/images/ap_logo.png -filter -diff -merge
+*.npz filter=lfs diff=lfs merge=lfs -text
+# the qrcode test fixtures are stored as plain files in FM (upstream keeps them in LFS); without this they show as
+# modified in every checkout and mark the install dirty
+openpilot/common/tests/fixtures/*.npz -filter -diff -merge
 
 openpilot/selfdrive/car/tests/test_models_segs.txt filter=lfs diff=lfs merge=lfs -text
 openpilot/common/hardware/comma/updater filter=lfs diff=lfs merge=lfs -text

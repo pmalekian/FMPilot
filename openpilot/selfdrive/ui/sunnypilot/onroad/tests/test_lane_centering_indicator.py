@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-pytest.importorskip("pyray")
+pytest.importorskip("raylib_nb")
 
 from openpilot.selfdrive.ui.sunnypilot.onroad.lane_centering_indicator import (
   AMBER, CORRECTING, DIM_WHITE, GATED, GRAY, HOLDING, LIGHT_BLUE, MINT, RED, LaneCenteringIndicator)

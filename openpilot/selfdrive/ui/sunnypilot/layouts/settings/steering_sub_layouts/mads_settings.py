@@ -5,7 +5,7 @@ This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 """
 from collections.abc import Callable
-import pyray as rl
+import raylib_nb as rl
 
 from opendbc.sunnypilot.car.tesla.values import MadsScreenButtonType, TeslaFlagsSP
 from openpilot.selfdrive.ui.ui_state import ui_state
@@ -158,7 +158,7 @@ class MadsSettingsLayout(Widget):
 
   def _update_toggles(self):
     self._rivian_enhanced_mads_toggle.set_visible(self._get_brand() == "rivian")
-    self._update_steering_mode_description(self._steering_mode.action_item.get_selected_button())
+    self._update_steering_mode_description(self._steering_mode.action_item.selected_button)
     if self._mads_limited_settings():
       ui_state.params.remove("MadsMainCruiseAllowed")
       ui_state.params.put_bool("MadsUnifiedEngagementMode", True)

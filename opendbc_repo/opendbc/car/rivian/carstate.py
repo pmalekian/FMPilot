@@ -122,7 +122,7 @@ class CarState(CarStateBase, CarStateExt):
     self.vdm_adas_status = [dict(zip(adas_status_msgs, vals, strict=True)) for vals in zip(*adas_status_msgs.values(), strict=True)]
     self.torque_tx_refused = len(cp_refused.vl_all["ACM_lkaHbaCmd"]["ACM_lkaStrToqReq"]) > 0
 
-    CarStateExt.update(self, ret, can_parsers)
+    CarStateExt.update_ext(self, ret, can_parsers)
 
     return ret, ret_sp
 

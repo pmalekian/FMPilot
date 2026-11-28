@@ -2,7 +2,7 @@
 
 State as of Nov 25, 2026: **`fm-dev-sync` plan PRs 1-18 are all merged and the M3 full suites passed** (head `023ff40f`; only the known base and sandbox-only failures; PR 10-13 equivalence scripts show only the documented PR 13 differences). Built PR by PR from the agreed plan (project docs
 `claude/FM_DEV_SYNC_BUILD_PLAN.md`, `claude/FM_DEV_SYNC_INVENTORY.md`, `claude/FM_FOLDED_DEFAULTS.md`; repo copy
-`FM_FOLDED_DEFAULTS.md`). Planning and building are finished: don't re-plan. **Next: Frankie drives `fm-dev-sync` (now with the Nov 27 upstream PRs #29-#33) and shares rlogs.** History before `fm-dev-sync` (every earlier branch, build
+`FM_FOLDED_DEFAULTS.md`). Planning and building are finished: don't re-plan. The Nov 27 upstream PRs #29–#33 landed before the Nov 28 sync described below. History before `fm-dev-sync` (every earlier branch, build
 and drive analysis, the old handoff word for word) is in `FM_PILOT_FINDINGS.md`: read it only when a task needs it.
 Features, settings and credits: `FM_PILOT.md`. Log tools: `tools/fm/README.md`.
 
@@ -22,13 +22,22 @@ model-lead MPC try #37824 and its revert #39433. sunnypilot master synced openpi
 Nov 27 (#2094, `efad504`; AGNOS 20.6, tinygrad `3589d75`), plus modeld_v2 custom model handling #2097 and tinygrad
 emulator support #2096. Since Nov 27 openpilot master added only #39445 (MPC uses the model's lead prediction, the
 reworked second try) and a CI script #39492; opendbc nothing; nightly `b3b11cb1` (Nov 28) predates #39445.
-Proposed next: sync sunnypilot master into `fm-dev-sync` (overlaps PRs #30/#31: same upstream code), then an OP MPC
-picker (Default MPC / OP MPC, #39445) on top. Waiting on Frankie.
+The Nov 28 sync decision is recorded below. The separate OP MPC picker proposal (#39445) remains pending.
+
+## Nov 28 sunnypilot sync (PR #35)
+
+PR #34 merged at `4ea3a1c23`. The sync branch `fm-sync/sunnypilot-nov28` merges sunnypilot `6b3ac1276`, including
+openpilot `c65119ce1`, modeld_v2 #2096/#2097 and CI #2116. The next opendbc vendor baseline is `6ae14e59`. The
+previous vendor delta was derived from `3db0b060` and applied to that new baseline. Frankie approved #4102. Rivian still
+enters main controls on PCM cruise's rising edge, resets heartbeat mismatches on that edge and retains the separate
+MADS lateral controls and heartbeat logic. Hyundai's set/resume reset now runs through enter_controls(). The PR records
+the conflict decisions, validation results and merge status. The full off-device build passed. Ruff passes on FM’s tracked Python files, including vendored opendbc. With submodules populated, Ruff also reports 41 findings in the upstream tinygrad pin. Install and driving changes are in FM_PILOT.md. AGNOS 19.9 devices need the
+20.6 slot update and reboot on first installation. Validate the local and Jetlink paths on hardware separately.
 
 ## Setup
 
 - **Truck:** 2022 Rivian R1S Launch Edition (Gen 1), comma 4, torque harness.
-- **Repo:** `pmalekian/FMPilot`. **Active branch `fm-dev-sync`**, install string `pmalekian/fm-dev-sync`. Base: AP
+- **Repo:** `pmalekian/FMPilot`. **Active branch `fm-dev-sync`**, install string `pmalekian/fm-dev-sync`. Original integration base: AP
   `dev-next-src` `cf3ad0ec` + sunnypilot master `c410198c` (merge commit `4efb05a`). Code is ported from
   `fm-dev-nav-settle` `ca08aac9` (his last everyday build line); that branch and the older ones stay as fallbacks.
   Switch from the device's Software settings (uninstalling wipes settings).

@@ -16,13 +16,13 @@ REPO = Path(__file__).resolve().parents[4]
 JETLINK_REPO = REPO / "jetlink_repo"
 
 if not (JETLINK_REPO / "jetlink" / "__init__.py").is_file():
-  raise RuntimeError(f"{JETLINK_REPO} is not checked out: run "
+  raise RuntimeError(f"{JETLINK_REPO} is not checked out: run " +
                      "`git submodule update --init --recursive` (CI must check out submodules)")
 
 if str(JETLINK_REPO) not in sys.path:
   sys.path.insert(0, str(JETLINK_REPO))
 
-from openpilot.sunnypilot.jetlink_adapter.tests import support  # noqa: E402  (after the submodule is on the path)
+from openpilot.sunnypilot.jetlink_adapter.tests import support  # noqa: F401 (install the audit guard after adding the submodule)
 
 
 @pytest.fixture(autouse=True)

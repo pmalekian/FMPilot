@@ -10,10 +10,11 @@ See the LICENSE.md file in the root directory for more details.
 from __future__ import annotations
 
 import os
+import random
 import time
 
 import numpy as np
-import pyray as rl
+import raylib_nb as rl
 
 from openpilot.common.hardware import HARDWARE
 from openpilot.common.params import Params
@@ -126,16 +127,9 @@ class ScreenSaverSP(Widget):
       return None
 
     try:
-      # The array has to outlive load_texture_from_image, which reads through the pointer. It does,
-      # because the upload happens before this scope ends. Same shape as pairing_dialog.py.
-      pixels = np.asarray(image, dtype=np.uint8)
-      rl_image = rl.Image()
-      rl_image.data = rl.ffi.cast("void *", pixels.ctypes.data)
-      rl_image.width = image.width
-      rl_image.height = image.height
-      rl_image.mipmaps = 1
-      rl_image.format = rl.PixelFormat.PIXELFORMAT_UNCOMPRESSED_R8G8B8A8
-      texture = rl.load_texture_from_image(rl_image)
+      pixels = np.ascontiguousarray(image, dtype=np.uint8)
+      texture = rl.load_texture_from_image(rl.Image(None, image.width, image.height, 1, rl.PixelFormat.PIXELFORMAT_UNCOMPRESSED_R8G8B8A8))
+      rl.update_texture(texture, pixels)
     except Exception:
       cloudlog.exception("screen saver: failed to upload logo texture")
       return None
@@ -221,7 +215,7 @@ class ScreenSaverSP(Widget):
 
     hit = hit_x or hit_y
     if hit and not self._hit_last_frame:
-      while self._hue_dist((new_hue := rl.get_random_value(0, 360)), self._hue) < 120:
+      while self._hue_dist((new_hue := random.randint(0, 360)), self._hue) < 120:
         pass
       self._hue = new_hue
       self.color = rl.color_from_hsv(self._hue, 1, 1)

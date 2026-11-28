@@ -16,7 +16,7 @@ source "cruise" (the cruise candidate is listed before the model's). In that mod
 boost setting the speed; only a lead (the MPC) empties the bar.
 """
 import math
-import pyray as rl
+import raylib_nb as rl
 
 from openpilot.cereal import log
 from openpilot.common.filter_simple import FirstOrderFilter

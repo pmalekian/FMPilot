@@ -48,7 +48,7 @@ class TestCanParserPacker(unittest.TestCase):
       assert parser.vl["CAN_FD_MESSAGE"]["COUNTER"] == ((cnt + i) % 256)
 
   def test_rivian_counter(self):
-    # Rivian counts 0 to 14, despite the 4-bit field (opendbc #4077)
+    # Rivian counts 0 to 14, despite the 4-bit field
     packer = CANPacker("rivian_primary_actuator")
     parser = CANParser("rivian_primary_actuator", [("ESP_Status", 0)], 0)
     for i in range(100):

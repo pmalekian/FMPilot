@@ -261,7 +261,7 @@ class TestToiFaultWarning(unittest.TestCase):
     with mock.patch.dict(sys.modules, stubs):
       from opendbc.car.rivian.carstate import CarState, TOI_FAULT_FRAMES
       from opendbc.sunnypilot.car.rivian.carstate_ext import CarStateExt
-    for name in ("__init__", "update"):
+    for name in ("__init__", "update_ext"):
       patcher = mock.patch.object(CarStateExt, name, lambda *a, **k: None)
       patcher.start()
       self.addCleanup(patcher.stop)

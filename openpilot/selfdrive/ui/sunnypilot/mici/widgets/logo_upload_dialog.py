@@ -16,7 +16,7 @@ the right.
 """
 from __future__ import annotations
 
-import pyray as rl
+import raylib_nb as rl
 
 from openpilot.common.params import Params
 from openpilot.common.qrcode import make_texture

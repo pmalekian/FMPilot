@@ -81,9 +81,6 @@ class HardwareBase(ABC):
     except Exception:
       return default
 
-  def booted(self) -> bool:
-    return True
-
   def reboot(self, reason=None):
     print("REBOOT!")
 
