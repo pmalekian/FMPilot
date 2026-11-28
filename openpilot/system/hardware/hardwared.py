@@ -286,6 +286,7 @@ def hardware_thread(end_event, hw_queue) -> None:
   all_temp_filter = FirstOrderFilter(0., TEMP_TAU, DT_HW, initialized=False)
   offroad_temp_filter = FirstOrderFilter(0., TEMP_TAU, DT_HW, initialized=False)
   should_start_prev = False
+  network_metered_prev: bool | None = None
   in_car = False
   engaged_prev = False
   pwrsave = False
@@ -584,7 +585,11 @@ def hardware_thread(end_event, hw_queue) -> None:
         except Exception:
           cloudlog.exception("failed to save offroad status")
 
-    params.put_bool("NetworkMetered", msg.deviceState.networkMetered)
+    # a param write is a file write and two fsyncs, which keep the storage from going idle. only write on change
+    # FM Pilot: from openpilot #39481 (f37cf702, Nov 27, 2026, MIT)
+    if msg.deviceState.networkMetered != network_metered_prev:
+      params.put_bool("NetworkMetered", msg.deviceState.networkMetered)
+      network_metered_prev = msg.deviceState.networkMetered
 
     now_ts = time.monotonic()
     if off_ts:
