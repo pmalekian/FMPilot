@@ -106,7 +106,7 @@ class LongitudinalPlannerSP:
     return self.output_v_target, self.output_a_target
 
   def update(self, sm: messaging.SubMaster) -> None:
-    # FM Pilot: which boost runs (Gas Override Boost, Acceleration Boost / AccelBoostSP, Acceleration Control, ...) is the
+    # FM Pilot: which boost runs (Acceleration Boost / AccelBoostSP, Acceleration Control, ...; no Gas Override Boost) is the
     # Accel Boost picker's choice now (FM_AccelBoostMode, fm_accel_boost_mode.py); the AccelBoostSP and
     # AccelerationControl toggles are not read, so the selection and interlock that were here are gone.
     self.events_sp.clear()

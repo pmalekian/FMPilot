@@ -6,7 +6,7 @@ See the LICENSE.md file in the root directory for more details.
 
 FM Pilot: Accel Boost bar on the comma 4's side panel, from sunnypilot #2090 (rav4kumar and Jason Wen, Nov 4 2026, MIT;
 not yet merged there), as ported on fm-dev-nav-settle (ca08aac9). FM Pilot changes: it shows for every Accel Boost
-picker mode (FM_AccelBoostMode: Gas, Sunny Boost, EVP Set Speed, AP Accel Control, OP Personality), reads what the boost
+picker mode (FM_AccelBoostMode: Sunny Boost, EVP Set Speed, AP Accel Control, OP Personality), reads what the boost
 added from longitudinalPlan.accelBoost (every mode publishes it there), scales to that mode's maximum for the driving
 personality, and has its own setting, FM_AccelBoostIndicator (off by default). It takes the confidence ball's place only
 while it is shown. OP Personality in Relaxed adds nothing (its maximum is 0), so the bar stays empty there.

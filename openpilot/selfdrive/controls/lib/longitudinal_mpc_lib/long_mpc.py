@@ -76,9 +76,9 @@ def get_jerk_factor(personality=log.LongitudinalPersonality.standard):
 
 
 def get_T_FOLLOW(personality=log.LongitudinalPersonality.standard):
-  if personality==log.LongitudinalPersonality.relaxed:
-    return 1.75
-  elif personality==log.LongitudinalPersonality.standard:
+  # FM Pilot: Relaxed follows at Standard's 1.45 s (was 1.75), from openpilot #39440 (6daa874b, Nov 23, 2026,
+  # Harald Schäfer, MIT); Relaxed differs from Standard by its gentler acceleration (no OP Personality boost)
+  if personality in (log.LongitudinalPersonality.relaxed, log.LongitudinalPersonality.standard):
     return 1.45
   elif personality==log.LongitudinalPersonality.aggressive:
     return 1.25

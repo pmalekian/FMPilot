@@ -284,7 +284,8 @@ class TestAccelBoostMode(OpenpilotTestCase):
         params = self.migrate(FM_AccelBoostMode=old, AccelBoostSP=sp, AccelerationControl=ac)
         assert params.get("FM_AccelBoostMode") == old
         assert params.get("AccelBoostSP") is sp and params.get("AccelerationControl") is ac  # never written
-        assert FmAccelBoostMode(structs.CarParams(openpilotLongitudinalControl=True)).mode == old
+        # Gas (1) was removed later (Nov 27, 2026): the stored 1 is kept but reads as Off
+        assert FmAccelBoostMode(structs.CarParams(openpilotLongitudinalControl=True)).mode == (0 if old == 1 else old)
 
   def test_unset_with_acceleration_boost_alone_becomes_sunny_boost(self):
     assert self.migrate(AccelBoostSP=True, AccelerationControl=False).get("FM_AccelBoostMode") == 2

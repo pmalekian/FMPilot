@@ -38,7 +38,7 @@ class LongitudinalPlanner(LongitudinalPlannerSP):
     LongitudinalPlannerSP.__init__(self, self.CP, CP_SP, self.mpc)
     self.fcw = False
     self.dt = dt
-    # FM Pilot: the Accel Boost picker (FM_AccelBoostMode, fm_accel_boost_mode.py) owns Gas Override Boost, sunnypilot's
+    # FM Pilot: the Accel Boost picker (FM_AccelBoostMode, fm_accel_boost_mode.py) owns sunnypilot's
     # Acceleration Boost, EVP Set Speed, AP's Acceleration Control and OP Personality, and runs at most one of them
     self.accel_boost = FmAccelBoostMode(CP)
 
@@ -72,6 +72,7 @@ class LongitudinalPlanner(LongitudinalPlannerSP):
       self.v_desired_filter.x = v_ego
       self.output_a_target = np.clip(sm['carState'].aEgo, ACCEL_MIN, ACCEL_MAX)
       self.a_cruise = self.output_a_target
+      self.accel_boost.planner_reset()  # FM Pilot: as openpilot resets its AccelBoost and CurveSpeed here
 
     # Prevent divergence, smooth in current v_ego
     self.v_desired_filter.x = max(0.0, self.v_desired_filter.update(v_ego))
@@ -112,7 +113,7 @@ class LongitudinalPlanner(LongitudinalPlannerSP):
     cruise_should_stop = should_stop(v_ego, self.a_cruise)
 
     # FM Pilot: the one boost picked (Off adds nothing). AP's Acceleration Control and Gas Override Boost used to run here
-    # one after the other; they are separate picker modes now, so the order between them no longer matters.
+    # one after the other; Acceleration Control is a picker mode now and Gas Override Boost is gone.
     output_a_target_e2e = self.accel_boost.update(sm, output_a_target_e2e, output_a_target_mpc, self.a_cruise,
                                                   self.scc.governor.throttle_scale())
 

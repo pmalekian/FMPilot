@@ -1,14 +1,31 @@
 from openpilot.cereal import log
 
 from openpilot.system.ui.widgets.scroller import NavScroller
-from openpilot.selfdrive.ui.mici.widgets.button import BigToggle, BigParamControl, BigMultiParamToggle
+from openpilot.selfdrive.ui.mici.widgets.button import BigToggle, BigParamControl, BigMultiParamToggle, BigMultiToggle
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.selfdrive.ui.layouts.settings.common import restart_needed_callback
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.selfdrive.ui.mici.layouts.settings.initial_cruise_speed import InitialCruiseSpeedButton
 
 PERSONALITY_TO_INT = log.LongitudinalPersonality.schema.enumerants
-ACCEL_BOOST_OPTIONS = ("off", "gas", "sunny boost", "evp set speed", "ap accel control", "op personality")  # FM_AccelBoostMode 0-5
+# FM_AccelBoostMode values 0 and 2-5 (1 was Gas, removed; a stored 1 shows and reads as off)
+ACCEL_BOOST_OPTIONS = (("off", 0), ("sunny boost", 2), ("evp set speed", 3), ("ap accel control", 4), ("op personality", 5))
+
+
+class FmAccelBoostPicker(BigMultiParamToggle):
+  """BigMultiParamToggle stores the option's index; the Accel Boost picker stores its mode number (1 is unused)."""
+  def __init__(self, *args, values: list[int], **kwargs):
+    self._values = values
+    super().__init__(*args, **kwargs)
+
+  def _load_value(self):
+    stored = self._params.get(self._param)
+    idx = self._values.index(stored) if stored in self._values else 0
+    self.set_value(self._options[idx])
+
+  def _handle_mouse_release(self, mouse_pos):
+    BigMultiToggle._handle_mouse_release(self, mouse_pos)
+    self._params.put(self._param, self._values[self._options.index(self.value)])
 
 
 class TogglesLayoutMici(NavScroller):
@@ -18,15 +35,16 @@ class TogglesLayoutMici(NavScroller):
     self._personality_toggle = BigMultiParamToggle("following distance", "LongitudinalPersonality", ["aggressive", "standard", "relaxed"],
                                                    description="Standard is recommended.\n" +
                                                                "Aggressive follows closer, with firmer gas and braking.\n" +
-                                                               "Relaxed leaves more space.\n" +
+                                                               "Relaxed follows at the same distance as Standard, with gentler acceleration.\n" +
                                                                "Use the steering wheel distance button on supported cars.")
     self._initial_cruise_speed = InitialCruiseSpeedButton()
     self._initial_cruise_speed.set_visible(lambda: ui_state.CP is not None and ui_state.has_longitudinal_control and not ui_state.CP.pcmCruise)
     self._curve_speed_toggle = BigParamControl("curve speed control", "CurveSpeedControl")
     # FM Pilot: AP's Acceleration Control is one option of the Accel Boost picker (FM_AccelBoostMode, fm_accel_boost_mode.py)
-    self._accel_boost_picker = BigMultiParamToggle("accel boost", "FM_AccelBoostMode", list(ACCEL_BOOST_OPTIONS),
-                                                   description="One boost on top of the model's acceleration, or off.\n" +
-                                                               "Details in sunnylink: Cruise > Accel Boost.")
+    self._accel_boost_picker = FmAccelBoostPicker("accel boost", "FM_AccelBoostMode", [o for o, _ in ACCEL_BOOST_OPTIONS],
+                                                  values=[v for _, v in ACCEL_BOOST_OPTIONS],
+                                                  description="One boost on top of the model's acceleration, or off.\n" +
+                                                              "Details in sunnylink: Cruise > Accel Boost.")
     is_metric_toggle = BigToggle("use metric units", initial_state=ui_state.params.get_bool("IsMetric"), toggle_callback=self._on_metric_toggle)
     ldw_toggle = BigParamControl("lane departure warnings", "IsLdwEnabled",
                                  description="Warn when you drift across a detected lane line.\n" +
