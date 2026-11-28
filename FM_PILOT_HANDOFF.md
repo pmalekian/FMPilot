@@ -14,6 +14,17 @@ than 19.9), opendbc #4102 heartbeat reset on every engagement (panda safety: Fra
 (FM has its own debounced version), comma four UI and test changes. Crumbly Cheddar became openpilot's default model
 (#39451). Next check starts from openpilot `e7d349f8` and commaai/opendbc `66b40028`.
 
+**Correction (Nov 28):** FM gets openpilot only through sunnypilot, and the base's sunnypilot `c410198c` had last synced
+openpilot around Oct 17 (AGNOS 19.9, tinygrad `92b742f`). So the Nov 27 check (from openpilot Nov 24) missed ~5 weeks
+of openpilot: AGNOS 20.1-20.6, DM model Super Leicht 2, tinygrad/modeld updates, low-speed curvature thresholds #39182,
+planner processingDelay fix #39210, radard/plannerd off the UI core #39432, soundd driver-critical sound, comma's first
+model-lead MPC try #37824 and its revert #39433. sunnypilot master synced openpilot through `c65119ce` (Nov 26) on
+Nov 27 (#2094, `efad504`; AGNOS 20.6, tinygrad `3589d75`), plus modeld_v2 custom model handling #2097 and tinygrad
+emulator support #2096. Since Nov 27 openpilot master added only #39445 (MPC uses the model's lead prediction, the
+reworked second try) and a CI script #39492; opendbc nothing; nightly `b3b11cb1` (Nov 28) predates #39445.
+Proposed next: sync sunnypilot master into `fm-dev-sync` (overlaps PRs #30/#31: same upstream code), then an OP MPC
+picker (Default MPC / OP MPC, #39445) on top. Waiting on Frankie.
+
 ## Setup
 
 - **Truck:** 2022 Rivian R1S Launch Edition (Gen 1), comma 4, torque harness.
