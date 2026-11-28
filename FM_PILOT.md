@@ -8,7 +8,8 @@ Rivian R1S Launch Edition (Gen 1) with a comma 4 on the torque harness. Every FM
 - **Base:** AdventurePilot `dev-next-src` `cf3ad0ec` (the torque line: `steerControlType = torque`; the `-a` branches
   are the angle line) merged with sunnypilot master `c410198c` (Nov 24, 2026). opendbc stays copied in the repo
   (`opendbc_repo/`) as AdventurePilot does: re-synced to sunnypilot's opendbc pin `3db0b06` with AP's Rivian changes
-  kept. Everything AdventurePilot and sunnypilot do is kept; FM Pilot adds the features below.
+  kept. Everything AdventurePilot and sunnypilot do is kept; FM Pilot adds the features below. Picked from commaai/opendbc
+  since: Rivian counters count 0 to 14 in the packer and parser (#4077).
 - **Install:** `pmalekian/fm-dev-sync` (comma's installer takes GitHub owner/branch). Switch branches from the device's
   Software settings; uninstalling wipes settings. The older branches (`fm-dev-nav-settle`, `fm-dev-max`, ...) stay as
   fallbacks.
@@ -140,6 +141,8 @@ in Sunnylink Device (and on the device under Models): `JetlinkLink`, offroad.
 - **Max Torque**: the higher low-speed limit's panda envelope shape and the high curve's shape come from AdventurePilot
   `5270cbba` (Uncle-Tony, May 16, 2026, MIT; 481 there, backed off upstream in `5c5a1c98`), the fixed 481 replaced by the
   setting. Headroom, the slider, the faster ramp and full cap past 90° are FM Pilot's own.
+- **Rivian counters 0 to 14** (packer and parser): commaai/opendbc #4077 (`f530a19e`, Nov 22, 2026, Adeeb Shihadeh, MIT),
+  applied to the copy in `opendbc_repo/`; the test of FM's own Rivian messages is FM Pilot's.
 - **Near-zero curvature crash fix** and **Rivian steerLimitTimer 0.8**: EVPilot `a0500916` (Nov 2, 2026) and the
   `steerLimitTimer` line of `9214103e` (Oct 28, 2026), Gerry / gerrylum (MIT); the fix applied to AP's off-tracking
   here, the tests are FM Pilot's.

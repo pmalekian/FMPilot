@@ -1,7 +1,7 @@
 import re
 import os
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cache
 
 from opendbc import DBC_PATH, get_generated_dbcs
@@ -58,6 +58,10 @@ class Signal:
   type: int = SignalType.DEFAULT
   calc_checksum: 'Callable[[int, Signal, bytearray], int] | None' = None
   checksum_fields: tuple['Signal', ...] = ()
+  max_counter: int = field(init=False)  # a counter's last value before it wraps to 0
+
+  def __post_init__(self):
+    self.max_counter = (1 << self.size) - 1
 
   def get_raw_value(self, dat: bytes | bytearray) -> int:
     ret = 0
@@ -202,6 +206,12 @@ def tesla_setup_signal(sig: Signal, dbc_name: str, line_num: int) -> None:
     sig.calc_checksum = tesla_checksum
 
 
+def rivian_setup_signal(sig: Signal, dbc_name: str, line_num: int) -> None:
+  if sig.name.endswith("Counter"):
+    sig.type = SignalType.COUNTER
+    sig.max_counter = 14  # 0 to 14, despite the 4-bit field
+
+
 def ford_setup_signal(sig: Signal, dbc_name: str, line_num: int) -> None:
   if sig.name in ("VehVActlBrk_No_Cnt", "VehVActlEng_No_Cnt", "VehRollYaw_No_Cnt"):
     sig.type = SignalType.COUNTER
@@ -252,7 +262,7 @@ def get_checksum_state(dbc_name: str) -> ChecksumState | None:
   elif dbc_name == "mg":
     return ChecksumState(SignalType.MG_CHECKSUM, mg_checksum, checksum_pattern=r"Chksm|^ChLKARespToqPVHSC2$")
   elif dbc_name == "rivian_primary_actuator":
-    return ChecksumState(SignalType.RIVIAN_CHECKSUM, rivian_checksum, checksum_pattern=r"_Checksum$")
+    return ChecksumState(SignalType.RIVIAN_CHECKSUM, rivian_checksum, rivian_setup_signal, checksum_pattern=r"_Checksum$")
   return None
 
 
