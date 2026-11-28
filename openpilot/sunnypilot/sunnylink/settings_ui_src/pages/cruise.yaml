@@ -19,8 +19,8 @@ sections:
     widget: multiple_button
     title: Driving Personality
     description: Standard is recommended. In aggressive mode, sunnypilot will follow lead cars closer and be more aggressive
-      with the gas and brake. In relaxed mode sunnypilot will stay further away from lead cars. On supported cars, you can
-      cycle through these personalities with your steering wheel distance button.
+      with the gas and brake. Relaxed follows at the same distance as Standard, with gentler acceleration. On supported
+      cars, you can cycle through these personalities with your steering wheel distance button.
     options:
     - value: 0
       label: Aggressive
@@ -37,8 +37,9 @@ sections:
       0.25 / 0.1 m/s² for aggressive / standard / relaxed; fades in tight curves and when the model slows or stops
       (sunnypilot). EVP Set Speed: above 20 mph, helps the car reach your set speed when only the model holds it back,
       up to +0.7 / 0.5 / 0.3 m/s²; shrinks as the model slows or the road turns (EVPilot). AP Accel Control: +0.3 / 0.2 /
-      0.1 m/s² on any model request above 0.1 m/s², from 10 mph, full by 20 mph (AdventurePilot). OP Personality: +0.15 /
-      0.05 / 0 m/s², faded below 22 mph and when the model brakes (openpilot). The boosts lift only the model''s target:
+      0.1 m/s² on any model request above 0.1 m/s², from 10 mph, full by 20 mph (AdventurePilot). OP Personality: +0.3 /
+      0.15 / 0 m/s² plus 20 / 10 / 0% of the model''s acceleration, only while the model plans to keep speeding up; drops
+      at once when it plans to slow (openpilot). The boosts lift only the model''s target:
       the lead and the set speed still limit it. sunnypilot''s Acceleration Boost and AP''s Acceleration Control toggles
       are these options now.'
     options:
@@ -54,6 +55,20 @@ sections:
       label: OP Personality
     enablement:
     - $ref: '#/macros/longitudinal'
+  - key: FM_OpBoostCurveHold
+    widget: toggle
+    title: Hold Boost in Curves
+    description: 'OP Personality only. On (the default, as openpilot): no boost while openpilot''s curve check sees the
+      plan reach 2.8 m/s² of lateral acceleration within 6 s; it comes back over about a second after the curve. Off:
+      the boost also runs in curves. This only changes when the boost runs; curve slowing stays with Smart Cruise
+      Control.'
+    enablement:
+    - $ref: '#/macros/longitudinal'
+    visibility:
+    - type: param_compare
+      key: FM_AccelBoostMode
+      op: '>='
+      value: 5  # OP Personality, the highest mode
   - key: FM_AccelBoostIndicator
     widget: toggle
     title: Show Accel Boost On Screen

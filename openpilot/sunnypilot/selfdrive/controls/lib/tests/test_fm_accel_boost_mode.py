@@ -19,9 +19,11 @@ from openpilot.sunnypilot.selfdrive.controls.lib.accel_boost import AccelBoostSP
 from openpilot.sunnypilot.selfdrive.controls.lib.acceleration_control import AccelerationControl, ACCELERATION_CONTROL_BOOST
 from openpilot.sunnypilot.selfdrive.controls.lib.fm_accel_boost_mode import (
   DEFAULT_MODE, MODES, MODE_AP_ACCEL_CONTROL, MODE_EVP_SET_SPEED, MODE_OFF, MODE_OP_PERSONALITY, MODE_SUNNY, PARAM_MODE,
-  READ_FRAMES, REMOVED_MODES, FmAccelBoostMode, boost_max, parse_mode,
+  PARAM_CURVE_HOLD, READ_FRAMES, REMOVED_MODES, FmAccelBoostMode, OP_BAR_MODEL_ACCEL, boost_max, parse_mode,
 )
-from openpilot.sunnypilot.selfdrive.controls.lib.fm_op_personality_boost import ACCEL_BOOST as OP_MAX
+from openpilot.common.realtime import DT_MDL
+from openpilot.selfdrive.controls.lib.accel_boost import AccelBoost as OpAccelBoost, get_accel_boost
+from openpilot.selfdrive.controls.lib.curve_speed import CurveSpeed
 from openpilot.sunnypilot.selfdrive.controls.lib.set_speed_assist import MAX_BOOST as EVP_MAX
 
 P = log.LongitudinalPersonality
@@ -40,17 +42,29 @@ class FakeParams:
     self.values = {} if mode is None else {PARAM_MODE: mode}
 
   def get(self, key, return_default=False):
-    return self.values.get(key, DEFAULT_MODE if return_default else None)
+    default = {PARAM_MODE: DEFAULT_MODE, PARAM_CURVE_HOLD: True}[key] if return_default else None
+    return self.values.get(key, default)
 
 
 def make_sm(enabled=True, gas_pressed=False, mph=30, brake=0.0, gas=0.0, should_stop=False, curvature=0.0,
-            personality=P.aggressive, probs=6, a_ego=0.0, lead=False, desired_accel=0.5):
+            personality=P.aggressive, probs=6, a_ego=0.0, lead=False, desired_accel=0.5, plan_ahead=2.0, plan_lat_accel=0.0,
+            roll=0.0):
+  # plan_ahead: m/s the model's 10 s plan averages above the current speed (OP Personality's gate: full from 1.0)
+  # plan_lat_accel: lateral accel (m/s^2) the plan reaches 2 s ahead (openpilot's CurveSpeed: a curve from 2.8)
+  v = mph * CV.MPH_TO_MS
+  plan_v = max(v, 1.0) + plan_ahead
+  position = SimpleNamespace(x=[0.0, plan_v * 2.0, plan_v * 10.0], t=[0.0, 2.0, 10.0])
+  velocity = SimpleNamespace(x=[v, v, v])
+  orientation_rate = SimpleNamespace(z=[0.0, plan_lat_accel / max(v, 0.1), 0.0])
   meta = SimpleNamespace(disengagePredictions=SimpleNamespace(brakePressProbs=[brake] * probs, gasPressProbs=[gas] * probs))
   return {
     'selfdriveState': SimpleNamespace(enabled=enabled, personality=Personality(personality)),
     'carState': SimpleNamespace(gasPressed=gas_pressed, vEgo=mph * CV.MPH_TO_MS, aEgo=a_ego),
-    'modelV2': SimpleNamespace(meta=meta, action=SimpleNamespace(shouldStop=should_stop, desiredCurvature=curvature,
-                                                                 desiredAcceleration=desired_accel)),
+    'vehicleParameters': SimpleNamespace(roll=roll),
+    'modelV2': SimpleNamespace(meta=meta, position=position, velocity=velocity, orientationRate=orientation_rate,
+                               action=SimpleNamespace(shouldStop=should_stop,
+                                                                                    desiredCurvature=curvature,
+                                                                                    desiredAcceleration=desired_accel)),
     'radarState': SimpleNamespace(leadOne=SimpleNamespace(present=lead)),
   }
 
@@ -169,8 +183,96 @@ class TestEachModesAmount:
   @pytest.mark.parametrize("personality", [P.aggressive, P.standard, P.relaxed])
   def test_op_personality(self, personality):
     boost = picker(MODE_OP_PERSONALITY)
-    assert run(boost, 1, mph=30, personality=personality) == pytest.approx(0.5 + OP_MAX[personality])
-    assert boost.applied == pytest.approx(OP_MAX[personality])
+    bias, gain = get_accel_boost(personality)
+    # openpilot #39248: bias (back over ~1 s) plus gain x the model's request, on a clear road
+    assert run(boost, 400, mph=30, personality=personality) == pytest.approx(0.5 + bias + gain * 0.5, abs=1e-4)
+    assert boost.applied == pytest.approx(bias + gain * 0.5, abs=1e-4)
+
+  def test_op_personality_is_openpilots_class(self):
+    boost, upstream = picker(MODE_OP_PERSONALITY), OpAccelBoost()
+    rng = random.Random(0)
+    for _ in range(600):
+      sm = make_sm(mph=rng.uniform(0, 60), plan_ahead=rng.uniform(-2, 3), personality=rng.choice((P.aggressive, P.standard, P.relaxed)))
+      e2e = rng.uniform(-1.5, 1.5)
+      assert boost.update(sm, e2e, 1.5, 1.5) == upstream.update(sm, e2e, 0.0)
+
+  def test_op_personality_holds_off_when_the_plan_slows(self):
+    boost = picker(MODE_OP_PERSONALITY)
+    run(boost, 400, personality=P.aggressive)
+    assert boost.applied > 0.3
+    assert run(boost, 30, personality=P.aggressive, plan_ahead=-1.0) == pytest.approx(0.5)  # bias drops at once, no gain
+
+  def test_op_personality_holds_off_in_curves_by_default(self):
+    boost = picker(MODE_OP_PERSONALITY)  # FM_OpBoostCurveHold unset: on
+    assert boost.hold_in_curves
+    run(boost, 400, personality=P.aggressive)
+    assert boost.applied > 0.3
+    # a 3 m/s^2 curve 2 s ahead: openpilot's CurveSpeed slows for it, so the boost stops at once (bias and gain)
+    assert run(boost, 1, personality=P.aggressive, plan_lat_accel=3.0) == 0.5
+    assert boost.op_personality.curve_offset < 0.0
+    assert run(boost, 100, personality=P.aggressive, plan_lat_accel=3.0) == 0.5
+    # past the curve the offset ramps back to 0 (0.5 m/s^3), then the boost returns over about 1 s
+    run(boost, 60, personality=P.aggressive)
+    assert boost.op_personality.curve_offset == 0.0
+    assert run(boost, 200, personality=P.aggressive) > 0.8
+
+  def test_op_personality_curves_below_openpilots_limit_keep_the_boost(self):
+    boost = picker(MODE_OP_PERSONALITY)
+    assert run(boost, 400, personality=P.aggressive, plan_lat_accel=2.7) > 0.8  # under CurveSpeed's 2.8 m/s^2
+
+  def test_op_personality_roll_counts_as_openpilot(self):
+    boost = picker(MODE_OP_PERSONALITY)
+    # 2.0 m/s^2 from the turn plus the road's bank (lat accel = v * yaw - g * roll): over 2.8 with roll -0.1
+    run(boost, 400, personality=P.aggressive)
+    assert run(boost, 1, personality=P.aggressive, plan_lat_accel=2.0, roll=-0.1) == 0.5
+
+  def test_op_personality_curve_hold_off_boosts_in_curves(self):
+    params = FakeParams(MODE_OP_PERSONALITY)
+    params.values[PARAM_CURVE_HOLD] = False
+    boost = FmAccelBoostMode(CP, params)
+    assert not boost.hold_in_curves
+    assert run(boost, 400, personality=P.aggressive, plan_lat_accel=3.0) > 0.8
+    assert boost.op_personality.curve_offset < 0.0  # openpilot would be slowing; the boost runs anyway
+
+  def test_curve_hold_is_read_every_params_period(self):
+    params = FakeParams(MODE_OP_PERSONALITY)
+    boost = FmAccelBoostMode(CP, params)
+    params.values[PARAM_CURVE_HOLD] = False
+    run(boost, READ_FRAMES)
+    assert not boost.hold_in_curves
+
+  @pytest.mark.parametrize("seed", range(3))
+  def test_op_personality_is_openpilots_planner_step(self, seed):
+    """Same numbers as openpilot's planner: CurveSpeed on the plan and roll, then AccelBoost with that offset."""
+    boost, op_boost, op_curve = picker(MODE_OP_PERSONALITY), OpAccelBoost(), CurveSpeed(DT_MDL)
+    rng = random.Random(seed)
+    lat = 0.0
+    for frame in range(1500):
+      if frame % 40 == 0:
+        lat = rng.choice((0.0, 1.0, 2.5, 3.2, -3.5))
+      sm = make_sm(mph=rng.uniform(5, 60), plan_ahead=rng.uniform(-2, 3), plan_lat_accel=lat, roll=rng.uniform(-0.05, 0.05),
+                   personality=rng.choice((P.aggressive, P.standard, P.relaxed)))
+      e2e = rng.uniform(-1.5, 1.5)
+      expected = op_boost.update(sm, e2e, op_curve.update(sm['modelV2'], sm['vehicleParameters'].roll))
+      assert boost.update(sm, e2e, 1.5, 1.5) == expected
+
+  def test_planner_reset_resets_op_personality(self):
+    boost = picker(MODE_OP_PERSONALITY)
+    run(boost, 400, personality=P.aggressive, plan_lat_accel=3.0)
+    boost.planner_reset()
+    assert boost.op_personality.op.bias_filter.x == 0.0 and boost.op_personality.curve_offset == 0.0
+    assert boost.op_personality.curve_speed.accel_offset == 0.0
+
+  def test_op_personality_plan_without_times_adds_nothing(self):
+    boost = picker(MODE_OP_PERSONALITY)
+    run(boost, 400, personality=P.aggressive)
+    sm = make_sm(personality=P.aggressive)
+    sm['modelV2'].position = SimpleNamespace(x=[0.0, 300.0], t=[])  # e.g. the longitudinal maneuver plant's model
+    assert boost.update(sm, 0.5, 1.5, 1.5) == 0.5
+    assert boost.op_personality.op.bias_filter.x == 0.0  # starts over
+
+  def test_op_personality_unknown_personality_adds_nothing(self):
+    assert run(picker(MODE_OP_PERSONALITY), 50, personality=9) == 0.5
 
   @pytest.mark.parametrize("mode", MODES)
   def test_applied_is_what_was_added(self, mode):
@@ -190,7 +292,8 @@ class TestEachModesAmount:
       assert boost_max(MODE_SUNNY, personality) == SUNNY_MAX[idx]
       assert boost_max(MODE_EVP_SET_SPEED, personality) == EVP_MAX[idx]
       assert boost_max(MODE_AP_ACCEL_CONTROL, personality) == ACCELERATION_CONTROL_BOOST[personality]
-      assert boost_max(MODE_OP_PERSONALITY, personality) == OP_MAX[personality]
+      bias, gain = get_accel_boost(personality)
+      assert boost_max(MODE_OP_PERSONALITY, personality) == bias + gain * OP_BAR_MODEL_ACCEL
     assert boost_max(MODE_AP_ACCEL_CONTROL, SimpleNamespace(raw=P.relaxed)) == 0.1  # a capnp enum
 
 
@@ -201,7 +304,7 @@ class TestOneAtATime:
       run(boost, 10, mph=40)
       run(boost, 2000, gas_pressed=True, mph=40)  # every boost would want to add something here
       others = {MODE_SUNNY: boost.sunny.total_boost, MODE_EVP_SET_SPEED: boost.set_speed.total_boost,
-                MODE_AP_ACCEL_CONTROL: boost.ap_accel_control.boost, MODE_OP_PERSONALITY: boost.op_personality.total_boost}
+                MODE_AP_ACCEL_CONTROL: boost.ap_accel_control.boost, MODE_OP_PERSONALITY: boost.op_personality.op.bias_filter.x}
       assert all(v == 0.0 for m, v in others.items() if m != mode), (mode, others)
 
   def test_switching_mode_starts_clean(self):
