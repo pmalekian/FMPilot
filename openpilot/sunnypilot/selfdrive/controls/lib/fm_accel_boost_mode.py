@@ -27,12 +27,14 @@ so the Boost bar reads one field; the mode in use goes in fmPlan.accelBoostMode.
 from openpilot.cereal import log
 from openpilot.common.realtime import DT_MDL
 from openpilot.selfdrive.controls.lib.accel_boost import AccelBoost as OpAccelBoost, get_accel_boost
+from openpilot.selfdrive.controls.lib.curve_speed import CurveSpeed
 from openpilot.sunnypilot import PARAMS_UPDATE_PERIOD
 from openpilot.sunnypilot.selfdrive.controls.lib.accel_boost import AccelBoostSP, get_boost_max as get_sunny_max
 from openpilot.sunnypilot.selfdrive.controls.lib.acceleration_control import AccelerationControl, ACCELERATION_CONTROL_BOOST
 from openpilot.sunnypilot.selfdrive.controls.lib.set_speed_assist import SetSpeedAssist, get_max_boost as get_evp_max
 
 PARAM_MODE = "FM_AccelBoostMode"
+PARAM_CURVE_HOLD = "FM_OpBoostCurveHold"  # OP Personality: hold the boost off in curves, as openpilot (default on)
 MODE_OFF, MODE_SUNNY, MODE_EVP_SET_SPEED, MODE_AP_ACCEL_CONTROL, MODE_OP_PERSONALITY = 0, 2, 3, 4, 5
 REMOVED_MODES = (1,)  # 1 was Gas (Gas Override Boost); reads as Off
 MODES = (MODE_OFF, MODE_SUNNY, MODE_EVP_SET_SPEED, MODE_AP_ACCEL_CONTROL, MODE_OP_PERSONALITY)
@@ -61,22 +63,37 @@ def op_boost_max(personality) -> float:
 
 
 class OpPersonalityBoost:
-  """Mode 5: openpilot's AccelBoost (#39248) unchanged. Two FM inputs:
-  - curve_offset: openpilot passes its CurveSpeed offset and boosts only while it is 0. FM's planner has no CurveSpeed;
-    the closest thing is sunnypilot Smart Cruise Control's lateral load interlock (throttle_scale < 1 while steering
-    nears its limit), so that counts as slowing for a curve. With Curve Speed Control off it is always 1.
+  """Mode 5: openpilot's AccelBoost (#39248) unchanged, fed as openpilot's planner feeds it:
+  - curve_offset: openpilot's CurveSpeed (curve_speed.py, unchanged) on the model's plan and vehicleParameters.roll.
+    openpilot boosts only while that offset is 0. With Hold Boost in Curves on (FM_OpBoostCurveHold, the default) FM
+    does the same; off, the boost also runs in curves. FM never adds the offset to the target (sunnypilot's Smart Cruise
+    Control does FM's curve slowing), so this changes only when the boost runs.
+  - reset() whenever the planner resets its state (not engaged, or the driver controlling the speed), as openpilot.
   - personality: an unknown value would raise in openpilot's get_accel_boost; here the boost then adds nothing.
   - a plan without times (position.t empty or not matching position.x; real modelV2 always has both) would raise in
     openpilot's plan-ahead read (it checks only position.x); here it adds nothing and starts over."""
   def __init__(self):
     self.op = OpAccelBoost()
+    self.curve_speed = CurveSpeed(DT_MDL)
+    self.curve_offset = 0.0  # openpilot's CurveSpeed offset this frame (non-zero: openpilot is slowing for a curve)
 
-  def update(self, sm, output_a_target_e2e: float, throttle_scale: float = 1.0) -> float:
-    curve_offset = 0.0 if throttle_scale >= 1.0 else -1.0
-    pos = sm['modelV2'].position
+  def reset(self) -> None:
+    self.op.reset()
+    self.curve_speed.reset()
+    self.curve_offset = 0.0
+
+  def update(self, sm, output_a_target_e2e: float, hold_in_curves: bool = True) -> float:
+    model = sm['modelV2']
+    pos = model.position
     if len(pos.x) and (len(pos.t) != len(pos.x) or pos.t[-1] <= 0.0):
-      self.op.reset()
+      self.reset()
       return output_a_target_e2e
+    try:
+      roll = float(sm['vehicleParameters'].roll)
+    except (KeyError, AttributeError):
+      roll = 0.0
+    self.curve_offset = self.curve_speed.update(model, roll)
+    curve_offset = self.curve_offset if hold_in_curves else 0.0
     try:
       return float(self.op.update(sm, output_a_target_e2e, curve_offset))
     except NotImplementedError:
@@ -123,6 +140,7 @@ class FmAccelBoostMode:
     self.CP = CP
     self.frame = -1
     self.mode = None
+    self.hold_in_curves = True
     self.applied = 0.0  # what the boost added to the model's target this frame (longitudinalPlan.accelBoost)
     self._reset()
     self.read_params()
@@ -135,10 +153,17 @@ class FmAccelBoostMode:
     self.applied = 0.0
 
   def read_params(self) -> None:
+    hold = self.params.get(PARAM_CURVE_HOLD, return_default=True)
+    self.hold_in_curves = True if hold is None else bool(hold)
     mode = parse_mode(self.params.get(PARAM_MODE, return_default=True))
     if mode != self.mode:
       self.mode = mode
       self._reset()
+
+  def planner_reset(self) -> None:
+    """The planner reset its state (not engaged, or the driver controlling the speed). openpilot resets its AccelBoost
+    and CurveSpeed there; so does OP Personality. The other modes keep their own handling."""
+    self.op_personality.reset()
 
   @property
   def acceleration_control_boost(self) -> float:
@@ -159,6 +184,6 @@ class FmAccelBoostMode:
     elif self.mode == MODE_AP_ACCEL_CONTROL:
       out = self.ap_accel_control.update(sm, output_a_target_e2e, throttle_scale)
     elif self.mode == MODE_OP_PERSONALITY:
-      out = self.op_personality.update(sm, output_a_target_e2e, throttle_scale)
+      out = self.op_personality.update(sm, output_a_target_e2e, self.hold_in_curves)
     self.applied = float(out - output_a_target_e2e)
     return out

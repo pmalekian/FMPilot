@@ -1449,6 +1449,27 @@
               ]
             },
             {
+              "key": "FM_OpBoostCurveHold",
+              "widget": "toggle",
+              "title": "Hold Boost in Curves",
+              "description": "OP Personality only. On (the default, as openpilot): no boost while openpilot's curve check sees the plan reach 2.8 m/s\u00b2 of lateral acceleration within 6 s; it comes back over about a second after the curve. Off: the boost also runs in curves. This only changes when the boost runs; curve slowing stays with Smart Cruise Control.",
+              "visibility": [
+                {
+                  "type": "param_compare",
+                  "key": "FM_AccelBoostMode",
+                  "op": ">=",
+                  "value": 5
+                }
+              ],
+              "enablement": [
+                {
+                  "type": "capability",
+                  "field": "has_longitudinal_control",
+                  "equals": true
+                }
+              ]
+            },
+            {
               "key": "FM_AccelBoostIndicator",
               "widget": "toggle",
               "title": "Show Accel Boost On Screen",

@@ -55,6 +55,20 @@ sections:
       label: OP Personality
     enablement:
     - $ref: '#/macros/longitudinal'
+  - key: FM_OpBoostCurveHold
+    widget: toggle
+    title: Hold Boost in Curves
+    description: 'OP Personality only. On (the default, as openpilot): no boost while openpilot''s curve check sees the
+      plan reach 2.8 m/s² of lateral acceleration within 6 s; it comes back over about a second after the curve. Off:
+      the boost also runs in curves. This only changes when the boost runs; curve slowing stays with Smart Cruise
+      Control.'
+    enablement:
+    - $ref: '#/macros/longitudinal'
+    visibility:
+    - type: param_compare
+      key: FM_AccelBoostMode
+      op: '>='
+      value: 5  # OP Personality, the highest mode
   - key: FM_AccelBoostIndicator
     widget: toggle
     title: Show Accel Boost On Screen
