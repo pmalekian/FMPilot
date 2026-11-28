@@ -65,6 +65,13 @@ attention alerts take priority over FM readouts); Max Torque, Enhanced MADS and 
 values. Falling back to an older FM branch (e.g. `fm-dev-nav-settle`, which pins AGNOS 19.9) works the same way in reverse:
 `launch_chffrplus.sh` flashes whatever AGNOS the branch pins when `/VERSION` differs, so its first start goes back to 19.9.
 
+**First install on the truck (Nov 28 afternoon):** the 20.6 update went through, but the Wi-Fi screen then kept
+"searching" with no networks until a reboot. Cause (from the code; no device log checked): the UI's WifiManager
+connects to the system D-Bus once at start and, if that fails, never tries again (same in openpilot master
+`acedc29`). Fixed in `080aca6`: on a device it retries in the background and initializes once D-Bus answers. Workaround
+on older builds: reboot. The device's "Update available" alert always says "sunnypilot <version>": that word is
+hardcoded upstream (`mici/layouts/offroad_alerts.py`); the update is the installed branch's newer commit.
+
 ## Setup
 
 - **Truck:** 2022 Rivian R1S Launch Edition (Gen 1), comma 4, torque harness.
