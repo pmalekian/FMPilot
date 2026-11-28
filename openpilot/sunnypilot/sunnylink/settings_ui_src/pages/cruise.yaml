@@ -19,8 +19,8 @@ sections:
     widget: multiple_button
     title: Driving Personality
     description: Standard is recommended. In aggressive mode, sunnypilot will follow lead cars closer and be more aggressive
-      with the gas and brake. In relaxed mode sunnypilot will stay further away from lead cars. On supported cars, you can
-      cycle through these personalities with your steering wheel distance button.
+      with the gas and brake. Relaxed follows at the same distance as Standard, with gentler acceleration. On supported
+      cars, you can cycle through these personalities with your steering wheel distance button.
     options:
     - value: 0
       label: Aggressive

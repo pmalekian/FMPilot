@@ -166,7 +166,9 @@ in Sunnylink Device (and on the device under Models): `JetlinkLink`, offroad.
   `fm-dev-nav-settle` `ca08aac9`; **AP Accel Control** is AdventurePilot's Acceleration Control (AdventurePilotDev, MIT),
   AP's code in the base; **OP Personality** is openpilot #39248 (`8ca7fef6`, Nov 26, 2026, Jimmy / Quantizr, MIT),
   `selfdrive/controls/lib/accel_boost.py` copied unchanged (it replaced #39430 + #39440, Harald Schäfer, which FM ported
-  earlier; #39440's Relaxed follow-time change was never ported, so follow times stay 1.75 / 1.45 / 1.25 s).
+  earlier).
+- **Relaxed follow time 1.45 s** (Standard's; was 1.75 s): openpilot #39440 (`6daa874b`, Nov 23, 2026, Harald Schäfer, MIT),
+  `get_T_FOLLOW` in `long_mpc.py`, and comma's wording for the personality descriptions.
 - **Boost bar**: sunnypilot #2090 (rav4kumar and Jason Wen, MIT; not merged there), ported from `fm-dev-nav-settle`
   `ca08aac9`, now reading `longitudinalPlan.accelBoost` for all five modes.
 - **Lead confidence**: FrogPilot's "Lead Detection Sensitivity" (`LeadDetectionThreshold`), FrogAi, FrogPilot branch

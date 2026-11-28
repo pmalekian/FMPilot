@@ -1,8 +1,8 @@
 """FM Pilot: the settings that follow the driving personality keep working with every Accel Boost mode.
 
 The Accel Boost picker only lifts the model's (e2e) target. What changes with the personality elsewhere must not move:
-- the lead MPC's follow time (1.75 / 1.45 / 1.25 s relaxed / standard / aggressive; openpilot #39440's Relaxed 1.45 s is
-  not taken) and jerk factor,
+- the lead MPC's follow time (1.45 / 1.45 / 1.25 s relaxed / standard / aggressive, openpilot #39440: Relaxed follows at
+  Standard's distance, with gentler acceleration) and jerk factor,
 - AP's / sunnypilot's Following Time Offset (SPFollowingTimeOffset, % on that follow time),
 - the reduced stop distance and Link Stop Distance to Personality (SPStopDistance, SPStopDistancePersonality),
 - the steady-state following distance behind a lead in every personality, for every mode (full planner simulation, as
@@ -26,7 +26,7 @@ P = log.LongitudinalPersonality
 
 
 def test_follow_time_and_jerk_by_personality():
-  assert (get_T_FOLLOW(P.relaxed), get_T_FOLLOW(P.standard), get_T_FOLLOW(P.aggressive)) == (1.75, 1.45, 1.25)
+  assert (get_T_FOLLOW(P.relaxed), get_T_FOLLOW(P.standard), get_T_FOLLOW(P.aggressive)) == (1.45, 1.45, 1.25)
   assert (get_jerk_factor(P.relaxed), get_jerk_factor(P.standard), get_jerk_factor(P.aggressive)) == (1.0, 1.0, 0.5)
 
 
