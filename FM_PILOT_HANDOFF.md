@@ -6,6 +6,14 @@ State as of Nov 25, 2026: **`fm-dev-sync` plan PRs 1-18 are all merged and the M
 and drive analysis, the old handoff word for word) is in `FM_PILOT_FINDINGS.md`: read it only when a task needs it.
 Features, settings and credits: `FM_PILOT.md`. Log tools: `tools/fm/README.md`.
 
+**Nov 27, 2026 upstream check** (openpilot master `05c5c54f` Nov 24 -> `e7d349f8`; nightly = v0.11.3 `0ee1c770`, master as
+of Nov 26 `c65119ce`; sunnypilot master only bumped opendbc since `c410198c`). Taken as PRs #29-#32 (below; opened, not
+merged by Claude: Frankie merges, #29 before #30). Not taken: tinygrad bump #39484 (new modeld/tinygrad API and
+re-exported models: wait for sunnypilot), device-permission removal #39485 and the rest of #39481 (need AGNOS newer
+than 19.9), opendbc #4102 heartbeat reset on every engagement (panda safety: Frankie's call), opendbc #4045 `ToiFlt`
+(FM has its own debounced version), comma four UI and test changes. Crumbly Cheddar became openpilot's default model
+(#39451). Next check starts from openpilot `e7d349f8` and commaai/opendbc `66b40028`.
+
 ## Setup
 
 - **Truck:** 2022 Rivian R1S Launch Edition (Gen 1), comma 4, torque harness.
@@ -20,7 +28,8 @@ Features, settings and credits: `FM_PILOT.md`. Log tools: `tools/fm/README.md`.
   **PR 4 (torque) gets an independent fresh-Opus code review before merge.**
 - **Opening and merging PRs:** the GitHub connector's `create_pull_request` returns 403 for this repo; use the shell:
   `gh api repos/pmalekian/FMPilot/pulls -f title=... -f head=<branch> -f base=fm-dev-sync -F body=@<file>`, merge with
-  `gh api -X PUT repos/pmalekian/FMPilot/pulls/<n>/merge -f merge_method=merge -f sha=<head sha>`.
+  `gh api -X PUT repos/pmalekian/FMPilot/pulls/<n>/merge -f merge_method=merge -f sha=<head sha>`. On Nov 27 the session's
+  permission check refused Claude's merge call, so PRs #29-#33 were left open for Frankie to merge.
 - **Commits:** author `Frankie Malekian <107580415+pmalekian@users.noreply.github.com>`, message starts "FM Pilot", one
   logical change each, borrowed code credited in the message, the source file and `FM_PILOT.md`. Push with
   `--no-verify` and `-c push.negotiate=true`.
@@ -86,6 +95,10 @@ ruff check .
 | Turn exit fixes | merged, PR #26 (`2aa8757`): Hold Adds Your Steering stops latching new driver input at 45° turned (pre-45° additions stay frozen in peak until normal exit) and driver pressure into the turn no longer blocks model-exit fade or release past 45°; Turn Hold ends its floor with a 0.5 s fade (and does not restart for the turn) once `fmModel` shows Settle After Turn / Early Right Push active for the current turn (audit M-3) |
 | Lane keeping waits for the turn carry | merged, PR #27 (`8eb0613`): while Finish Turn After Signal Cancels carries a turn (`fmControls.turnAssist.source == carry`), Blendful (small and Jetlink big models, `modeld_v2/modeld.py`), AP Lane Centering (`controlsd.py`) and Lane Guard (`fm_lateral.py`) add no steering and resume normally as after a blinker turn once the carry ends; Settle After Turn carry handling unchanged (audit M-2) |
 | Turn exit and carry follow-ups | merged, PR #28 (`a438c61`): 45° crossing stays remembered for the rest of a turn (`fm_turn_assist.py`, M-4); leftover Blendful / AP Lane Centering / Lane Guard correction fades to zero over ~0.2 s on carry start and stays zero for the rest of the carry while keeping Lane Guard's 1 s cooldown armed (M-2); Blendful waits for a fresh post-clear `fmControls` status and resumes on the first fresh not-carrying status (`BlendfulCarryGate`, M-3); disabling the last Turn Assist feature clears published carry/turn state (M-3); `FmLateral` shares one settings snapshot between carry prediction and Turn Assist (L-1); Sunnylink 45° Turn Hold descriptions updated + recompiled (L-2); Headroom override limit test polls after headroom settles (L-3). NNLC M-1 skipped by choice |
+| Remove Gas Accel Boost | open, PR #29: mode 1 and `selfdrive/controls/lib/accel_boost.py` (Gas Override Boost) removed; numbers kept (0, 2-5), a stored 1 reads and shows as Off; comma 4 button `FmAccelBoostPicker` stores mode numbers |
+| OP Personality from openpilot #39248 | open, PR #30 (stacked on #29): mode 5 runs openpilot's `AccelBoost` unchanged at `selfdrive/controls/lib/accel_boost.py` (+0.3 / 0.15 / 0 bias plus 20 / 10 / 0 % gain, only while the plan runs ahead); Curve Speed Control's lateral interlock stands in for openpilot's CurveSpeed; `test_fm_personality_settings.py` covers follow time, Following Time Offset, stop distance + personality link and following distance for every mode |
+| Rivian counters 0-14 | open, PR #31: commaai/opendbc #4077 in `opendbc_repo/` (packer and parser; openpilot now checks Rivian counters like the panda) |
+| hardwared NetworkMetered on change | open, PR #32: openpilot #39481's hardwared lines |
 
 ## Reference (unchanged from before)
 
