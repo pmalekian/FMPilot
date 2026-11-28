@@ -1,0 +1,44 @@
+name: FM Pilot Nov 28 sync validation
+on:
+  push:
+    branches: [fm-sync/validation-sunnypilot-nov28]
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    env:
+      CI: "1"
+      SCALE: "1"
+      OPENBLAS_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ba094159d597c29699a47dc06ca2336a11e3d619
+          persist-credentials: false
+      - name: Set up exact sync revision and models
+        run: |
+          test "$(git rev-parse HEAD)" = ba094159d597c29699a47dc06ca2336a11e3d619
+          ./tools/op.sh setup
+          echo "PYTHONPATH=$PWD:$PWD/opendbc_repo:$PWD/msgq_repo:$PWD/rednose_repo:$PWD/tinygrad_repo:$PWD/teleoprtc_repo:$PWD/panda:$PWD/jetlink_repo" >> "$GITHUB_ENV"
+          "$HOME/.local/bin/uv" pip install --python .venv/bin/python pytest pytest-timeout
+      - name: Full SCons build
+        run: scons -j"$(nproc)" -k
+      - name: Sunnylink recompilation and validation
+        run: |
+          python openpilot/sunnypilot/sunnylink/tools/compile_settings_ui.py --out "$RUNNER_TEMP/settings_ui.json"
+          cmp "$RUNNER_TEMP/settings_ui.json" openpilot/sunnypilot/sunnylink/settings_ui.json
+          python openpilot/sunnypilot/sunnylink/tools/validate_settings_ui.py "$RUNNER_TEMP/settings_ui.json"
+      - name: Rivian panda safety and global safety invariants
+        run: python -m pytest -q --timeout=120 opendbc_repo/opendbc/safety/tests/test_rivian.py opendbc_repo/opendbc/safety/tests/test_globals.py
+      - name: Handoff suites and FM tools
+        run: |
+          python -m pytest -q --timeout=120 openpilot/sunnypilot openpilot/selfdrive/controls openpilot/selfdrive/ui/sunnypilot openpilot/system/hardware/tests openpilot/system/manager opendbc_repo/opendbc/car/rivian opendbc_repo/opendbc/sunnypilot/car/rivian
+          (cd tools/fm && python -m pytest -q tests)
+      - name: Driver monitoring, UI imports and WebRTC
+        run: python -m pytest -q --timeout=120 openpilot/selfdrive/monitoring/test_monitoring.py openpilot/selfdrive/ui/tests/test_ui_imports.py openpilot/system/webrtc/tests
+      - name: Ruff on repository-owned files including vendored opendbc
+        run: git ls-files -z -- '*.py' | xargs -0 ruff check --force-exclude
+      - name: Ruff on full checkout including pinned dependencies
+        run: ruff check . --output-format concise
