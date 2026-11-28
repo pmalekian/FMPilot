@@ -1,0 +1,59 @@
+name: FM Pilot Nov 28 suite diagnostics
+on:
+  push:
+    branches: [fm-sync/validation-suite-diagnostics-nov28]
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    env:
+      CI: "1"
+      SCALE: "1"
+      OPENBLAS_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ba094159d597c29699a47dc06ca2336a11e3d619
+          persist-credentials: false
+      - name: Set up exact sync revision and models
+        run: |
+          test "$(git rev-parse HEAD)" = ba094159d597c29699a47dc06ca2336a11e3d619
+          ./tools/op.sh setup
+          echo "PYTHONPATH=$PWD:$PWD/opendbc_repo:$PWD/msgq_repo:$PWD/rednose_repo:$PWD/tinygrad_repo:$PWD/teleoprtc_repo:$PWD/panda:$PWD/jetlink_repo" >> "$GITHUB_ENV"
+          "$HOME/.local/bin/uv" pip install --python .venv/bin/python pytest pytest-timeout
+      - name: Full SCons build
+        run: scons -j"$(nproc)" -k
+      - name: Inspect free space and test tools
+        run: |
+          df -h / /tmp /dev/shm
+          python --version
+          python -m pytest --version
+      - name: UI, system and vendored Rivian car code
+        if: "!cancelled()"
+        timeout-minutes: 10
+        run: python -m pytest -v --tb=short --timeout=120 -o faulthandler_timeout=60 openpilot/selfdrive/ui/sunnypilot openpilot/system/hardware/tests openpilot/system/manager opendbc_repo/opendbc/car/rivian opendbc_repo/opendbc/sunnypilot/car/rivian
+      - name: Core controls
+        if: "!cancelled()"
+        timeout-minutes: 10
+        run: python -m pytest -v --tb=short --timeout=120 -o faulthandler_timeout=60 openpilot/selfdrive/controls
+      - name: Model and Jetlink
+        if: "!cancelled()"
+        timeout-minutes: 10
+        run: python -m pytest -v --tb=short --timeout=120 -o faulthandler_timeout=60 openpilot/sunnypilot/modeld_v2 openpilot/sunnypilot/models openpilot/sunnypilot/jetlink_adapter
+      - name: Sunny controls
+        if: "!cancelled()"
+        timeout-minutes: 10
+        run: python -m pytest -v --tb=short --timeout=120 -o faulthandler_timeout=60 openpilot/sunnypilot/selfdrive
+      - name: Other sunnypilot suites
+        if: "!cancelled()"
+        timeout-minutes: 10
+        run: python -m pytest -v --tb=short --timeout=120 -o faulthandler_timeout=60 openpilot/sunnypilot --ignore=openpilot/sunnypilot/selfdrive --ignore=openpilot/sunnypilot/models --ignore=openpilot/sunnypilot/modeld_v2 --ignore=openpilot/sunnypilot/jetlink_adapter
+      - name: Driver monitoring and UI
+        if: "!cancelled()"
+        timeout-minutes: 10
+        run: python -m pytest -v --tb=short --timeout=120 -o faulthandler_timeout=60 openpilot/selfdrive/monitoring/test_monitoring.py openpilot/selfdrive/ui/tests/test_ui_imports.py openpilot/system/webrtc/tests
+      - name: FM tools
+        if: "!cancelled()"
+        run: cd tools/fm && python -m pytest -v --timeout=120 tests
