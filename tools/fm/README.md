@@ -12,6 +12,17 @@ pip install numpy pycapnp zstandard onnx onnxruntime pytest
 ```
 Run from this folder (`cd tools/fm`); the scripts import the fork's own `cereal` from the repo, so no openpilot build is needed.
 
+### Full local workspace (WSL2)
+
+For builds, the full test suite, pulling logs with `ssh comma` and GPU work, set up WSL2 Ubuntu 24.04 once
+(`wsl --install -d Ubuntu-24.04` in an admin PowerShell), then at the Ubuntu prompt:
+```
+curl -fsSL https://raw.githubusercontent.com/pmalekian/fmpilot/fm-dev-sync/tools/fm/wsl_setup.sh | bash
+```
+It installs the packages, clones to `~/fmpilot` with submodules and LFS files, sets up the uv venv, builds, runs
+these tools' tests, adds an `ssh comma` alias using your Windows SSH key, and installs Claude Code (which follows the
+repo's `CLAUDE.md`). Safe to re-run. Log in `~/fm_setup.log`.
+
 ### Two log layouts
 
 From `fm-dev-sync` on, FM's log data is in FM's own messages (`fmControls`, `fmModel`, `fmPlan`, `fmCarState`,

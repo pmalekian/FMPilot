@@ -158,6 +158,10 @@ display); use `-p no:xdist`.
 
 - **Frankie's side:** Windows PowerShell. Comma at `192.168.1.246`, user `comma`. Always `scp -O`. Say which prompt each
   command runs at (`PS C:\...>` or after `ssh comma@192.168.1.246`). He mostly talks from the Claude app on his phone.
+- **Local workspace (Nov 28):** WSL2 Ubuntu 24.04 on his desktop PC (RTX 3080 Ti), set up by `tools/fm/wsl_setup.sh`
+  (clone at `~/fmpilot`, `ssh comma` alias, Claude Code). Local Claude Code sessions follow the repo's `CLAUDE.md`
+  (mirrors the Project rules; keep the two in step) and can be driven from his phone with `claude --remote-control`.
+  Use it for builds, full test runs, pulling rlogs straight from the comma and GPU model comparisons.
 - **His settings and usage:** never inferred from this file; he has driven all FM features. The migration copies what
   is set on the device.
 - **Logs:** one-minute segments, `<route>--<n>/rlog.zst`. Model name only logged in `--0`. `tools/fm` joins segments.
